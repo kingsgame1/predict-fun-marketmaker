@@ -151,6 +151,7 @@ export interface Config {
   mmLayerRetreatForceSingle?: boolean;
   mmLayerRestoreHoldMs?: number;
   mmLayerRestoreCount?: number;
+  mmLayerRestoreRampMs?: number;
   mmLayerStepBpsRestoreAdd?: number;
   mmLayerRestoreIntervalMult?: number;
   mmLayerRestoreSizeMinFactor?: number;

@@ -87,6 +87,7 @@ export class MarketMaker {
   private layerPanicUntil: Map<string, number> = new Map();
   private layerRetreatUntil: Map<string, number> = new Map();
   private layerRestoreAt: Map<string, number> = new Map();
+  private layerRestoreStartAt: Map<string, number> = new Map();
   private mmMetrics: Map<string, Record<string, unknown>> = new Map();
   private mmLastFlushAt = 0;
   private valueDetector?: ValueMismatchDetector;
@@ -1302,6 +1303,7 @@ export class MarketMaker {
     const current = this.layerRetreatUntil.get(tokenId) || 0;
     this.layerRetreatUntil.set(tokenId, Math.max(current, until));
     this.layerRestoreAt.delete(tokenId);
+    this.layerRestoreStartAt.delete(tokenId);
   }
 
   private isLayerRetreatActive(tokenId: string): boolean {
@@ -1311,7 +1313,14 @@ export class MarketMaker {
 
   private isLayerRestoreActive(tokenId: string): boolean {
     const until = this.layerRestoreAt.get(tokenId) || 0;
-    return until > Date.now();
+    if (until > Date.now()) {
+      return true;
+    }
+    if (until > 0) {
+      this.layerRestoreAt.delete(tokenId);
+      this.layerRestoreStartAt.delete(tokenId);
+    }
+    return false;
   }
 
   private shouldForceSingleLayer(tokenId: string): boolean {
@@ -1379,16 +1388,35 @@ export class MarketMaker {
         const restoreUntil = this.layerRestoreAt.get(tokenId) || 0;
         if (!restoreUntil || restoreUntil <= now) {
           this.layerRestoreAt.set(tokenId, now + holdMs);
+          this.layerRestoreStartAt.set(tokenId, now);
         }
       }
     }
     if (this.isLayerRestoreActive(tokenId)) {
-      const cap = Math.max(0, Math.floor(this.config.mmLayerRestoreCount ?? 0));
+      const cap = Math.max(0, Math.floor(this.getRestoreLayerCount(tokenId)));
       if (cap > 0) {
         effective = Math.min(effective, cap);
       }
     }
     return Math.max(minCount, effective);
+  }
+
+  private getRestoreLayerCount(tokenId: string): number {
+    const base = Math.max(0, Math.floor(this.config.mmLayerRestoreCount ?? 0));
+    const rampMs = Math.max(0, this.config.mmLayerRestoreRampMs ?? 0);
+    if (!base || !rampMs) {
+      return base;
+    }
+    const now = Date.now();
+    const start = this.layerRestoreStartAt.get(tokenId) || 0;
+    if (!start) {
+      return base;
+    }
+    const elapsed = Math.max(0, now - start);
+    const fraction = Math.min(1, elapsed / rampMs);
+    const max = Math.max(base, Math.floor(this.config.mmLayerCount ?? base));
+    const target = Math.max(base, Math.floor(base + (max - base) * fraction));
+    return Math.min(max, target);
   }
 
   private getEffectiveLayerStepBps(
