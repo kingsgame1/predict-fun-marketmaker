@@ -7,6 +7,7 @@ import type { Config, Market, Orderbook, Order, OrderbookEntry, Position } from 
 import { PredictAPI } from './api/client.js';
 import { OrderManager } from './order-manager.js';
 import { ValueMismatchDetector } from './arbitrage/value-detector.js';
+import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
 import { CrossPlatformAggregator } from './external/aggregator.js';
 import { CrossPlatformExecutionRouter } from './external/execution.js';
 import { findBestMatch } from './external/match.js';
@@ -55,6 +56,10 @@ export class MarketMaker {
   private prevBestAt: Map<string, number> = new Map();
   private prevBestBidSize: Map<string, number> = new Map();
   private prevBestAskSize: Map<string, number> = new Map();
+  private lastBidDeltaBps: Map<string, number> = new Map();
+  private lastAskDeltaBps: Map<string, number> = new Map();
+  private prevBidDeltaBps: Map<string, number> = new Map();
+  private prevAskDeltaBps: Map<string, number> = new Map();
   private lastBookSpread: Map<string, number> = new Map();
   private lastBookSpreadAt: Map<string, number> = new Map();
   private volatilityEma: Map<string, number> = new Map();
@@ -426,11 +431,14 @@ export class MarketMaker {
   }
 
   private updateBestPrices(tokenId: string, orderbook: Orderbook): void {
+    const now = Date.now();
     const prevBid = this.lastBestBid.get(tokenId);
     const prevAsk = this.lastBestAsk.get(tokenId);
     const prevAt = this.lastBestAt.get(tokenId);
     const prevBidSize = this.lastBestBidSize.get(tokenId);
     const prevAskSize = this.lastBestAskSize.get(tokenId);
+    const prevBidDelta = this.lastBidDeltaBps.get(tokenId);
+    const prevAskDelta = this.lastAskDeltaBps.get(tokenId);
     if (prevBid !== undefined) {
       this.prevBestBid.set(tokenId, prevBid);
     }
@@ -447,9 +455,23 @@ export class MarketMaker {
       this.prevBestAskSize.set(tokenId, prevAskSize);
     }
     if (orderbook.best_bid !== undefined && orderbook.best_bid > 0) {
+      if (prevBid !== undefined && prevBid > 0) {
+        const delta = ((orderbook.best_bid - prevBid) / prevBid) * 10000;
+        if (prevBidDelta !== undefined) {
+          this.prevBidDeltaBps.set(tokenId, prevBidDelta);
+        }
+        this.lastBidDeltaBps.set(tokenId, delta);
+      }
       this.lastBestBid.set(tokenId, orderbook.best_bid);
     }
     if (orderbook.best_ask !== undefined && orderbook.best_ask > 0) {
+      if (prevAsk !== undefined && prevAsk > 0) {
+        const delta = ((orderbook.best_ask - prevAsk) / prevAsk) * 10000;
+        if (prevAskDelta !== undefined) {
+          this.prevAskDeltaBps.set(tokenId, prevAskDelta);
+        }
+        this.lastAskDeltaBps.set(tokenId, delta);
+      }
       this.lastBestAsk.set(tokenId, orderbook.best_ask);
     }
     const bidSize = this.parseShares(orderbook.bids?.[0]);
@@ -460,7 +482,7 @@ export class MarketMaker {
     if (askSize > 0) {
       this.lastBestAskSize.set(tokenId, askSize);
     }
-    this.lastBestAt.set(tokenId, Date.now());
+    this.lastBestAt.set(tokenId, now);
   }
 
   private calculateMicroPrice(orderbook: Orderbook): number | null {
@@ -629,6 +651,21 @@ export class MarketMaker {
     const restoreNoNearTouch = this.isLayerRestoreActive(order.token_id) && this.config.mmLayerRestoreNoNearTouch;
     const restoreNearTouchBps = Math.max(0, this.config.mmLayerRestoreNearTouchBps ?? 0);
     const restoreNearTouch = restoreNearTouchBps > 0 ? restoreNearTouchBps / 10000 : nearTouch;
+    const vwapThresholdBps = Math.max(0, this.config.mmOrderRiskVwapBps ?? 0);
+    const vwapLevels = Math.max(0, this.config.mmOrderRiskVwapLevels ?? 0);
+    const vwapFeeBps = Math.max(0, this.config.mmOrderRiskVwapFeeBps ?? 0);
+    const vwapSlippageBps = Math.max(0, this.config.mmOrderRiskVwapSlippageBps ?? 0);
+    const vwapBaseShares = Math.max(0, this.config.mmOrderRiskVwapShares ?? 0);
+    const vwapMult = Math.max(0, this.config.mmOrderRiskVwapMult ?? 0);
+    let vwapTargetShares = vwapBaseShares;
+    if (Number.isFinite(orderShares) && orderShares > 0) {
+      if (vwapMult > 0) {
+        vwapTargetShares = Math.max(vwapTargetShares, orderShares * vwapMult);
+      }
+      if (!vwapTargetShares) {
+        vwapTargetShares = orderShares;
+      }
+    }
 
     const prevAt = this.prevBestAt.get(order.token_id) || 0;
     const prevBid = this.prevBestBid.get(order.token_id);
@@ -643,11 +680,46 @@ export class MarketMaker {
       }
     }
 
+    const accelBps = Math.max(0, this.config.mmPriceAccelBps ?? 0);
+    const accelWindow = Math.max(0, this.config.mmPriceAccelWindowMs ?? 0);
+    if (accelBps > 0 && accelWindow > 0 && elapsed > 0 && elapsed <= accelWindow) {
+      if (order.side === 'BUY') {
+        const lastDelta = this.lastAskDeltaBps.get(order.token_id) ?? 0;
+        const prevDelta = this.prevAskDeltaBps.get(order.token_id) ?? 0;
+        if (lastDelta < 0 && lastDelta - prevDelta <= -accelBps) {
+          return { cancel: true, panic: true, reason: 'price-accel' };
+        }
+      } else {
+        const lastDelta = this.lastBidDeltaBps.get(order.token_id) ?? 0;
+        const prevDelta = this.prevBidDeltaBps.get(order.token_id) ?? 0;
+        if (lastDelta > 0 && lastDelta - prevDelta >= accelBps) {
+          return { cancel: true, panic: true, reason: 'price-accel' };
+        }
+      }
+    }
+
     if (order.side === 'BUY') {
       const distance = (bestAsk - price) / price;
       if (restoreNoNearTouch && distance <= restoreNearTouch) {
         this.nearTouchHoldUntil.delete(order.order_hash);
         return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
+      }
+      if (vwapThresholdBps > 0 && vwapTargetShares > 0) {
+        const vwap = estimateSell(
+          orderbook.bids,
+          vwapTargetShares,
+          vwapFeeBps,
+          undefined,
+          undefined,
+          vwapSlippageBps,
+          vwapLevels
+        );
+        if (vwap && Number.isFinite(vwap.avgAllIn) && vwap.avgAllIn > 0 && vwap.avgAllIn <= price) {
+          const vwapDistanceBps = ((price - vwap.avgAllIn) / price) * 10000;
+          if (vwapDistanceBps <= vwapThresholdBps) {
+            return { cancel: true, panic: true, reason: 'vwap-risk' };
+          }
+        }
       }
       if (hitSpeedBps > 0 && elapsed > 0 && elapsed <= hitSpeedWindow && prevAsk && bestAsk < prevAsk) {
         const moveBps = ((prevAsk - bestAsk) / prevAsk) * 10000;
@@ -706,6 +778,23 @@ export class MarketMaker {
       if (restoreNoNearTouch && distance <= restoreNearTouch) {
         this.nearTouchHoldUntil.delete(order.order_hash);
         return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
+      }
+      if (vwapThresholdBps > 0 && vwapTargetShares > 0) {
+        const vwap = estimateBuy(
+          orderbook.asks,
+          vwapTargetShares,
+          vwapFeeBps,
+          undefined,
+          undefined,
+          vwapSlippageBps,
+          vwapLevels
+        );
+        if (vwap && Number.isFinite(vwap.avgAllIn) && vwap.avgAllIn > 0 && vwap.avgAllIn >= price) {
+          const vwapDistanceBps = ((vwap.avgAllIn - price) / price) * 10000;
+          if (vwapDistanceBps <= vwapThresholdBps) {
+            return { cancel: true, panic: true, reason: 'vwap-risk' };
+          }
+        }
       }
       if (hitSpeedBps > 0 && elapsed > 0 && elapsed <= hitSpeedWindow && prevBid && bestBid > prevBid) {
         const moveBps = ((bestBid - prevBid) / prevBid) * 10000;

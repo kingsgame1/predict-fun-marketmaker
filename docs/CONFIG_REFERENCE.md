@@ -57,6 +57,8 @@
 - `MM_NO_FILL_CANCEL_MAX_BPS`：无成交撤单阈值上限（bps）。
 - `MM_AGGRESSIVE_MOVE_BPS`：盘口快速逼近时的撤单阈值。
 - `MM_AGGRESSIVE_MOVE_WINDOW_MS`：快速逼近检测窗口。
+- `MM_PRICE_ACCEL_BPS`：盘口加速度撤单阈值（bps）。
+- `MM_PRICE_ACCEL_WINDOW_MS`：加速度检测窗口（毫秒）。
 - `MM_HIT_WARNING_BPS`：逼近成交预警阈值（bps）。
 - `MM_HIT_TOP_SIZE_MIN_SHARES`：逼近成交时，顶层深度低于该值触发撤单。
 - `MM_HIT_TOP_SIZE_FACTOR`：逼近成交时，顶层深度低于「挂单份额 × 该系数」触发撤单。
@@ -214,6 +216,12 @@
 - `MM_NEAR_TOUCH_DEPTH_SPEED_BPS`：盘口顶层深度下滑触发阈值（bps）。
 - `MM_NEAR_TOUCH_DEPTH_SPEED_MULT`：触发时近成交阈值倍数。
 - `MM_ANTI_FILL_DEPTH_SPEED_MULT`：触发时防吃单阈值倍数。
+- `MM_ORDER_RISK_VWAP_BPS`：挂单靠近对手盘 VWAP 时触发撤单阈值（bps）。
+- `MM_ORDER_RISK_VWAP_SHARES`：VWAP 估算目标份额（0=默认用挂单份额）。
+- `MM_ORDER_RISK_VWAP_MULT`：VWAP 估算按挂单份额的倍数。
+- `MM_ORDER_RISK_VWAP_LEVELS`：VWAP 估算使用的盘口层数（0=全部）。
+- `MM_ORDER_RISK_VWAP_FEE_BPS`：VWAP 估算费用（bps）。
+- `MM_ORDER_RISK_VWAP_SLIPPAGE_BPS`：VWAP 估算滑点（bps）。
 - `MM_COOLDOWN_VOL_MULTIPLIER`：波动越大，撤单后的冷却时间越长。
 - `MM_IMBALANCE_LEVELS`：盘口不平衡计算层数。
 - `MM_IMBALANCE_WEIGHT`：盘口不平衡对报价的影响权重。

@@ -61,6 +61,14 @@ export interface Config {
   mmNearTouchDepthSpeedBps?: number;
   mmNearTouchDepthSpeedMult?: number;
   mmAntiFillDepthSpeedMult?: number;
+  mmOrderRiskVwapBps?: number;
+  mmOrderRiskVwapShares?: number;
+  mmOrderRiskVwapMult?: number;
+  mmOrderRiskVwapLevels?: number;
+  mmOrderRiskVwapFeeBps?: number;
+  mmOrderRiskVwapSlippageBps?: number;
+  mmPriceAccelBps?: number;
+  mmPriceAccelWindowMs?: number;
   mmCooldownVolMultiplier?: number;
   mmImbalanceLevels?: number;
   mmImbalanceWeight?: number;
