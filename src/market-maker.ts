@@ -88,6 +88,7 @@ export class MarketMaker {
   private layerRetreatUntil: Map<string, number> = new Map();
   private layerRestoreAt: Map<string, number> = new Map();
   private layerRestoreStartAt: Map<string, number> = new Map();
+  private layerRestoreExitPending: Map<string, boolean> = new Map();
   private mmMetrics: Map<string, Record<string, unknown>> = new Map();
   private mmLastFlushAt = 0;
   private valueDetector?: ValueMismatchDetector;
@@ -1326,6 +1327,9 @@ export class MarketMaker {
     if (until > 0) {
       this.layerRestoreAt.delete(tokenId);
       this.layerRestoreStartAt.delete(tokenId);
+      if (this.config.mmLayerRestoreExitCleanup) {
+        this.layerRestoreExitPending.set(tokenId, true);
+      }
     }
     return false;
   }
@@ -1950,6 +1954,17 @@ export class MarketMaker {
       return;
     }
 
+    if (this.layerRestoreExitPending.get(tokenId)) {
+      await this.cancelOrdersForMarket(tokenId);
+      this.layerRestoreExitPending.delete(tokenId);
+      const cooldown = Math.max(0, this.config.mmLayerRestoreExitCooldownMs ?? 0);
+      if (cooldown > 0) {
+        this.markCooldown(tokenId, cooldown);
+      }
+      this.markAction(tokenId);
+      return;
+    }
+
     const metrics = this.updateMarketMetrics(tokenId, orderbook);
 
     if (!this.canSendAction(tokenId)) {
@@ -2227,8 +2242,15 @@ export class MarketMaker {
       sizeFloor = Math.min(sizeFloor, retreatFloor);
     }
     const minShares = market.liquidity_activation?.min_shares || 0;
-    const targetBidShares = Math.max(1, Math.floor(bidOrderSize.shares * profileScale));
-    const targetAskShares = Math.max(1, Math.floor(askOrderSize.shares * profileScale));
+    let targetBidShares = Math.max(1, Math.floor(bidOrderSize.shares * profileScale));
+    let targetAskShares = Math.max(1, Math.floor(askOrderSize.shares * profileScale));
+    if (this.isLayerRestoreActive(tokenId)) {
+      const scale = this.config.mmLayerRestoreSizeScale ?? 0;
+      if (scale > 0 && scale < 1) {
+        targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
+        targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+      }
+    }
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
         ? Math.max(1, this.config.mmLayerRestoreMaxShares)
