@@ -153,6 +153,8 @@ export interface Config {
   mmLayerRestoreCount?: number;
   mmLayerStepBpsRestoreAdd?: number;
   mmLayerRestoreIntervalMult?: number;
+  mmLayerRestoreSizeMinFactor?: number;
+  mmLayerRestoreMaxShares?: number;
   mmLayerSizeDecay?: number;
   mmLayerAllowBelowMinShares?: boolean;
   mmDepthSpeedWindowMs?: number;

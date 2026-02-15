@@ -2160,6 +2160,12 @@ export class MarketMaker {
         sizeFloor = Math.min(sizeFloor, floor);
       }
     }
+    if (this.isLayerRestoreActive(tokenId)) {
+      const floor = this.config.mmLayerRestoreSizeMinFactor ?? 0;
+      if (floor > 0) {
+        sizeFloor = Math.min(sizeFloor, floor);
+      }
+    }
     const speedFloor = this.config.mmLayerSpeedSizeMinFactor ?? 0;
     const retreatFloor = this.config.mmLayerRetreatSizeMinFactor ?? 0;
     if (speedFloor > 0 && metrics.depthSpeedBps >= (this.config.mmLayerDepthSpeedBps ?? 0)) {
@@ -2171,8 +2177,14 @@ export class MarketMaker {
     const minShares = market.liquidity_activation?.min_shares || 0;
     const targetBidShares = Math.max(1, Math.floor(bidOrderSize.shares * profileScale));
     const targetAskShares = Math.max(1, Math.floor(askOrderSize.shares * profileScale));
-    const bidSizes = this.buildLayerSizes(targetBidShares, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, bidLayers);
-    const askSizes = this.buildLayerSizes(targetAskShares, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, askLayers);
+    const restoreCap =
+      this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
+        ? Math.max(1, this.config.mmLayerRestoreMaxShares)
+        : 0;
+    const bidBase = restoreCap > 0 ? Math.min(targetBidShares, restoreCap) : targetBidShares;
+    const askBase = restoreCap > 0 ? Math.min(targetAskShares, restoreCap) : targetAskShares;
+    const bidSizes = this.buildLayerSizes(bidBase, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, bidLayers);
+    const askSizes = this.buildLayerSizes(askBase, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, askLayers);
 
     const retreatOnlyFar =
       this.config.mmLayerRetreatOnlyFar === true &&
