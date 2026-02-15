@@ -2318,9 +2318,13 @@ export class MarketMaker {
     const farOnly = retreatOnlyFar || restoreOnlyFar;
     const bidStart = farOnly ? bidLayers - 1 : 0;
     const askStart = farOnly ? askLayers - 1 : 0;
+    const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;
 
     if (!suppressBuy && bidOrderSize.shares > 0) {
       for (let i = bidStart; i < bidLayers; i += 1) {
+        if (restoreSparse && i % 2 === 1) {
+          continue;
+        }
         if (remainingBids[i]) {
           continue;
         }
@@ -2340,6 +2344,9 @@ export class MarketMaker {
 
     if (!suppressSell && askOrderSize.shares > 0) {
       for (let i = askStart; i < askLayers; i += 1) {
+        if (restoreSparse && i % 2 === 1) {
+          continue;
+        }
         if (remainingAsks[i]) {
           continue;
         }

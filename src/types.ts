@@ -175,6 +175,7 @@ export interface Config {
   mmLayerRestoreSizeScale?: number;
   mmLayerRestoreDisableHedge?: boolean;
   mmLayerRestoreDisablePartialHedge?: boolean;
+  mmLayerRestoreSparseOdd?: boolean;
   mmLayerSizeDecay?: number;
   mmLayerAllowBelowMinShares?: boolean;
   mmDepthSpeedWindowMs?: number;
