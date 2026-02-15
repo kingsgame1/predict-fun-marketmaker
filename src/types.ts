@@ -151,6 +151,8 @@ export interface Config {
   mmLayerRetreatForceSingle?: boolean;
   mmLayerRestoreHoldMs?: number;
   mmLayerRestoreCount?: number;
+  mmLayerStepBpsRestoreAdd?: number;
+  mmLayerRestoreIntervalMult?: number;
   mmLayerSizeDecay?: number;
   mmLayerAllowBelowMinShares?: boolean;
   mmDepthSpeedWindowMs?: number;

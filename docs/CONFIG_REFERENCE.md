@@ -99,6 +99,8 @@
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
 - `MM_LAYER_RESTORE_HOLD_MS`：撤退后恢复期持续时间（毫秒）。
 - `MM_LAYER_RESTORE_COUNT`：恢复期分层上限（0=不启用）。
+- `MM_LAYER_STEP_BPS_RESTORE_ADD`：恢复期每层额外偏移（bps）。
+- `MM_LAYER_RESTORE_INTERVAL_MULT`：恢复期下单间隔倍数。
 - `MM_LAYER_SIZE_DECAY`：层级挂单份额衰减系数（0-1）。
 - `MM_LAYER_ALLOW_BELOW_MIN_SHARES`：是否允许分层挂单低于 points 最小份额。
 - `MM_DEPTH_SPEED_WINDOW_MS`：深度消耗速度检测窗口（毫秒）。

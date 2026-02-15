@@ -202,6 +202,8 @@ export function loadConfig(): Config {
     mmLayerRetreatForceSingle: process.env.MM_LAYER_RETREAT_FORCE_SINGLE === 'true',
     mmLayerRestoreHoldMs: parseInt(process.env.MM_LAYER_RESTORE_HOLD_MS || '0'),
     mmLayerRestoreCount: parseInt(process.env.MM_LAYER_RESTORE_COUNT || '0'),
+    mmLayerStepBpsRestoreAdd: parseFloat(process.env.MM_LAYER_STEP_BPS_RESTORE_ADD || '0'),
+    mmLayerRestoreIntervalMult: parseFloat(process.env.MM_LAYER_RESTORE_INTERVAL_MULT || '1'),
     mmActionBurstLimit: parseInt(process.env.MM_ACTION_BURST_LIMIT || '0'),
     mmActionBurstWindowMs: parseInt(process.env.MM_ACTION_BURST_WINDOW_MS || '10000'),
     mmActionBurstCooldownMs: parseInt(process.env.MM_ACTION_BURST_COOLDOWN_MS || '0'),

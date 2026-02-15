@@ -267,6 +267,10 @@ export class MarketMaker {
       const panicMult = Math.max(1, this.config.mmLayerPanicIntervalMult ?? 1);
       multiplier *= panicMult;
     }
+    if (this.isLayerRestoreActive(tokenId)) {
+      const restoreMult = Math.max(1, this.config.mmLayerRestoreIntervalMult ?? 1);
+      multiplier *= restoreMult;
+    }
     multiplier *= this.getFillSlowdownMultiplier(tokenId);
     return Math.max(500, Math.round(base * multiplier));
   }
@@ -1410,6 +1414,9 @@ export class MarketMaker {
     }
     if (this.isLayerRetreatActive(tokenId)) {
       step += Math.max(0, this.config.mmLayerStepBpsRetreatAdd ?? 0);
+    }
+    if (this.isLayerRestoreActive(tokenId)) {
+      step += Math.max(0, this.config.mmLayerStepBpsRestoreAdd ?? 0);
     }
     return step;
   }
