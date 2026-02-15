@@ -100,7 +100,9 @@
 - `MM_LAYER_RESTORE_HOLD_MS`：撤退后恢复期持续时间（毫秒）。
 - `MM_LAYER_RESTORE_COUNT`：恢复期分层上限（0=不启用）。
 - `MM_LAYER_RESTORE_RAMP_MS`：恢复期分层渐进恢复时间（毫秒）。
+- `MM_LAYER_RESTORE_MIN_SPREAD_ADD`：恢复期最小价差额外增加。
 - `MM_LAYER_STEP_BPS_RESTORE_ADD`：恢复期每层额外偏移（bps）。
+- `MM_LAYER_STEP_BPS_RESTORE_EXTRA`：恢复期额外最小间距增量（bps）。
 - `MM_LAYER_RESTORE_INTERVAL_MULT`：恢复期下单间隔倍数。
 - `MM_LAYER_RESTORE_SIZE_MIN_FACTOR`：恢复期挂单份额最小系数（0-1）。
 - `MM_LAYER_RESTORE_MAX_SHARES`：恢复期每层最大挂单份额（0=不限制）。
@@ -112,6 +114,7 @@
 - `MM_ACTION_BURST_LIMIT`：窗口内动作次数上限（超过进入保护冷却）。
 - `MM_ACTION_BURST_WINDOW_MS`：动作次数统计窗口（毫秒）。
 - `MM_ACTION_BURST_COOLDOWN_MS`：触发后保护冷却时间（毫秒）。
+- `MM_ACTION_BURST_RESTORE_HOLD_MS`：触发保护时进入恢复期持续时间（毫秒）。
 - `MM_SIZE_INVENTORY_WEIGHT`：库存方向对“挂单份额”的影响权重。
 - `MM_SIZE_IMBALANCE_WEIGHT`：盘口不平衡对“挂单份额”的影响权重。
 - `MM_SIZE_MIN_FACTOR`：挂单份额缩放下限（防止缩得过小）。

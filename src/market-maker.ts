@@ -312,6 +312,10 @@ export class MarketMaker {
     this.actionBurst.set(tokenId, entry);
     if (entry.count >= limit && cooldownMs > 0) {
       this.actionLockUntil.set(tokenId, now + cooldownMs);
+      if (this.config.mmActionBurstRestoreHoldMs) {
+        this.layerRestoreAt.set(tokenId, now + Math.max(0, this.config.mmActionBurstRestoreHoldMs));
+        this.layerRestoreStartAt.set(tokenId, now);
+      }
     }
   }
 
@@ -1446,6 +1450,9 @@ export class MarketMaker {
     if (this.isLayerRestoreActive(tokenId)) {
       step += Math.max(0, this.config.mmLayerStepBpsRestoreAdd ?? 0);
     }
+    if (this.isLayerRestoreActive(tokenId)) {
+      step += Math.max(0, this.config.mmLayerStepBpsRestoreExtra ?? 0);
+    }
     return step;
   }
 
@@ -1530,6 +1537,9 @@ export class MarketMaker {
         minSpread = this.config.mmProfileSpreadMinVolatile ?? minSpread;
         maxSpread = this.config.mmProfileSpreadMaxVolatile ?? maxSpread;
       }
+    }
+    if (this.isLayerRestoreActive(market.token_id)) {
+      minSpread += Math.max(0, this.config.mmLayerRestoreMinSpreadAdd ?? 0);
     }
 
     const bookWeight = this.config.mmBookSpreadWeight ?? 0.35;

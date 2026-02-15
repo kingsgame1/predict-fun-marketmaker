@@ -152,7 +152,9 @@ export interface Config {
   mmLayerRestoreHoldMs?: number;
   mmLayerRestoreCount?: number;
   mmLayerRestoreRampMs?: number;
+  mmLayerRestoreMinSpreadAdd?: number;
   mmLayerStepBpsRestoreAdd?: number;
+  mmLayerStepBpsRestoreExtra?: number;
   mmLayerRestoreIntervalMult?: number;
   mmLayerRestoreSizeMinFactor?: number;
   mmLayerRestoreMaxShares?: number;
@@ -164,6 +166,7 @@ export interface Config {
   mmActionBurstLimit?: number;
   mmActionBurstWindowMs?: number;
   mmActionBurstCooldownMs?: number;
+  mmActionBurstRestoreHoldMs?: number;
   mmSizeInventoryWeight?: number;
   mmSizeImbalanceWeight?: number;
   mmSizeMinFactor?: number;
