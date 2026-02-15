@@ -573,8 +573,20 @@ export class MarketMaker {
       return { cancel: false, panic: false, reason: '' };
     }
 
-    const nearTouchBase = this.config.nearTouchBps ?? 0.0015;
-    const antiFillBase = this.config.antiFillBps ?? 0.002;
+    let nearTouchBase = this.config.nearTouchBps ?? 0.0015;
+    let antiFillBase = this.config.antiFillBps ?? 0.002;
+    if (this.isLayerRestoreActive(order.token_id)) {
+      const restoreMult = this.config.mmLayerRestoreNearTouchMult ?? 0;
+      if (restoreMult > 0) {
+        nearTouchBase *= restoreMult;
+        antiFillBase *= restoreMult;
+      }
+      const restoreAdd = this.config.mmLayerRestoreNearTouchAddBps ?? 0;
+      if (restoreAdd > 0) {
+        nearTouchBase += restoreAdd / 10000;
+        antiFillBase += restoreAdd / 10000;
+      }
+    }
     const nearMult = this.getVolatilityMultiplier(order.token_id, this.config.mmNearTouchVolMultiplier ?? 1.5);
     const antiMult = this.getVolatilityMultiplier(order.token_id, this.config.mmAntiFillVolMultiplier ?? 1.5);
     const nearTouch = nearTouchBase * nearMult;

@@ -217,6 +217,8 @@ export function loadConfig(): Config {
     mmLayerRestoreNearTouchBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_BPS || '0'),
     mmLayerRestoreForceRefresh: process.env.MM_LAYER_RESTORE_FORCE_REFRESH === 'true',
     mmLayerRestoreForceCleanup: process.env.MM_LAYER_RESTORE_FORCE_CLEANUP === 'true',
+    mmLayerRestoreNearTouchMult: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_MULT || '0'),
+    mmLayerRestoreNearTouchAddBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_ADD_BPS || '0'),
     mmLayerRestoreExitCleanup: process.env.MM_LAYER_RESTORE_EXIT_CLEANUP === 'true',
     mmLayerRestoreExitCooldownMs: parseInt(process.env.MM_LAYER_RESTORE_EXIT_COOLDOWN_MS || '0'),
     mmLayerRestoreSizeScale: parseFloat(process.env.MM_LAYER_RESTORE_SIZE_SCALE || '0'),
