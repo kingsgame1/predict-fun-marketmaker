@@ -62,6 +62,9 @@ export class MarketMaker {
   private totalDepthEma: Map<string, number> = new Map();
   private depthTrend: Map<string, number> = new Map();
   private lastDepth: Map<string, number> = new Map();
+  private lastDepthSpeedBps: Map<string, number> = new Map();
+  private lastBidDepthSpeedBps: Map<string, number> = new Map();
+  private lastAskDepthSpeedBps: Map<string, number> = new Map();
   private lastImbalance: Map<string, number> = new Map();
   private lastActionAt: Map<string, number> = new Map();
   private actionBurst: Map<string, { count: number; windowStart: number }> = new Map();
@@ -592,6 +595,16 @@ export class MarketMaker {
         antiFillBase *= restoreCancelMult;
       }
     }
+    const depthSpeedThreshold = Math.max(0, this.config.mmNearTouchDepthSpeedBps ?? 0);
+    if (depthSpeedThreshold > 0) {
+      const depthSpeed = this.lastDepthSpeedBps.get(order.token_id) ?? 0;
+      if (depthSpeed >= depthSpeedThreshold) {
+        const nearSpeedMult = Math.max(1, this.config.mmNearTouchDepthSpeedMult ?? 1);
+        const antiSpeedMult = Math.max(1, this.config.mmAntiFillDepthSpeedMult ?? nearSpeedMult);
+        nearTouchBase *= nearSpeedMult;
+        antiFillBase *= antiSpeedMult;
+      }
+    }
     const nearMult = this.getVolatilityMultiplier(order.token_id, this.config.mmNearTouchVolMultiplier ?? 1.5);
     const antiMult = this.getVolatilityMultiplier(order.token_id, this.config.mmAntiFillVolMultiplier ?? 1.5);
     const nearTouch = nearTouchBase * nearMult;
@@ -882,6 +895,10 @@ export class MarketMaker {
         }
       }
     }
+
+    this.lastDepthSpeedBps.set(tokenId, depthSpeedBps);
+    this.lastBidDepthSpeedBps.set(tokenId, bidSpeedBps);
+    this.lastAskDepthSpeedBps.set(tokenId, askSpeedBps);
 
     return {
       volEma: this.volatilityEma.get(tokenId) ?? 0,

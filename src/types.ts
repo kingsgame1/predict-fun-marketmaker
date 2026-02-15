@@ -58,6 +58,9 @@ export interface Config {
   mmCancelVolMultiplier?: number;
   mmNearTouchVolMultiplier?: number;
   mmAntiFillVolMultiplier?: number;
+  mmNearTouchDepthSpeedBps?: number;
+  mmNearTouchDepthSpeedMult?: number;
+  mmAntiFillDepthSpeedMult?: number;
   mmCooldownVolMultiplier?: number;
   mmImbalanceLevels?: number;
   mmImbalanceWeight?: number;
