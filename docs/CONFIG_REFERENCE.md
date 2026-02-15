@@ -104,6 +104,8 @@
 - `MM_LAYER_RESTORE_INTERVAL_MULT`：恢复期下单间隔倍数。
 - `MM_LAYER_RESTORE_SIZE_MIN_FACTOR`：恢复期挂单份额最小系数（0-1）。
 - `MM_LAYER_RESTORE_MAX_SHARES`：恢复期每层最大挂单份额（0=不限制）。
+- `MM_LAYER_RESTORE_ONLY_FAR`：恢复期仅挂最远一层。
+- `MM_LAYER_RESTORE_TOUCH_BUFFER_BPS`：恢复期额外避免靠近盘口的缓冲（bps）。
 - `MM_LAYER_SIZE_DECAY`：层级挂单份额衰减系数（0-1）。
 - `MM_LAYER_ALLOW_BELOW_MIN_SHARES`：是否允许分层挂单低于 points 最小份额。
 - `MM_DEPTH_SPEED_WINDOW_MS`：深度消耗速度检测窗口（毫秒）。

@@ -207,6 +207,8 @@ export function loadConfig(): Config {
     mmLayerRestoreIntervalMult: parseFloat(process.env.MM_LAYER_RESTORE_INTERVAL_MULT || '1'),
     mmLayerRestoreSizeMinFactor: parseFloat(process.env.MM_LAYER_RESTORE_SIZE_MIN_FACTOR || '0'),
     mmLayerRestoreMaxShares: parseFloat(process.env.MM_LAYER_RESTORE_MAX_SHARES || '0'),
+    mmLayerRestoreOnlyFar: process.env.MM_LAYER_RESTORE_ONLY_FAR === 'true',
+    mmLayerRestoreTouchBufferBps: parseFloat(process.env.MM_LAYER_RESTORE_TOUCH_BUFFER_BPS || '0'),
     mmActionBurstLimit: parseInt(process.env.MM_ACTION_BURST_LIMIT || '0'),
     mmActionBurstWindowMs: parseInt(process.env.MM_ACTION_BURST_WINDOW_MS || '10000'),
     mmActionBurstCooldownMs: parseInt(process.env.MM_ACTION_BURST_COOLDOWN_MS || '0'),

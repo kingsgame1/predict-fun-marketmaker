@@ -1648,7 +1648,10 @@ export class MarketMaker {
     let ask = fairPrice * (1 + half * askFactor + quoteOffset);
 
     // Keep maker-friendly but never cross top of book
-    const touchBufferBps = Math.max(0, this.config.mmTouchBufferBps ?? 0) + (noFillPenalty.touchBps || 0);
+    let touchBufferBps = Math.max(0, this.config.mmTouchBufferBps ?? 0) + (noFillPenalty.touchBps || 0);
+    if (this.isLayerRestoreActive(market.token_id)) {
+      touchBufferBps += Math.max(0, this.config.mmLayerRestoreTouchBufferBps ?? 0);
+    }
     if (touchBufferBps > 0) {
       const buffer = touchBufferBps / 10000;
       const maxBid = bestBid * (1 - buffer);
@@ -2219,9 +2222,11 @@ export class MarketMaker {
       (this.isLayerRetreatActive(tokenId) ||
         (this.config.mmLayerDepthSpeedRetreatBps &&
           metrics.depthSpeedBps >= this.config.mmLayerDepthSpeedRetreatBps));
+    const restoreOnlyFar = this.config.mmLayerRestoreOnlyFar === true && this.isLayerRestoreActive(tokenId);
     const forceSingle = this.shouldForceSingleLayer(tokenId);
-    const bidStart = retreatOnlyFar ? bidLayers - 1 : 0;
-    const askStart = retreatOnlyFar ? askLayers - 1 : 0;
+    const farOnly = retreatOnlyFar || restoreOnlyFar;
+    const bidStart = farOnly ? bidLayers - 1 : 0;
+    const askStart = farOnly ? askLayers - 1 : 0;
 
     if (!suppressBuy && bidOrderSize.shares > 0) {
       for (let i = bidStart; i < bidLayers; i += 1) {

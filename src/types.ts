@@ -156,6 +156,8 @@ export interface Config {
   mmLayerRestoreIntervalMult?: number;
   mmLayerRestoreSizeMinFactor?: number;
   mmLayerRestoreMaxShares?: number;
+  mmLayerRestoreOnlyFar?: boolean;
+  mmLayerRestoreTouchBufferBps?: number;
   mmLayerSizeDecay?: number;
   mmLayerAllowBelowMinShares?: boolean;
   mmDepthSpeedWindowMs?: number;
