@@ -293,6 +293,9 @@ export class MarketMaker {
     if (this.config.mmActionBurstLimit) {
       this.recordActionBurst(tokenId);
     }
+    if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceCleanup) {
+      void this.cancelOrdersForMarket(tokenId);
+    }
   }
 
   private recordActionBurst(tokenId: string): void {

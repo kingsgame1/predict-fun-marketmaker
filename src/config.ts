@@ -214,6 +214,7 @@ export function loadConfig(): Config {
     mmLayerRestoreNoNearTouch: process.env.MM_LAYER_RESTORE_NO_NEAR_TOUCH === 'true',
     mmLayerRestoreNearTouchBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_BPS || '0'),
     mmLayerRestoreForceRefresh: process.env.MM_LAYER_RESTORE_FORCE_REFRESH === 'true',
+    mmLayerRestoreForceCleanup: process.env.MM_LAYER_RESTORE_FORCE_CLEANUP === 'true',
     mmActionBurstLimit: parseInt(process.env.MM_ACTION_BURST_LIMIT || '0'),
     mmActionBurstWindowMs: parseInt(process.env.MM_ACTION_BURST_WINDOW_MS || '10000'),
     mmActionBurstCooldownMs: parseInt(process.env.MM_ACTION_BURST_COOLDOWN_MS || '0'),

@@ -111,6 +111,7 @@
 - `MM_LAYER_RESTORE_NO_NEAR_TOUCH`：恢复期禁止靠近盘口挂单。
 - `MM_LAYER_RESTORE_NEAR_TOUCH_BPS`：恢复期近触碰额外缓冲（bps）。
 - `MM_LAYER_RESTORE_FORCE_REFRESH`：恢复期强制撤单后重挂。
+- `MM_LAYER_RESTORE_FORCE_CLEANUP`：恢复期强制清理历史挂单后再重挂。
 - `MM_LAYER_SIZE_DECAY`：层级挂单份额衰减系数（0-1）。
 - `MM_LAYER_ALLOW_BELOW_MIN_SHARES`：是否允许分层挂单低于 points 最小份额。
 - `MM_DEPTH_SPEED_WINDOW_MS`：深度消耗速度检测窗口（毫秒）。
