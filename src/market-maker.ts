@@ -1662,6 +1662,14 @@ export class MarketMaker {
     if (this.isLayerRestoreActive(market.token_id)) {
       touchBufferBps += Math.max(0, this.config.mmLayerRestoreTouchBufferBps ?? 0);
     }
+    if (this.isLayerRestoreActive(market.token_id) && this.config.mmLayerRestoreNoNearTouch) {
+      const extra = Math.max(0, this.config.mmLayerRestoreNearTouchBps ?? 0);
+      if (extra > 0) {
+        touchBufferBps += extra;
+      } else {
+        touchBufferBps += Math.max(touchBufferBps, 6);
+      }
+    }
     if (touchBufferBps > 0) {
       const buffer = touchBufferBps / 10000;
       const maxBid = bestBid * (1 - buffer);
@@ -2332,6 +2340,9 @@ export class MarketMaker {
 
     for (const order of ordersToCancel) {
       await this.cancelOrder(order);
+    }
+    if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceRefresh) {
+      this.markAction(tokenId);
     }
   }
 

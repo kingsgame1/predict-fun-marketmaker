@@ -160,6 +160,9 @@ export interface Config {
   mmLayerRestoreMaxShares?: number;
   mmLayerRestoreOnlyFar?: boolean;
   mmLayerRestoreTouchBufferBps?: number;
+  mmLayerRestoreNoNearTouch?: boolean;
+  mmLayerRestoreNearTouchBps?: number;
+  mmLayerRestoreForceRefresh?: boolean;
   mmLayerSizeDecay?: number;
   mmLayerAllowBelowMinShares?: boolean;
   mmDepthSpeedWindowMs?: number;
