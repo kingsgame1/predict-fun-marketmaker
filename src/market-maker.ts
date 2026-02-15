@@ -1585,6 +1585,10 @@ export class MarketMaker {
     }
     if (this.isLayerRestoreActive(market.token_id)) {
       minSpread += Math.max(0, this.config.mmLayerRestoreMinSpreadAdd ?? 0);
+      const cancelBufferAdd = Math.max(0, this.config.mmLayerRestoreCancelBufferAddBps ?? 0);
+      if (cancelBufferAdd > 0) {
+        minSpread += cancelBufferAdd / 10000;
+      }
     }
 
     const bookWeight = this.config.mmBookSpreadWeight ?? 0.35;

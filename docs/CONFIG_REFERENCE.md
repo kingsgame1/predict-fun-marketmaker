@@ -103,6 +103,7 @@
 - `MM_LAYER_RESTORE_STEP_MS`：恢复期分层每次上调间隔（毫秒）。
 - `MM_LAYER_RESTORE_STEP_COUNT`：恢复期每次上调的层数。
 - `MM_LAYER_RESTORE_MIN_SPREAD_ADD`：恢复期最小价差额外增加。
+- `MM_LAYER_RESTORE_CANCEL_BUFFER_ADD_BPS`：恢复期撤单缓冲额外增加（bps）。
 - `MM_LAYER_STEP_BPS_RESTORE_ADD`：恢复期每层额外偏移（bps）。
 - `MM_LAYER_STEP_BPS_RESTORE_EXTRA`：恢复期额外最小间距增量（bps）。
 - `MM_LAYER_RESTORE_INTERVAL_MULT`：恢复期下单间隔倍数。

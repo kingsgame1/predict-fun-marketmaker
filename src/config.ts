@@ -206,6 +206,7 @@ export function loadConfig(): Config {
     mmLayerRestoreStepMs: parseInt(process.env.MM_LAYER_RESTORE_STEP_MS || '0'),
     mmLayerRestoreStepCount: parseInt(process.env.MM_LAYER_RESTORE_STEP_COUNT || '0'),
     mmLayerRestoreMinSpreadAdd: parseFloat(process.env.MM_LAYER_RESTORE_MIN_SPREAD_ADD || '0'),
+    mmLayerRestoreCancelBufferAddBps: parseFloat(process.env.MM_LAYER_RESTORE_CANCEL_BUFFER_ADD_BPS || '0'),
     mmLayerStepBpsRestoreAdd: parseFloat(process.env.MM_LAYER_STEP_BPS_RESTORE_ADD || '0'),
     mmLayerStepBpsRestoreExtra: parseFloat(process.env.MM_LAYER_STEP_BPS_RESTORE_EXTRA || '0'),
     mmLayerRestoreIntervalMult: parseFloat(process.env.MM_LAYER_RESTORE_INTERVAL_MULT || '1'),

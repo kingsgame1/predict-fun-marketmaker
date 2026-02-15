@@ -155,6 +155,7 @@ export interface Config {
   mmLayerRestoreStepMs?: number;
   mmLayerRestoreStepCount?: number;
   mmLayerRestoreMinSpreadAdd?: number;
+  mmLayerRestoreCancelBufferAddBps?: number;
   mmLayerStepBpsRestoreAdd?: number;
   mmLayerStepBpsRestoreExtra?: number;
   mmLayerRestoreIntervalMult?: number;
