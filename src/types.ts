@@ -168,6 +168,7 @@ export interface Config {
   mmLayerRestoreForceCleanup?: boolean;
   mmLayerRestoreNearTouchMult?: number;
   mmLayerRestoreNearTouchAddBps?: number;
+  mmLayerRestoreCancelMult?: number;
   mmLayerRestoreExitCleanup?: boolean;
   mmLayerRestoreExitCooldownMs?: number;
   mmLayerRestoreSizeScale?: number;

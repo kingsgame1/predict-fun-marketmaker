@@ -586,6 +586,11 @@ export class MarketMaker {
         nearTouchBase += restoreAdd / 10000;
         antiFillBase += restoreAdd / 10000;
       }
+      const restoreCancelMult = this.config.mmLayerRestoreCancelMult ?? 0;
+      if (restoreCancelMult > 0) {
+        nearTouchBase *= restoreCancelMult;
+        antiFillBase *= restoreCancelMult;
+      }
     }
     const nearMult = this.getVolatilityMultiplier(order.token_id, this.config.mmNearTouchVolMultiplier ?? 1.5);
     const antiMult = this.getVolatilityMultiplier(order.token_id, this.config.mmAntiFillVolMultiplier ?? 1.5);

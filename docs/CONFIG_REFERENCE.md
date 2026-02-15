@@ -116,6 +116,7 @@
 - `MM_LAYER_RESTORE_FORCE_CLEANUP`：恢复期强制清理历史挂单后再重挂。
 - `MM_LAYER_RESTORE_NEAR_TOUCH_MULT`：恢复期 near-touch/anti-fill 倍数。
 - `MM_LAYER_RESTORE_NEAR_TOUCH_ADD_BPS`：恢复期 near-touch/anti-fill 额外增加（bps）。
+- `MM_LAYER_RESTORE_CANCEL_MULT`：恢复期撤单敏感倍数（同时放大 near-touch/anti-fill）。
 - `MM_LAYER_RESTORE_EXIT_CLEANUP`：恢复期结束后强制清理挂单再重挂。
 - `MM_LAYER_RESTORE_EXIT_COOLDOWN_MS`：恢复期结束后清理的冷却时间（毫秒）。
 - `MM_LAYER_RESTORE_SIZE_SCALE`：恢复期挂单份额缩放系数（0-1）。
