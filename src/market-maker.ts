@@ -2000,11 +2000,20 @@ export class MarketMaker {
       await this.cancelOrdersForMarket(tokenId);
       this.layerRestoreExitPending.delete(tokenId);
       const cooldown = Math.max(0, this.config.mmLayerRestoreExitCooldownMs ?? 0);
+      const immediateRequote = this.config.mmLayerRestoreExitImmediateRequote === true;
       if (cooldown > 0) {
-        this.markCooldown(tokenId, cooldown);
+        if (immediateRequote) {
+          this.cooldownUntil.delete(tokenId);
+        } else {
+          this.markCooldown(tokenId, cooldown);
+        }
       }
-      this.markAction(tokenId);
-      return;
+      if (immediateRequote) {
+        this.lastActionAt.delete(tokenId);
+      } else {
+        this.markAction(tokenId);
+        return;
+      }
     }
 
     const metrics = this.updateMarketMetrics(tokenId, orderbook);

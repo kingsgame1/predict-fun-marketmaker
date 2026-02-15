@@ -172,6 +172,7 @@ export interface Config {
   mmLayerRestoreCancelMult?: number;
   mmLayerRestoreExitCleanup?: boolean;
   mmLayerRestoreExitCooldownMs?: number;
+  mmLayerRestoreExitImmediateRequote?: boolean;
   mmLayerRestoreSizeScale?: number;
   mmLayerRestoreDisableHedge?: boolean;
   mmLayerRestoreDisablePartialHedge?: boolean;

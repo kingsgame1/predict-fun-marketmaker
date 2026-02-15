@@ -223,6 +223,7 @@ export function loadConfig(): Config {
     mmLayerRestoreCancelMult: parseFloat(process.env.MM_LAYER_RESTORE_CANCEL_MULT || '0'),
     mmLayerRestoreExitCleanup: process.env.MM_LAYER_RESTORE_EXIT_CLEANUP === 'true',
     mmLayerRestoreExitCooldownMs: parseInt(process.env.MM_LAYER_RESTORE_EXIT_COOLDOWN_MS || '0'),
+    mmLayerRestoreExitImmediateRequote: process.env.MM_LAYER_RESTORE_EXIT_IMMEDIATE_REQUOTE === 'true',
     mmLayerRestoreSizeScale: parseFloat(process.env.MM_LAYER_RESTORE_SIZE_SCALE || '0'),
     mmLayerRestoreDisableHedge: process.env.MM_LAYER_RESTORE_DISABLE_HEDGE === 'true',
     mmLayerRestoreDisablePartialHedge: process.env.MM_LAYER_RESTORE_DISABLE_PARTIAL_HEDGE === 'true',
