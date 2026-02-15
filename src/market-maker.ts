@@ -596,6 +596,9 @@ export class MarketMaker {
     const hitSizeDropRatio = Math.max(0, this.config.mmHitSizeDropRatio ?? 0);
     const hitSizeDropWindow = Math.max(0, this.config.mmHitSizeDropWindowMs ?? 1200);
     const orderShares = Number(order.shares);
+    const restoreNoNearTouch = this.isLayerRestoreActive(order.token_id) && this.config.mmLayerRestoreNoNearTouch;
+    const restoreNearTouchBps = Math.max(0, this.config.mmLayerRestoreNearTouchBps ?? 0);
+    const restoreNearTouch = restoreNearTouchBps > 0 ? restoreNearTouchBps / 10000 : nearTouch;
 
     const prevAt = this.prevBestAt.get(order.token_id) || 0;
     const prevBid = this.prevBestBid.get(order.token_id);
@@ -612,6 +615,10 @@ export class MarketMaker {
 
     if (order.side === 'BUY') {
       const distance = (bestAsk - price) / price;
+      if (restoreNoNearTouch && distance <= restoreNearTouch) {
+        this.nearTouchHoldUntil.delete(order.order_hash);
+        return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
+      }
       if (hitSpeedBps > 0 && elapsed > 0 && elapsed <= hitSpeedWindow && prevAsk && bestAsk < prevAsk) {
         const moveBps = ((prevAsk - bestAsk) / prevAsk) * 10000;
         if (hitWarn > 0 && distance <= hitWarn && moveBps >= hitSpeedBps) {
@@ -666,6 +673,10 @@ export class MarketMaker {
       }
     } else {
       const distance = (price - bestBid) / price;
+      if (restoreNoNearTouch && distance <= restoreNearTouch) {
+        this.nearTouchHoldUntil.delete(order.order_hash);
+        return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
+      }
       if (hitSpeedBps > 0 && elapsed > 0 && elapsed <= hitSpeedWindow && prevBid && bestBid > prevBid) {
         const moveBps = ((bestBid - prevBid) / prevBid) * 10000;
         if (hitWarn > 0 && distance <= hitWarn && moveBps >= hitSpeedBps) {
@@ -1414,8 +1425,10 @@ export class MarketMaker {
 
   private getRestoreLayerCount(tokenId: string): number {
     const base = Math.max(0, Math.floor(this.config.mmLayerRestoreCount ?? 0));
+    const stepMs = Math.max(0, this.config.mmLayerRestoreStepMs ?? 0);
+    const stepCount = Math.max(0, this.config.mmLayerRestoreStepCount ?? 0);
     const rampMs = Math.max(0, this.config.mmLayerRestoreRampMs ?? 0);
-    if (!base || !rampMs) {
+    if (!base) {
       return base;
     }
     const now = Date.now();
@@ -1423,9 +1436,17 @@ export class MarketMaker {
     if (!start) {
       return base;
     }
-    const elapsed = Math.max(0, now - start);
-    const fraction = Math.min(1, elapsed / rampMs);
     const max = Math.max(base, Math.floor(this.config.mmLayerCount ?? base));
+    const elapsed = Math.max(0, now - start);
+    if (stepMs > 0 && stepCount > 0) {
+      const steps = Math.floor(elapsed / stepMs);
+      const target = Math.max(base, Math.min(max, base + steps * stepCount));
+      return target;
+    }
+    if (!rampMs) {
+      return base;
+    }
+    const fraction = Math.min(1, elapsed / rampMs);
     const target = Math.max(base, Math.floor(base + (max - base) * fraction));
     return Math.min(max, target);
   }
@@ -2083,7 +2104,10 @@ export class MarketMaker {
       if (risk.cancel || shouldReprice) {
         if (
           risk.cancel &&
-          (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill' || risk.reason.startsWith('hit-warning'))
+          (risk.reason.startsWith('near-touch') ||
+            risk.reason === 'anti-fill' ||
+            risk.reason.startsWith('hit-warning') ||
+            risk.reason.startsWith('restore-no-near-touch'))
         ) {
           const intensity = risk.panic ? 1.5 : 1;
           this.applyNearTouchPenalty(tokenId, intensity);
@@ -2145,7 +2169,10 @@ export class MarketMaker {
       if (risk.cancel || shouldReprice) {
         if (
           risk.cancel &&
-          (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill' || risk.reason.startsWith('hit-warning'))
+          (risk.reason.startsWith('near-touch') ||
+            risk.reason === 'anti-fill' ||
+            risk.reason.startsWith('hit-warning') ||
+            risk.reason.startsWith('restore-no-near-touch'))
         ) {
           const intensity = risk.panic ? 1.5 : 1;
           this.applyNearTouchPenalty(tokenId, intensity);

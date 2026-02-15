@@ -100,6 +100,8 @@
 - `MM_LAYER_RESTORE_HOLD_MS`：撤退后恢复期持续时间（毫秒）。
 - `MM_LAYER_RESTORE_COUNT`：恢复期分层上限（0=不启用）。
 - `MM_LAYER_RESTORE_RAMP_MS`：恢复期分层渐进恢复时间（毫秒）。
+- `MM_LAYER_RESTORE_STEP_MS`：恢复期分层每次上调间隔（毫秒）。
+- `MM_LAYER_RESTORE_STEP_COUNT`：恢复期每次上调的层数。
 - `MM_LAYER_RESTORE_MIN_SPREAD_ADD`：恢复期最小价差额外增加。
 - `MM_LAYER_STEP_BPS_RESTORE_ADD`：恢复期每层额外偏移（bps）。
 - `MM_LAYER_STEP_BPS_RESTORE_EXTRA`：恢复期额外最小间距增量（bps）。
