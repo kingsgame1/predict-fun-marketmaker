@@ -171,6 +171,8 @@ export interface Config {
   mmLayerRestoreExitCleanup?: boolean;
   mmLayerRestoreExitCooldownMs?: number;
   mmLayerRestoreSizeScale?: number;
+  mmLayerRestoreDisableHedge?: boolean;
+  mmLayerRestoreDisablePartialHedge?: boolean;
   mmLayerSizeDecay?: number;
   mmLayerAllowBelowMinShares?: boolean;
   mmDepthSpeedWindowMs?: number;

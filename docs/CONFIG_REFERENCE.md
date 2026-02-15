@@ -119,6 +119,8 @@
 - `MM_LAYER_RESTORE_EXIT_CLEANUP`：恢复期结束后强制清理挂单再重挂。
 - `MM_LAYER_RESTORE_EXIT_COOLDOWN_MS`：恢复期结束后清理的冷却时间（毫秒）。
 - `MM_LAYER_RESTORE_SIZE_SCALE`：恢复期挂单份额缩放系数（0-1）。
+- `MM_LAYER_RESTORE_DISABLE_HEDGE`：恢复期禁用对冲。
+- `MM_LAYER_RESTORE_DISABLE_PARTIAL_HEDGE`：恢复期禁用部分成交对冲。
 - `MM_LAYER_SIZE_DECAY`：层级挂单份额衰减系数（0-1）。
 - `MM_LAYER_ALLOW_BELOW_MIN_SHARES`：是否允许分层挂单低于 points 最小份额。
 - `MM_DEPTH_SPEED_WINDOW_MS`：深度消耗速度检测窗口（毫秒）。

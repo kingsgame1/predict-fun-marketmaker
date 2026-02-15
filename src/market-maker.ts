@@ -2463,6 +2463,9 @@ export class MarketMaker {
       const prev = this.lastNetShares.get(tokenId) ?? 0;
       const delta = net - prev;
       const absDelta = Math.abs(delta);
+      const restoreActive = this.isLayerRestoreActive(tokenId);
+      const disableHedge = restoreActive && this.config.mmLayerRestoreDisableHedge;
+      const disablePartial = restoreActive && this.config.mmLayerRestoreDisablePartialHedge;
       if (absDelta > 0) {
         this.updateFillPressure(tokenId, absDelta);
         this.lastFillAt.set(tokenId, Date.now());
@@ -2487,12 +2490,16 @@ export class MarketMaker {
       }
       if (absDelta >= triggerShares) {
         this.applyIcebergPenalty(tokenId);
-        await this.handleFillHedge(tokenId, delta, position.question);
+        if (!disableHedge) {
+          await this.handleFillHedge(tokenId, delta, position.question);
+        }
       } else if (absDelta >= partialThreshold && this.config.mmPartialFillHedge) {
         const maxShares = this.config.mmPartialFillHedgeMaxShares ?? 20;
         const hedgeShares = Math.min(absDelta, maxShares);
         if (hedgeShares > 0) {
-          await this.flattenOnPredict(tokenId, delta, hedgeShares, this.config.mmPartialFillHedgeSlippageBps);
+          if (!disableHedge && !disablePartial) {
+            await this.flattenOnPredict(tokenId, delta, hedgeShares, this.config.mmPartialFillHedgeSlippageBps);
+          }
         }
       }
       this.lastNetShares.set(tokenId, net);
