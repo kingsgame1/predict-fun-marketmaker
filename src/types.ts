@@ -181,6 +181,8 @@ export interface Config {
   mmRestoreExitRampSteps?: number;
   mmRestoreExitSizeRampMs?: number;
   mmRestoreExitSizeRampMinFactor?: number;
+  mmPanicCooldownMult?: number;
+  mmRestoreCooldownMult?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

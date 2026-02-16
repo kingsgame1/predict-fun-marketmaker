@@ -2470,7 +2470,14 @@ export class MarketMaker {
         const softCooldown = this.config.mmSoftCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const hardCooldown = this.config.mmHardCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const baseCooldown = risk.panic ? hardCooldown : softCooldown;
-        const cooldown = this.getAdaptiveCooldown(tokenId, baseCooldown);
+        let cooldown = this.getAdaptiveCooldown(tokenId, baseCooldown);
+        if (this.isLayerPanicActive(tokenId)) {
+          const mult = Math.max(1, this.config.mmPanicCooldownMult ?? 1);
+          cooldown = Math.round(cooldown * mult);
+        } else if (this.isLayerRestoreActive(tokenId)) {
+          const mult = Math.max(1, this.config.mmRestoreCooldownMult ?? 1);
+          cooldown = Math.round(cooldown * mult);
+        }
         if (risk.panic) {
           this.pauseForVolatility(tokenId);
           this.markCooldown(tokenId, cooldown + 2000);
@@ -2538,7 +2545,14 @@ export class MarketMaker {
         const softCooldown = this.config.mmSoftCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const hardCooldown = this.config.mmHardCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const baseCooldown = risk.panic ? hardCooldown : softCooldown;
-        const cooldown = this.getAdaptiveCooldown(tokenId, baseCooldown);
+        let cooldown = this.getAdaptiveCooldown(tokenId, baseCooldown);
+        if (this.isLayerPanicActive(tokenId)) {
+          const mult = Math.max(1, this.config.mmPanicCooldownMult ?? 1);
+          cooldown = Math.round(cooldown * mult);
+        } else if (this.isLayerRestoreActive(tokenId)) {
+          const mult = Math.max(1, this.config.mmRestoreCooldownMult ?? 1);
+          cooldown = Math.round(cooldown * mult);
+        }
         if (risk.panic) {
           this.pauseForVolatility(tokenId);
           this.markCooldown(tokenId, cooldown + 2000);
