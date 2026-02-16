@@ -198,6 +198,7 @@ export interface Config {
   mmPanicRestoreLayerCountCap?: number;
   mmPanicCooldownSizeScale?: number;
   mmRestoreCooldownSizeScale?: number;
+  mmRestoreExitResync?: boolean;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

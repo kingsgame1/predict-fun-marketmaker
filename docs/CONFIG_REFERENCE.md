@@ -125,6 +125,7 @@
 - `MM_PANIC_RESTORE_LAYER_COUNT_CAP`：强撤单恢复期分层上限（0=不启用）。
 - `MM_PANIC_COOLDOWN_SIZE_SCALE`：强撤单冷却期挂单份额缩放（0-1）。
 - `MM_RESTORE_COOLDOWN_SIZE_SCALE`：恢复期冷却期挂单份额缩放（0-1）。
+- `MM_RESTORE_EXIT_RESYNC`：恢复期结束后刷新订单簿再重挂。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
