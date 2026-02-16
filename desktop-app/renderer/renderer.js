@@ -145,6 +145,9 @@ const mmEventList = document.getElementById('mmEventList');
 const mmEventHint = document.getElementById('mmEventHint');
 const refreshMmMetrics = document.getElementById('refreshMmMetrics');
 const exportMmEventsBtn = document.getElementById('exportMmEvents');
+const enableRecoveryTemplateBtn = document.getElementById('enableRecoveryTemplate');
+const disableRecoveryTemplateBtn = document.getElementById('disableRecoveryTemplate');
+const recoveryTemplateHint = document.getElementById('recoveryTemplateHint');
 
 const logs = [];
 const MAX_LOGS = 800;
@@ -2123,6 +2126,34 @@ function applyEnvLines(lines, message) {
   }
 }
 
+function toggleRecoveryTemplate(enabled) {
+  let text = envEditor.value || '';
+  text = setEnvValue(text, 'MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED', enabled ? 'true' : 'false');
+  envEditor.value = text;
+  detectTradingMode(text);
+  syncTogglesFromEnv(text);
+  updateMetricsPaths();
+  if (saveEnvButton) {
+    saveEnvButton.classList.add('attention');
+  }
+  if (enabled) {
+    const env = parseEnv(text);
+    const side = (env.get('MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE') || 'NONE').toUpperCase();
+    const message =
+      side === 'NONE'
+        ? '已启用恢复模板，请设置单边方向（MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE）并保存生效。'
+        : '已启用恢复模板，请保存配置生效。';
+    pushLog({ type: 'system', level: 'system', message });
+  } else {
+    pushLog({ type: 'system', level: 'system', message: '已关闭恢复模板，请保存配置生效。' });
+  }
+  if (recoveryTemplateHint) {
+    recoveryTemplateHint.textContent = enabled
+      ? '模板已启用，记得保存配置。'
+      : '模板已关闭，记得保存配置。';
+  }
+}
+
 function parseFixTemplate(template) {
   const entries = [];
   const lines = template.split('\n');
@@ -3844,18 +3875,25 @@ async function loadMmMetrics() {
         const recoveryFarLayers = Number.isFinite(wsHealth.wsEmergencyRecoveryFarLayersMin)
           ? wsHealth.wsEmergencyRecoveryFarLayersMin
           : '--';
+        const recoveryFarMax = Number.isFinite(wsHealth.wsEmergencyRecoveryFarLayersMax)
+          ? wsHealth.wsEmergencyRecoveryFarLayersMax
+          : '--';
+        const recoveryFarStep = Number.isFinite(wsHealth.wsEmergencyRecoveryFarLayerStep)
+          ? wsHealth.wsEmergencyRecoveryFarLayerStep
+          : '--';
         const recoveryCancelInterval = Number.isFinite(wsHealth.wsEmergencyRecoveryCancelIntervalMult)
           ? wsHealth.wsEmergencyRecoveryCancelIntervalMult.toFixed(2)
           : '--';
         const recoveryOffset = Number.isFinite(wsHealth.wsEmergencyRecoverySingleOffsetBps)
           ? wsHealth.wsEmergencyRecoverySingleOffsetBps.toFixed(1)
           : '--';
+        const recoveryTemplate = wsHealth.wsEmergencyRecoveryTemplate ? 'tmpl=on' : 'tmpl=off';
         const recoveryProgress = Number.isFinite(wsHealth.wsEmergencyRecoveryProgress)
           ? Math.round(wsHealth.wsEmergencyRecoveryProgress * 100)
           : '--';
         const recoverySingle = wsHealth.wsEmergencyRecoverySingleActive ? '单边' : '双边';
         const emergency = wsHealth.wsEmergencyCancel
-          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},far=${recoveryFarLayers},cancelPace=${recoveryCancelInterval},offset=${recoveryOffset},prog=${recoveryProgress}%,${recoverySingle})`
+          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},far=${recoveryFarLayers}/${recoveryFarMax},fstep=${recoveryFarStep},cancelPace=${recoveryCancelInterval},offset=${recoveryOffset},${recoveryTemplate},prog=${recoveryProgress}%,${recoverySingle})`
           : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
@@ -4049,6 +4087,8 @@ refreshMetrics.addEventListener('click', loadMetrics);
 runDiagnosticsBtn.addEventListener('click', runDiagnostics);
 exportDiagnosticsBtn.addEventListener('click', exportDiagnostics);
 exportMmEventsBtn?.addEventListener('click', exportMmEvents);
+enableRecoveryTemplateBtn?.addEventListener('click', () => toggleRecoveryTemplate(true));
+disableRecoveryTemplateBtn?.addEventListener('click', () => toggleRecoveryTemplate(false));
 copyFailuresBtn.addEventListener('click', copyFailures);
 if (copyFixTemplateBtn) {
   copyFixTemplateBtn.addEventListener('click', copyFixTemplate);

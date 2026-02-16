@@ -279,8 +279,11 @@ export class MarketMaker {
     wsEmergencyRecoveryRepriceConfirmMult: number;
     wsEmergencyRecoveryMaxNotionalMult: number;
     wsEmergencyRecoveryFarLayersMin: number;
+    wsEmergencyRecoveryFarLayersMax: number;
+    wsEmergencyRecoveryFarLayerStep: number;
     wsEmergencyRecoveryCancelIntervalMult: number;
     wsEmergencyRecoverySingleOffsetBps: number;
+    wsEmergencyRecoveryTemplate: boolean;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -330,8 +333,11 @@ export class MarketMaker {
       wsEmergencyRecoveryRepriceConfirmMult: this.getWsHealthRepriceConfirmMult(),
       wsEmergencyRecoveryMaxNotionalMult: this.config.mmWsHealthEmergencyRecoveryMaxNotionalMultMin ?? 1,
       wsEmergencyRecoveryFarLayersMin: this.getWsEmergencyRecoveryInfo().farLayers,
+      wsEmergencyRecoveryFarLayersMax: this.config.mmWsHealthEmergencyRecoveryFarLayersMax ?? 0,
+      wsEmergencyRecoveryFarLayerStep: this.config.mmWsHealthEmergencyRecoveryFarLayerStep ?? 1,
       wsEmergencyRecoveryCancelIntervalMult: this.getWsEmergencyRecoveryCancelIntervalMult(),
       wsEmergencyRecoverySingleOffsetBps: this.getWsHealthSingleSide().offsetBps,
+      wsEmergencyRecoveryTemplate: this.config.mmWsHealthEmergencyRecoveryTemplateEnabled === true,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1347,9 +1353,10 @@ export class MarketMaker {
     const singleActive = progress <= exitProgress;
     const farMin = Math.max(1, this.config.mmWsHealthEmergencyRecoveryFarLayersMin ?? 1);
     const farMax = Math.max(farMin, this.config.mmWsHealthEmergencyRecoveryFarLayersMax ?? farMin);
+    const farStep = Math.max(1, this.config.mmWsHealthEmergencyRecoveryFarLayerStep ?? 1);
     let farLayers = farMin;
     if (this.config.mmWsHealthEmergencyRecoveryLayerConvergeEnabled) {
-      farLayers = Math.max(farMin, farMax - stage);
+      farLayers = Math.max(farMin, farMax - stage * farStep);
     } else {
       farLayers = farMax;
     }
@@ -2167,8 +2174,11 @@ export class MarketMaker {
       wsEmergencyRecoveryRepriceConfirmMult: wsHealth.wsEmergencyRecoveryRepriceConfirmMult,
       wsEmergencyRecoveryMaxNotionalMult: wsHealth.wsEmergencyRecoveryMaxNotionalMult,
       wsEmergencyRecoveryFarLayersMin: wsHealth.wsEmergencyRecoveryFarLayersMin,
+      wsEmergencyRecoveryFarLayersMax: wsHealth.wsEmergencyRecoveryFarLayersMax,
+      wsEmergencyRecoveryFarLayerStep: wsHealth.wsEmergencyRecoveryFarLayerStep,
       wsEmergencyRecoveryCancelIntervalMult: wsHealth.wsEmergencyRecoveryCancelIntervalMult,
       wsEmergencyRecoverySingleOffsetBps: wsHealth.wsEmergencyRecoverySingleOffsetBps,
+      wsEmergencyRecoveryTemplate: wsHealth.wsEmergencyRecoveryTemplate,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
