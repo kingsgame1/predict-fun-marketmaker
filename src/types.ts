@@ -121,6 +121,8 @@ export interface Config {
   mmWsHealthSingleSide?: 'BUY' | 'SELL' | 'NONE';
   mmWsHealthSingleSideMode?: 'REMOTE' | 'NORMAL';
   mmWsHealthSingleSideOffsetBps?: number;
+  mmWsHealthTouchBufferAddBps?: number;
+  mmWsHealthSparseOdd?: boolean;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

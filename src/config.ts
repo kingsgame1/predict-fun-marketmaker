@@ -167,6 +167,8 @@ export function loadConfig(): Config {
     mmWsHealthSingleSide: (process.env.MM_WS_HEALTH_SINGLE_SIDE || 'NONE') as Config['mmWsHealthSingleSide'],
     mmWsHealthSingleSideMode: (process.env.MM_WS_HEALTH_SINGLE_SIDE_MODE || 'NORMAL') as Config['mmWsHealthSingleSideMode'],
     mmWsHealthSingleSideOffsetBps: parseFloat(process.env.MM_WS_HEALTH_SINGLE_SIDE_OFFSET_BPS || '0'),
+    mmWsHealthTouchBufferAddBps: parseFloat(process.env.MM_WS_HEALTH_TOUCH_BUFFER_ADD_BPS || '0'),
+    mmWsHealthSparseOdd: process.env.MM_WS_HEALTH_SPARSE_ODD === 'true',
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1502,6 +1504,9 @@ export function loadConfig(): Config {
   if ((config.mmWsHealthSingleSideOffsetBps ?? 0) < 0) {
     config.mmWsHealthSingleSideOffsetBps = 0;
   }
+  if ((config.mmWsHealthTouchBufferAddBps ?? 0) < 0) {
+    config.mmWsHealthTouchBufferAddBps = 0;
+  }
 
   return config;
 }
@@ -1585,9 +1590,14 @@ export function printConfig(config: Config): void {
         `MM WS Health Pace: onlyFar=${config.mmWsHealthForceOnlyFar ? '✅' : '❌'} farLayers=${config.mmWsHealthOnlyFarLayers} intervalMax=${config.mmWsHealthMinIntervalMultMax}`
       );
     }
-    if ((config.mmWsHealthSizeScaleMin ?? 1) !== 1 || (config.mmWsHealthSingleSide ?? 'NONE') !== 'NONE') {
+    if (
+      (config.mmWsHealthSizeScaleMin ?? 1) !== 1 ||
+      (config.mmWsHealthSingleSide ?? 'NONE') !== 'NONE' ||
+      (config.mmWsHealthTouchBufferAddBps ?? 0) > 0 ||
+      config.mmWsHealthSparseOdd
+    ) {
       console.log(
-        `MM WS Health Risk: sizeScaleMin=${config.mmWsHealthSizeScaleMin} singleSide=${config.mmWsHealthSingleSide} mode=${config.mmWsHealthSingleSideMode} offset=${config.mmWsHealthSingleSideOffsetBps}`
+        `MM WS Health Risk: sizeScaleMin=${config.mmWsHealthSizeScaleMin} singleSide=${config.mmWsHealthSingleSide} mode=${config.mmWsHealthSingleSideMode} offset=${config.mmWsHealthSingleSideOffsetBps} touchAdd=${config.mmWsHealthTouchBufferAddBps} sparse=${config.mmWsHealthSparseOdd ? '✅' : '❌'}`
       );
     }
   } else {

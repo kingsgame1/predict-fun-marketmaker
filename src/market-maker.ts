@@ -1427,6 +1427,22 @@ export class MarketMaker {
     return { side, mode, offsetBps };
   }
 
+  private getWsHealthTouchBufferAddBps(): number {
+    const add = Math.max(0, this.config.mmWsHealthTouchBufferAddBps ?? 0);
+    if (add <= 0) {
+      return 0;
+    }
+    const ratio = this.getWsHealthRatio();
+    return add * ratio;
+  }
+
+  private shouldSparseWs(): boolean {
+    if (!this.config.mmWsHealthSparseOdd) {
+      return false;
+    }
+    return this.getWsHealthRatio() > 0;
+  }
+
   private maybePauseForWsHealth(tokenId: string): void {
     const threshold = this.config.mmWsHealthHardThreshold ?? 0;
     const pauseMs = this.config.mmWsHealthPauseMs ?? 0;
@@ -1644,6 +1660,7 @@ export class MarketMaker {
     const imbalance = this.calculateOrderbookImbalance(orderbook);
     const wsHealth = this.getWsHealthSnapshot();
     const wsSingle = this.getWsHealthSingleSide();
+    const wsSparse = this.shouldSparseWs();
     const entry = {
       tokenId: market.token_id,
       question: market.question?.slice(0, 80),
@@ -1675,6 +1692,8 @@ export class MarketMaker {
       wsSizeScale: this.getWsHealthSizeScale(),
       wsSingleSide: wsSingle.side,
       wsSingleMode: wsSingle.mode,
+      wsTouchBufferAddBps: this.getWsHealthTouchBufferAddBps(),
+      wsSparseOdd: this.shouldSparseWs(),
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2367,6 +2386,10 @@ export class MarketMaker {
     }
     if (safeModeActive) {
       touchBufferBps += Math.max(0, this.config.mmSafeModeTouchBufferBps ?? 0);
+    }
+    const wsTouchAdd = this.getWsHealthTouchBufferAddBps();
+    if (wsTouchAdd > 0) {
+      touchBufferBps += wsTouchAdd;
     }
     if (touchBufferBps > 0) {
       const buffer = touchBufferBps / 10000;
@@ -3164,6 +3187,7 @@ export class MarketMaker {
       targetBidShares = 0;
     }
     const wsSingle = this.getWsHealthSingleSide();
+    const wsSparse = this.shouldSparseWs();
     if (wsSingle.side === 'BUY') {
       targetAskShares = 0;
     } else if (wsSingle.side === 'SELL') {
@@ -3224,10 +3248,11 @@ export class MarketMaker {
       }
     }
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;
+    const sparseOdd = restoreSparse || wsSparse;
 
     if (!suppressBuy && bidOrderSize.shares > 0) {
       for (let i = bidStart; i < bidLayers; i += 1) {
-        if (restoreSparse && i % 2 === 1) {
+        if (sparseOdd && i % 2 === 1) {
           continue;
         }
         if (remainingBids[i]) {
@@ -3249,7 +3274,7 @@ export class MarketMaker {
 
     if (!suppressSell && askOrderSize.shares > 0) {
       for (let i = askStart; i < askLayers; i += 1) {
-        if (restoreSparse && i % 2 === 1) {
+        if (sparseOdd && i % 2 === 1) {
           continue;
         }
         if (remainingAsks[i]) {
