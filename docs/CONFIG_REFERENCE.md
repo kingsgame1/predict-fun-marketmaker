@@ -128,6 +128,13 @@
 - `MM_RESTORE_EXIT_RESYNC`：恢复期结束后刷新订单簿再重挂。
 - `MM_PANIC_STEP_BPS_MULT`：强撤单期间分层间距倍数。
 - `MM_RESTORE_STEP_BPS_MULT`：恢复期分层间距倍数。
+- `MM_SAFE_MODE_ENABLED`：启用极端行情安全档。
+- `MM_SAFE_MODE_VOL_BPS`：触发安全档的波动阈值（bps）。
+- `MM_SAFE_MODE_DEPTH_TREND`：触发安全档的深度趋势阈值。
+- `MM_SAFE_MODE_SPREAD_MULT`：安全档价差倍数。
+- `MM_SAFE_MODE_STEP_MULT`：安全档分层间距倍数。
+- `MM_SAFE_MODE_COOLDOWN_MULT`：安全档冷却倍数。
+- `MM_SAFE_MODE_ONLY_FAR`：安全档只挂远层。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

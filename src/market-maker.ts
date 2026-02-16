@@ -1561,6 +1561,17 @@ export class MarketMaker {
     return until > Date.now();
   }
 
+  private isSafeModeActive(tokenId: string, metrics: { volEma: number; depthTrend: number }): boolean {
+    if (!this.config.mmSafeModeEnabled) {
+      return false;
+    }
+    const volThreshold = Math.max(0, this.config.mmSafeModeVolBps ?? 0);
+    const depthThreshold = this.config.mmSafeModeDepthTrend ?? 0;
+    const volTrigger = volThreshold > 0 && metrics.volEma >= volThreshold;
+    const depthTrigger = depthThreshold > 0 && metrics.depthTrend <= depthThreshold;
+    return volTrigger || depthTrigger;
+  }
+
   private applyLayerRetreat(tokenId: string): void {
     const holdMs = Math.max(0, this.config.mmLayerRetreatHoldMs ?? 0);
     if (!holdMs) {
@@ -1966,6 +1977,12 @@ export class MarketMaker {
 
     if (market.liquidity_activation?.max_spread) {
       adaptiveSpread = Math.min(adaptiveSpread, market.liquidity_activation.max_spread * 0.95);
+    }
+
+    const safeModeActive = this.isSafeModeActive(market.token_id, { volEma, depthTrend: depthMetrics.depthTrend });
+    if (safeModeActive) {
+      const spreadMult = Math.max(1, this.config.mmSafeModeSpreadMult ?? 1);
+      adaptiveSpread *= spreadMult;
     }
 
     adaptiveSpread = this.clamp(adaptiveSpread, minSpread, maxSpread);
@@ -2444,12 +2461,20 @@ export class MarketMaker {
       metrics.depthSpeedBps
     );
     const rampedLayerCount = this.getRestoreExitRampCap(tokenId, layerCount);
-    const layerStepBps = this.getEffectiveLayerStepBps(
+    let layerStepBps = this.getEffectiveLayerStepBps(
       tokenId,
       profile,
       metrics.depthTrend,
       metrics.depthSpeedBps
     );
+    const safeModeActive = this.isSafeModeActive(tokenId, {
+      volEma: metrics.volEma,
+      depthTrend: metrics.depthTrend,
+    });
+    if (safeModeActive) {
+      const stepMult = Math.max(1, this.config.mmSafeModeStepMult ?? 1);
+      layerStepBps *= stepMult;
+    }
     let bidPriceBase = prices.bidPrice;
     let askPriceBase = prices.askPrice;
     const panicSingleSide = this.isLayerPanicActive(tokenId)
@@ -2543,6 +2568,10 @@ export class MarketMaker {
           const mult = Math.max(1, this.config.mmRestoreCooldownMult ?? 1);
           cooldown = Math.round(cooldown * mult);
         }
+        if (this.isSafeModeActive(tokenId, { volEma: metrics.volEma, depthTrend: metrics.depthTrend })) {
+          const mult = Math.max(1, this.config.mmSafeModeCooldownMult ?? 1);
+          cooldown = Math.round(cooldown * mult);
+        }
         if (risk.panic) {
           this.pauseForVolatility(tokenId);
           this.markCooldown(tokenId, cooldown + 2000);
@@ -2623,6 +2652,10 @@ export class MarketMaker {
           cooldown = Math.round(cooldown * mult);
         } else if (this.isLayerRestoreActive(tokenId)) {
           const mult = Math.max(1, this.config.mmRestoreCooldownMult ?? 1);
+          cooldown = Math.round(cooldown * mult);
+        }
+        if (this.isSafeModeActive(tokenId, { volEma: metrics.volEma, depthTrend: metrics.depthTrend })) {
+          const mult = Math.max(1, this.config.mmSafeModeCooldownMult ?? 1);
           cooldown = Math.round(cooldown * mult);
         }
         if (risk.panic) {
@@ -2767,7 +2800,8 @@ export class MarketMaker {
     const panicSingleSideMode = (this.config.mmPanicSingleSideMode || 'NORMAL').toUpperCase();
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
     const forceSingle = this.shouldForceSingleLayer(tokenId);
-    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly;
+    const safeModeOnlyFar = safeModeActive && this.config.mmSafeModeOnlyFar === true;
+    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly || safeModeOnlyFar;
     const bidStart = farOnly ? bidLayers - 1 : 0;
     const askStart = farOnly ? askLayers - 1 : 0;
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;

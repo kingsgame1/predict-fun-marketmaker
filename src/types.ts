@@ -201,6 +201,13 @@ export interface Config {
   mmRestoreExitResync?: boolean;
   mmPanicStepBpsMult?: number;
   mmRestoreStepBpsMult?: number;
+  mmSafeModeEnabled?: boolean;
+  mmSafeModeVolBps?: number;
+  mmSafeModeDepthTrend?: number;
+  mmSafeModeSpreadMult?: number;
+  mmSafeModeStepMult?: number;
+  mmSafeModeCooldownMult?: number;
+  mmSafeModeOnlyFar?: boolean;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;
