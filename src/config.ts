@@ -149,6 +149,15 @@ export function loadConfig(): Config {
     mmCancelBudgetMax: parseInt(process.env.MM_CANCEL_BUDGET_MAX || '0'),
     mmCancelBudgetCooldownMs: parseInt(process.env.MM_CANCEL_BUDGET_COOLDOWN_MS || '0'),
     mmCancelBudgetPanicBypass: process.env.MM_CANCEL_BUDGET_PANIC_BYPASS !== 'false',
+    mmRiskThrottleEnabled: process.env.MM_RISK_THROTTLE_ENABLED === 'true',
+    mmRiskThrottleFillPenalty: parseFloat(process.env.MM_RISK_THROTTLE_FILL_PENALTY || '0'),
+    mmRiskThrottleCancelPenalty: parseFloat(process.env.MM_RISK_THROTTLE_CANCEL_PENALTY || '0'),
+    mmRiskThrottleNearTouchPenalty: parseFloat(process.env.MM_RISK_THROTTLE_NEAR_TOUCH_PENALTY || '0'),
+    mmRiskThrottleWindowMs: parseInt(process.env.MM_RISK_THROTTLE_WINDOW_MS || '60000'),
+    mmRiskThrottleDecayMs: parseInt(process.env.MM_RISK_THROTTLE_DECAY_MS || '90000'),
+    mmRiskThrottleMinFactor: parseFloat(process.env.MM_RISK_THROTTLE_MIN_FACTOR || '0.6'),
+    mmRiskThrottleMaxFactor: parseFloat(process.env.MM_RISK_THROTTLE_MAX_FACTOR || '2.5'),
+    mmRiskThrottleCoolOffMs: parseInt(process.env.MM_RISK_THROTTLE_COOL_OFF_MS || '0'),
     mmMetricsPath: process.env.MM_METRICS_PATH || 'data/mm-metrics.json',
     mmMetricsFlushMs: parseInt(process.env.MM_METRICS_FLUSH_MS || '5000'),
     mmWsEnabled: process.env.MM_WS_ENABLED === 'true',
@@ -1116,6 +1125,21 @@ export function loadConfig(): Config {
   if ((config.mmCancelBudgetCooldownMs ?? 0) < 0) {
     config.mmCancelBudgetCooldownMs = 0;
   }
+  if ((config.mmRiskThrottleWindowMs ?? 0) < 0) {
+    config.mmRiskThrottleWindowMs = 0;
+  }
+  if ((config.mmRiskThrottleDecayMs ?? 0) < 0) {
+    config.mmRiskThrottleDecayMs = 0;
+  }
+  if ((config.mmRiskThrottleMinFactor ?? 0) <= 0) {
+    config.mmRiskThrottleMinFactor = 0.4;
+  }
+  if ((config.mmRiskThrottleMaxFactor ?? 0) <= 0) {
+    config.mmRiskThrottleMaxFactor = 2.5;
+  }
+  if ((config.mmRiskThrottleCoolOffMs ?? 0) < 0) {
+    config.mmRiskThrottleCoolOffMs = 0;
+  }
 
   if ((config.crossPlatformMinSimilarity ?? 0) < 0 || (config.crossPlatformMinSimilarity ?? 0) > 1) {
     throw new Error('CROSS_PLATFORM_MIN_SIMILARITY must be between 0 and 1');
@@ -1889,6 +1913,9 @@ export function printConfig(config: Config): void {
   );
   console.log(
     `MM Min Order Lifetime: ${config.mmMinOrderLifetimeMs ?? 0}ms panicBypass=${config.mmMinOrderLifetimePanicBypass !== false ? '✅' : '❌'}`
+  );
+  console.log(
+    `MM Risk Throttle: ${config.mmRiskThrottleEnabled ? '✅' : '❌'} window=${config.mmRiskThrottleWindowMs ?? 0}ms decay=${config.mmRiskThrottleDecayMs ?? 0}ms min=${config.mmRiskThrottleMinFactor ?? 0} max=${config.mmRiskThrottleMaxFactor ?? 0} coolOff=${config.mmRiskThrottleCoolOffMs ?? 0}ms`
   );
   console.log(
     `MM Recheck: cancel=${config.mmCancelRecheckMs}ms reprice=${config.mmRepriceRecheckMs}ms cooldown=${config.mmRecheckCooldownMs}ms`

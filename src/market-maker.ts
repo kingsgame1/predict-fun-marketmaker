@@ -130,6 +130,7 @@ export class MarketMaker {
   private warnedNoExecution = false;
   private cancelBatchNonce = 0;
   private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
+  private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
 
   constructor(api: PredictAPI, config: Config) {
     this.api = api;
@@ -292,6 +293,9 @@ export class MarketMaker {
     wsEmergencyRecoveryOffsetVolWeight: number;
     wsEmergencyRecoveryTemplateReset: boolean;
     wsEmergencyRecoverySingleSideLossWeight: number;
+    riskThrottleFactor: number;
+    riskThrottleScore: number;
+    riskThrottleCoolOffMs: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -353,6 +357,9 @@ export class MarketMaker {
       wsEmergencyRecoveryOffsetVolWeight: this.config.mmWsHealthEmergencyRecoveryOffsetVolWeight ?? 0,
       wsEmergencyRecoveryTemplateReset: this.config.mmWsHealthEmergencyRecoveryTemplateResetEnabled === true,
       wsEmergencyRecoverySingleSideLossWeight: this.config.mmWsHealthEmergencyRecoverySingleSideLossWeight ?? 0,
+      riskThrottleFactor: this.getRiskThrottleFactor('__global__'),
+      riskThrottleScore: this.getRiskThrottleState('__global__').score,
+      riskThrottleCoolOffMs: Math.max(0, this.config.mmRiskThrottleCoolOffMs ?? 0),
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -465,6 +472,10 @@ export class MarketMaker {
       multiplier *= panicRestoreMult;
     }
     multiplier *= this.getFillSlowdownMultiplier(tokenId);
+    const throttle = this.getRiskThrottleFactor(tokenId);
+    if (throttle < 1) {
+      multiplier *= 1 + (1 - throttle);
+    }
     let interval = Math.max(500, Math.round(base * multiplier));
     if (this.isWsEmergencyRecoveryActive()) {
       const minInterval = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMinIntervalMs ?? 0);
@@ -1139,6 +1150,52 @@ export class MarketMaker {
     entry.count += 1;
     this.cancelBudget.set(tokenId, entry);
     return true;
+  }
+
+  private getRiskThrottleState(tokenId: string): { score: number; lastUpdate: number; coolOffUntil: number } {
+    const now = Date.now();
+    const entry = this.riskThrottleState.get(tokenId) || { score: 0, lastUpdate: now, coolOffUntil: 0 };
+    const decayMs = Math.max(0, this.config.mmRiskThrottleDecayMs ?? 0);
+    if (decayMs > 0 && entry.score > 0) {
+      const elapsed = Math.max(0, now - entry.lastUpdate);
+      const decay = Math.min(1, elapsed / decayMs);
+      entry.score = Math.max(0, entry.score * (1 - decay));
+    }
+    entry.lastUpdate = now;
+    this.riskThrottleState.set(tokenId, entry);
+    return entry;
+  }
+
+  private addRiskThrottle(tokenId: string, penalty: number): void {
+    if (!this.config.mmRiskThrottleEnabled) {
+      return;
+    }
+    if (!penalty || penalty <= 0) {
+      return;
+    }
+    const entry = this.getRiskThrottleState(tokenId);
+    const maxFactor = Math.max(1, this.config.mmRiskThrottleMaxFactor ?? 2.5);
+    entry.score = this.clamp(entry.score + penalty, 0, maxFactor);
+    const coolOff = Math.max(0, this.config.mmRiskThrottleCoolOffMs ?? 0);
+    if (coolOff > 0) {
+      entry.coolOffUntil = Date.now() + coolOff;
+    }
+    this.riskThrottleState.set(tokenId, entry);
+  }
+
+  private getRiskThrottleFactor(tokenId: string): number {
+    if (!this.config.mmRiskThrottleEnabled) {
+      return 1;
+    }
+    const entry = this.getRiskThrottleState(tokenId);
+    if (entry.coolOffUntil && Date.now() < entry.coolOffUntil) {
+      return this.clamp(this.config.mmRiskThrottleMinFactor ?? 0.6, 0.1, 1);
+    }
+    const minFactor = this.clamp(this.config.mmRiskThrottleMinFactor ?? 0.6, 0.1, 1);
+    const maxFactor = Math.max(1, this.config.mmRiskThrottleMaxFactor ?? 2.5);
+    const score = this.clamp(entry.score, 0, maxFactor);
+    const penalty = Math.min(1, score / maxFactor);
+    return this.clamp(1 - penalty * (1 - minFactor), minFactor, 1);
   }
 
   private hashToUnit(input: string): number {
@@ -3651,6 +3708,19 @@ export class MarketMaker {
           this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
           continue;
         }
+        if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
+          const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
+          if (penalty > 0) {
+            this.addRiskThrottle(tokenId, penalty);
+            this.addRiskThrottle('__global__', penalty * 0.5);
+          }
+        } else if (risk.reason === 'refresh' || shouldReprice) {
+          const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
+          if (penalty > 0) {
+            this.addRiskThrottle(tokenId, penalty);
+            this.addRiskThrottle('__global__', penalty * 0.4);
+          }
+        }
         if (
           risk.cancel &&
           (risk.reason.startsWith('near-touch') ||
@@ -3747,6 +3817,19 @@ export class MarketMaker {
           this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
           continue;
         }
+        if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
+          const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
+          if (penalty > 0) {
+            this.addRiskThrottle(tokenId, penalty);
+            this.addRiskThrottle('__global__', penalty * 0.5);
+          }
+        } else if (risk.reason === 'refresh' || shouldReprice) {
+          const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
+          if (penalty > 0) {
+            this.addRiskThrottle(tokenId, penalty);
+            this.addRiskThrottle('__global__', penalty * 0.4);
+          }
+        }
         if (
           risk.cancel &&
           (risk.reason.startsWith('near-touch') ||
@@ -3818,6 +3901,15 @@ export class MarketMaker {
     const askOrderSize = this.calculateOrderSize(market, orderbook, 'SELL', prices.askPrice);
 
     const profileScale = profile === 'CALM' ? 1.0 : profile === 'VOLATILE' ? 0.6 : 0.85;
+    const riskThrottleLocal = this.getRiskThrottleFactor(tokenId);
+    const riskThrottleGlobal = this.getRiskThrottleFactor('__global__');
+    const riskThrottle = Math.min(riskThrottleLocal, riskThrottleGlobal);
+    if (riskThrottle < 1) {
+      const multiplier = Math.min(1, riskThrottle);
+      layerStepBps = layerStepBps * (1 + (1 - multiplier));
+      bidPriceBase = Math.max(0.01, bidPriceBase * (1 - (1 - multiplier) * 0.5));
+      askPriceBase = Math.min(0.99, askPriceBase * (1 + (1 - multiplier) * 0.5));
+    }
     const canIceberg = this.config.mmIcebergEnabled && this.canRequoteIceberg(tokenId, metrics.depthTrend);
     if (canIceberg) {
       await this.cancelOrdersForMarket(tokenId);
@@ -3873,6 +3965,10 @@ export class MarketMaker {
     const minShares = market.liquidity_activation?.min_shares || 0;
     let targetBidShares = Math.max(1, Math.floor(bidOrderSize.shares * profileScale));
     let targetAskShares = Math.max(1, Math.floor(askOrderSize.shares * profileScale));
+    if (riskThrottle < 1) {
+      targetBidShares = Math.max(1, Math.floor(targetBidShares * riskThrottle));
+      targetAskShares = Math.max(1, Math.floor(targetAskShares * riskThrottle));
+    }
     if (this.isLayerRestoreActive(tokenId)) {
       const scale = this.config.mmLayerRestoreSizeScale ?? 0;
       if (scale > 0 && scale < 1) {
@@ -4216,6 +4312,11 @@ export class MarketMaker {
         this.updateFillPressure(tokenId, absDelta);
         this.lastFillAt.set(tokenId, Date.now());
         this.recordAutoTuneEvent(tokenId, 'FILLED');
+        const penalty = Math.max(0, this.config.mmRiskThrottleFillPenalty ?? 0);
+        if (penalty > 0) {
+          this.addRiskThrottle(tokenId, penalty);
+          this.addRiskThrottle('__global__', penalty * 0.5);
+        }
       }
       const partialThreshold = this.config.mmPartialFillShares ?? 5;
       if (absDelta > 0) {
@@ -4235,13 +4336,13 @@ export class MarketMaker {
         const factor = this.clamp(1 - absDelta / (partialThreshold * 5), minFactor, 1);
         this.applySizePenalty(tokenId, factor, true);
       }
-      if (absDelta >= triggerShares) {
-        this.applyIcebergPenalty(tokenId);
-        const wsDisableHedge = this.config.mmWsHealthDisableHedge && this.getWsHealthRatio() > 0;
-        if (!disableHedge && !wsDisableHedge) {
-          await this.handleFillHedge(tokenId, delta, position.question);
-        }
-      } else if (absDelta >= partialThreshold && this.config.mmPartialFillHedge) {
+        if (absDelta >= triggerShares) {
+          this.applyIcebergPenalty(tokenId);
+          const wsDisableHedge = this.config.mmWsHealthDisableHedge && this.getWsHealthRatio() > 0;
+          if (!disableHedge && !wsDisableHedge) {
+            await this.handleFillHedge(tokenId, delta, position.question);
+          }
+        } else if (absDelta >= partialThreshold && this.config.mmPartialFillHedge) {
         const maxShares = this.config.mmPartialFillHedgeMaxShares ?? 20;
         const hedgeShares = Math.min(absDelta, maxShares);
         if (hedgeShares > 0) {

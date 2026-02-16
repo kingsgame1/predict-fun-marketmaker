@@ -235,6 +235,15 @@ const FIX_HINTS = {
   MM_ONLY_POINTS_MARKETS: '只做有积分/激励的市场',
   MM_POINTS_MIN_ONLY: '积分市场只挂最小份额',
   MM_POINTS_MIN_MULTIPLIER: '积分最小份额倍率',
+  MM_RISK_THROTTLE_ENABLED: '做市风险节流开关（异常自动降速/降量）',
+  MM_RISK_THROTTLE_FILL_PENALTY: '成交触发节流惩罚',
+  MM_RISK_THROTTLE_CANCEL_PENALTY: '撤单触发节流惩罚',
+  MM_RISK_THROTTLE_NEAR_TOUCH_PENALTY: '近触碰触发节流惩罚',
+  MM_RISK_THROTTLE_WINDOW_MS: '节流统计窗口（毫秒）',
+  MM_RISK_THROTTLE_DECAY_MS: '节流衰减时间（毫秒）',
+  MM_RISK_THROTTLE_MIN_FACTOR: '节流缩量/降速下限系数',
+  MM_RISK_THROTTLE_MAX_FACTOR: '节流放大上限系数',
+  MM_RISK_THROTTLE_COOL_OFF_MS: '节流冷静期（毫秒）',
   ARB_MAX_VWAP_DEVIATION_BPS: 'VWAP 最大允许偏离（bps）',
   ARB_RECHECK_DEVIATION_BPS: '偏离过大时需要二次确认（bps）',
   ARB_MAX_VWAP_LEVELS: '限制 VWAP 使用的档位数',
@@ -4053,11 +4062,21 @@ async function loadMmMetrics() {
           ? Math.round(wsHealth.wsEmergencyRecoveryProgress * 100)
           : '--';
         const recoverySingle = wsHealth.wsEmergencyRecoverySingleActive ? '单边' : '双边';
+        const throttleFactor = Number.isFinite(wsHealth.riskThrottleFactor)
+          ? wsHealth.riskThrottleFactor.toFixed(2)
+          : '--';
+        const throttleScore = Number.isFinite(wsHealth.riskThrottleScore)
+          ? wsHealth.riskThrottleScore.toFixed(2)
+          : '--';
+        const throttleCool = Number.isFinite(wsHealth.riskThrottleCoolOffMs)
+          ? wsHealth.riskThrottleCoolOffMs
+          : '--';
+        const throttleHint = `节流=${throttleFactor} score=${throttleScore} coolOff=${throttleCool}`;
         const emergency = wsHealth.wsEmergencyCancel
           ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},far=${recoveryFarLayers}/${recoveryFarMax},fstep=${recoveryFarStep},cancelPace=${recoveryCancelInterval},offset=${recoveryOffset},volW=${recoveryOffsetVol},lossW=${recoveryLossW},${recoveryTemplate},${recoveryAuto},imb=${recoveryImb},minInt=${recoveryMinInterval},prog=${recoveryProgress}%,${recoverySingle})`
           : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
-        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
+        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} ${throttleHint} 模式=${onlyFar} 更新=${updatedAt}`;
       }
     }
 

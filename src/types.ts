@@ -103,6 +103,15 @@ export interface Config {
   mmCancelBudgetMax?: number;
   mmCancelBudgetCooldownMs?: number;
   mmCancelBudgetPanicBypass?: boolean;
+  mmRiskThrottleEnabled?: boolean;
+  mmRiskThrottleFillPenalty?: number;
+  mmRiskThrottleCancelPenalty?: number;
+  mmRiskThrottleNearTouchPenalty?: number;
+  mmRiskThrottleWindowMs?: number;
+  mmRiskThrottleDecayMs?: number;
+  mmRiskThrottleMinFactor?: number;
+  mmRiskThrottleMaxFactor?: number;
+  mmRiskThrottleCoolOffMs?: number;
   mmMetricsPath?: string;
   mmMetricsFlushMs?: number;
   mmWsEnabled?: boolean;

@@ -403,6 +403,15 @@
 - `MM_CANCEL_BUDGET_MAX`：撤单预算最大次数（0=关闭）。
 - `MM_CANCEL_BUDGET_COOLDOWN_MS`：预算触发后冷却时长（毫秒）。
 - `MM_CANCEL_BUDGET_PANIC_BYPASS`：紧急风控允许绕过撤单预算。
+- `MM_RISK_THROTTLE_ENABLED`：启用做市风险节流（异常时自动降速/降量/拉宽）。
+- `MM_RISK_THROTTLE_FILL_PENALTY`：成交触发的节流惩罚（0-1）。
+- `MM_RISK_THROTTLE_CANCEL_PENALTY`：撤单触发的节流惩罚（0-1）。
+- `MM_RISK_THROTTLE_NEAR_TOUCH_PENALTY`：近触碰触发的节流惩罚（0-1）。
+- `MM_RISK_THROTTLE_WINDOW_MS`：节流统计窗口（毫秒）。
+- `MM_RISK_THROTTLE_DECAY_MS`：节流衰减时间（毫秒）。
+- `MM_RISK_THROTTLE_MIN_FACTOR`：节流缩量/降速下限系数。
+- `MM_RISK_THROTTLE_MAX_FACTOR`：节流放大上限系数。
+- `MM_RISK_THROTTLE_COOL_OFF_MS`：进入节流后强制冷静期（毫秒）。
 - `MM_METRICS_PATH`：做市指标输出路径（JSON）。
 - `MM_METRICS_FLUSH_MS`：做市指标刷新间隔（毫秒）。
 
