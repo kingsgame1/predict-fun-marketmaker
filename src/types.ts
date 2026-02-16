@@ -134,6 +134,15 @@ export interface Config {
   mmWsHealthRepriceConfirmMultMin?: number;
   mmWsHealthDisableHedge?: boolean;
   mmWsHealthReadOnly?: boolean;
+  mmWsHealthUltraSafeEnabled?: boolean;
+  mmWsHealthUltraSafeSide?: 'BUY' | 'SELL' | 'NONE';
+  mmWsHealthUltraSafeMode?: 'REMOTE' | 'NORMAL';
+  mmWsHealthUltraSafeOffsetBps?: number;
+  mmWsHealthUltraSafeFarLayers?: number;
+  mmWsHealthUltraSafeSizeScale?: number;
+  mmWsHealthEmergencyCancelAll?: boolean;
+  mmWsHealthEmergencyCooldownMs?: number;
+  mmWsHealthEmergencyIntervalMs?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

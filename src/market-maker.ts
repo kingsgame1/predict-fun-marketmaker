@@ -106,6 +106,7 @@ export class MarketMaker {
   private safeModeExitUntil: Map<string, number> = new Map();
   private wsHealthScore = 100;
   private wsHealthUpdatedAt = 0;
+  private wsEmergencyLast: Map<string, number> = new Map();
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -1455,6 +1456,29 @@ export class MarketMaker {
     return 1 - (1 - minMult) * ratio;
   }
 
+  private isWsUltraSafeActive(): boolean {
+    if (!this.config.mmWsHealthUltraSafeEnabled) {
+      return false;
+    }
+    return this.getWsHealthRatio() > 0;
+  }
+
+  private shouldEmergencyCancel(tokenId: string): boolean {
+    if (!this.config.mmWsHealthEmergencyCancelAll) {
+      return false;
+    }
+    if (this.getWsHealthRatio() <= 0) {
+      return false;
+    }
+    const intervalMs = Math.max(0, this.config.mmWsHealthEmergencyIntervalMs ?? 0);
+    const last = this.wsEmergencyLast.get(tokenId) || 0;
+    if (intervalMs > 0 && Date.now() - last < intervalMs) {
+      return false;
+    }
+    this.wsEmergencyLast.set(tokenId, Date.now());
+    return true;
+  }
+
   private getWsHealthCancelMult(): number {
     const maxMult = this.config.mmWsHealthCancelMultMax ?? 1;
     if (maxMult <= 1) {
@@ -1483,6 +1507,9 @@ export class MarketMaker {
   }
 
   private shouldForceOnlyFarWs(): boolean {
+    if (this.isWsUltraSafeActive()) {
+      return true;
+    }
     if (!this.config.mmWsHealthForceOnlyFar) {
       return false;
     }
@@ -1492,11 +1519,17 @@ export class MarketMaker {
 
   private getWsHealthSizeScale(): number {
     const minScale = this.config.mmWsHealthSizeScaleMin ?? 1;
-    if (minScale >= 1) {
-      return 1;
-    }
     const ratio = this.getWsHealthRatio();
-    return 1 - (1 - minScale) * ratio;
+    let scale = 1;
+    if (minScale < 1) {
+      scale = 1 - (1 - minScale) * ratio;
+    }
+    if (this.isWsUltraSafeActive()) {
+      const ultraScale = Math.max(0, Math.min(1, this.config.mmWsHealthUltraSafeSizeScale ?? 0.3));
+      const blended = 1 - (1 - ultraScale) * ratio;
+      scale = Math.min(scale, blended);
+    }
+    return scale;
   }
 
   private getWsHealthSingleSide(): {
@@ -1504,10 +1537,20 @@ export class MarketMaker {
     mode: 'NORMAL' | 'REMOTE';
     offsetBps: number;
   } {
-    const side = (this.config.mmWsHealthSingleSide || 'NONE').toUpperCase() as 'BUY' | 'SELL' | 'NONE';
-    const mode = (this.config.mmWsHealthSingleSideMode || 'NORMAL').toUpperCase() as 'NORMAL' | 'REMOTE';
-    const offsetBps = Math.max(0, this.config.mmWsHealthSingleSideOffsetBps ?? 0);
+    let side = (this.config.mmWsHealthSingleSide || 'NONE').toUpperCase() as 'BUY' | 'SELL' | 'NONE';
+    let mode = (this.config.mmWsHealthSingleSideMode || 'NORMAL').toUpperCase() as 'NORMAL' | 'REMOTE';
+    let offsetBps = Math.max(0, this.config.mmWsHealthSingleSideOffsetBps ?? 0);
     const ratio = this.getWsHealthRatio();
+    if (this.isWsUltraSafeActive()) {
+      const ultraSide = (this.config.mmWsHealthUltraSafeSide || 'NONE').toUpperCase() as 'BUY' | 'SELL' | 'NONE';
+      const ultraMode = (this.config.mmWsHealthUltraSafeMode || 'REMOTE').toUpperCase() as 'NORMAL' | 'REMOTE';
+      const ultraOffset = Math.max(0, this.config.mmWsHealthUltraSafeOffsetBps ?? 0);
+      if (ultraSide !== 'NONE') {
+        side = ultraSide;
+        mode = ultraMode;
+        offsetBps = ultraOffset;
+      }
+    }
     if (!side || side === 'NONE' || ratio <= 0) {
       return { side: 'NONE', mode, offsetBps };
     }
@@ -1792,6 +1835,8 @@ export class MarketMaker {
       wsRepriceConfirmMult: this.getWsHealthRepriceConfirmMult(),
       wsDisableHedge: this.config.mmWsHealthDisableHedge === true,
       wsReadOnly: this.config.mmWsHealthReadOnly === true,
+      wsUltraSafe: this.isWsUltraSafeActive(),
+      wsEmergencyCancel: this.config.mmWsHealthEmergencyCancelAll === true,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2870,6 +2915,15 @@ export class MarketMaker {
       }
       return;
     }
+    if (this.shouldEmergencyCancel(tokenId)) {
+      await this.cancelOrdersForMarket(tokenId);
+      const cooldown = Math.max(0, this.config.mmWsHealthEmergencyCooldownMs ?? 0);
+      if (cooldown > 0) {
+        this.markCooldown(tokenId, cooldown);
+      }
+      this.markAction(tokenId);
+      return;
+    }
     if (this.config.mmWsHealthReadOnly && this.getWsHealthRatio() > 0) {
       return;
     }
@@ -3359,7 +3413,11 @@ export class MarketMaker {
         ? Math.max(0, askLayers - safeOnlyFarLayers)
         : 0;
     if (wsOnlyFar) {
-      const farLayers = Math.max(0, this.config.mmWsHealthOnlyFarLayers ?? 0);
+      let farLayers = Math.max(0, this.config.mmWsHealthOnlyFarLayers ?? 0);
+      if (this.isWsUltraSafeActive()) {
+        const ultraLayers = Math.max(0, this.config.mmWsHealthUltraSafeFarLayers ?? 1);
+        farLayers = Math.max(farLayers, ultraLayers);
+      }
       if (farLayers > 0) {
         bidStart = Math.max(bidStart, Math.max(0, bidLayers - farLayers));
         askStart = Math.max(askStart, Math.max(0, askLayers - farLayers));

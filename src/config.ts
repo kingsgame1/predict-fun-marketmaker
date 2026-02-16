@@ -180,6 +180,15 @@ export function loadConfig(): Config {
     mmWsHealthRepriceConfirmMultMin: parseFloat(process.env.MM_WS_HEALTH_REPRICE_CONFIRM_MULT_MIN || '1'),
     mmWsHealthDisableHedge: process.env.MM_WS_HEALTH_DISABLE_HEDGE === 'true',
     mmWsHealthReadOnly: process.env.MM_WS_HEALTH_READ_ONLY === 'true',
+    mmWsHealthUltraSafeEnabled: process.env.MM_WS_HEALTH_ULTRA_SAFE_ENABLED === 'true',
+    mmWsHealthUltraSafeSide: (process.env.MM_WS_HEALTH_ULTRA_SAFE_SIDE || 'NONE') as Config['mmWsHealthUltraSafeSide'],
+    mmWsHealthUltraSafeMode: (process.env.MM_WS_HEALTH_ULTRA_SAFE_MODE || 'REMOTE') as Config['mmWsHealthUltraSafeMode'],
+    mmWsHealthUltraSafeOffsetBps: parseFloat(process.env.MM_WS_HEALTH_ULTRA_SAFE_OFFSET_BPS || '0'),
+    mmWsHealthUltraSafeFarLayers: parseInt(process.env.MM_WS_HEALTH_ULTRA_SAFE_FAR_LAYERS || '1'),
+    mmWsHealthUltraSafeSizeScale: parseFloat(process.env.MM_WS_HEALTH_ULTRA_SAFE_SIZE_SCALE || '0.3'),
+    mmWsHealthEmergencyCancelAll: process.env.MM_WS_HEALTH_EMERGENCY_CANCEL_ALL === 'true',
+    mmWsHealthEmergencyCooldownMs: parseInt(process.env.MM_WS_HEALTH_EMERGENCY_COOLDOWN_MS || '30000'),
+    mmWsHealthEmergencyIntervalMs: parseInt(process.env.MM_WS_HEALTH_EMERGENCY_INTERVAL_MS || '15000'),
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1551,6 +1560,24 @@ export function loadConfig(): Config {
   if ((config.mmWsHealthRepriceConfirmMultMin ?? 0) > 1) {
     config.mmWsHealthRepriceConfirmMultMin = 1;
   }
+  if ((config.mmWsHealthUltraSafeOffsetBps ?? 0) < 0) {
+    config.mmWsHealthUltraSafeOffsetBps = 0;
+  }
+  if ((config.mmWsHealthUltraSafeFarLayers ?? 0) < 0) {
+    config.mmWsHealthUltraSafeFarLayers = 0;
+  }
+  if ((config.mmWsHealthUltraSafeSizeScale ?? 0) <= 0) {
+    config.mmWsHealthUltraSafeSizeScale = 0.3;
+  }
+  if ((config.mmWsHealthUltraSafeSizeScale ?? 0) > 1) {
+    config.mmWsHealthUltraSafeSizeScale = 1;
+  }
+  if ((config.mmWsHealthEmergencyCooldownMs ?? 0) < 0) {
+    config.mmWsHealthEmergencyCooldownMs = 0;
+  }
+  if ((config.mmWsHealthEmergencyIntervalMs ?? 0) < 0) {
+    config.mmWsHealthEmergencyIntervalMs = 0;
+  }
 
   return config;
 }
@@ -1649,10 +1676,12 @@ export function printConfig(config: Config): void {
       (config.mmWsHealthCancelConfirmMultMin ?? 1) !== 1 ||
       (config.mmWsHealthRepriceConfirmMultMin ?? 1) !== 1 ||
       config.mmWsHealthDisableHedge ||
-      config.mmWsHealthReadOnly
+      config.mmWsHealthReadOnly ||
+      config.mmWsHealthUltraSafeEnabled ||
+      config.mmWsHealthEmergencyCancelAll
     ) {
       console.log(
-        `MM WS Health Risk: sizeScaleMin=${config.mmWsHealthSizeScaleMin} singleSide=${config.mmWsHealthSingleSide} mode=${config.mmWsHealthSingleSideMode} offset=${config.mmWsHealthSingleSideOffsetBps} touchAdd=${config.mmWsHealthTouchBufferAddBps} sparse=${config.mmWsHealthSparseOdd ? '✅' : '❌'} layerCap=${config.mmWsHealthLayerCountCap} maxOrdersMin=${config.mmWsHealthMaxOrdersMultMin} softCancelMax=${config.mmWsHealthSoftCancelMultMax} hardCancelMax=${config.mmWsHealthHardCancelMultMax} repriceBufferAdd=${config.mmWsHealthRepriceBufferAddBps} cancelBufferAdd=${config.mmWsHealthCancelBufferAddBps} forceSafe=${config.mmWsHealthForceSafeMode ? '✅' : '❌'} cancelConfirmMin=${config.mmWsHealthCancelConfirmMultMin} repriceConfirmMin=${config.mmWsHealthRepriceConfirmMultMin} disableHedge=${config.mmWsHealthDisableHedge ? '✅' : '❌'} readOnly=${config.mmWsHealthReadOnly ? '✅' : '❌'}`
+        `MM WS Health Risk: sizeScaleMin=${config.mmWsHealthSizeScaleMin} singleSide=${config.mmWsHealthSingleSide} mode=${config.mmWsHealthSingleSideMode} offset=${config.mmWsHealthSingleSideOffsetBps} touchAdd=${config.mmWsHealthTouchBufferAddBps} sparse=${config.mmWsHealthSparseOdd ? '✅' : '❌'} layerCap=${config.mmWsHealthLayerCountCap} maxOrdersMin=${config.mmWsHealthMaxOrdersMultMin} softCancelMax=${config.mmWsHealthSoftCancelMultMax} hardCancelMax=${config.mmWsHealthHardCancelMultMax} repriceBufferAdd=${config.mmWsHealthRepriceBufferAddBps} cancelBufferAdd=${config.mmWsHealthCancelBufferAddBps} forceSafe=${config.mmWsHealthForceSafeMode ? '✅' : '❌'} cancelConfirmMin=${config.mmWsHealthCancelConfirmMultMin} repriceConfirmMin=${config.mmWsHealthRepriceConfirmMultMin} disableHedge=${config.mmWsHealthDisableHedge ? '✅' : '❌'} readOnly=${config.mmWsHealthReadOnly ? '✅' : '❌'} ultra=${config.mmWsHealthUltraSafeEnabled ? '✅' : '❌'} emergency=${config.mmWsHealthEmergencyCancelAll ? '✅' : '❌'}`
       );
     }
   } else {
