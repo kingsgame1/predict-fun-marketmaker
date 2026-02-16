@@ -230,8 +230,22 @@ export class MarketMaker {
     const mult = this.getVolatilityMultiplier(tokenId, this.config.mmCancelVolMultiplier ?? 2);
     const boost = this.getCancelBoost(tokenId);
     const noFill = this.getNoFillPenalty(tokenId);
-    const threshold = (base + (noFill.cancelBps || 0) / 10000) / mult / boost;
-    const buffer = Math.max(0, this.config.mmCancelBufferBps ?? 0);
+    let threshold = (base + (noFill.cancelBps || 0) / 10000) / mult / boost;
+    let buffer = Math.max(0, this.config.mmCancelBufferBps ?? 0);
+    if (
+      this.isSafeModeActive(tokenId, {
+        volEma: this.volatilityEma.get(tokenId) ?? 0,
+        depthTrend: this.depthTrend.get(tokenId) ?? 0,
+        depthSpeedBps: this.lastDepthSpeedBps.get(tokenId) ?? 0,
+      })
+    ) {
+      const mult = Math.max(1, this.config.mmSafeModeCancelThresholdMult ?? 1);
+      threshold = threshold / mult;
+      const add = Math.max(0, this.config.mmSafeModeCancelBufferAddBps ?? 0);
+      if (add > 0) {
+        buffer += add / 10000;
+      }
+    }
     const hard = threshold * (1 + buffer);
     if (priceChange > hard) {
       this.cancelHoldUntil.delete(tokenId);
@@ -2379,8 +2393,25 @@ export class MarketMaker {
     const base = this.config.repriceThreshold ?? 0.003;
     const mult = this.getVolatilityMultiplier(order.token_id, this.config.mmRepriceVolMultiplier ?? 1.5);
     const noFill = this.getNoFillPenalty(order.token_id);
-    const threshold = (base + (noFill.repriceBps || 0) / 10000) / mult;
-    const buffer = Math.max(0, this.config.mmRepriceBufferBps ?? 0);
+    let threshold = (base + (noFill.repriceBps || 0) / 10000) / mult;
+    let buffer = Math.max(0, this.config.mmRepriceBufferBps ?? 0);
+    let confirmMs = Math.max(0, this.config.mmRepriceConfirmMs ?? 0);
+    if (
+      this.isSafeModeActive(order.token_id, {
+        volEma: this.volatilityEma.get(order.token_id) ?? 0,
+        depthTrend: this.depthTrend.get(order.token_id) ?? 0,
+        depthSpeedBps: this.lastDepthSpeedBps.get(order.token_id) ?? 0,
+      })
+    ) {
+      const mult = Math.max(1, this.config.mmSafeModeRepriceMult ?? 1);
+      threshold = threshold / mult;
+      const add = Math.max(0, this.config.mmSafeModeRepriceBufferAddBps ?? 0);
+      if (add > 0) {
+        buffer += add / 10000;
+      }
+      const confirmMult = Math.max(1, this.config.mmSafeModeRepriceConfirmMult ?? 1);
+      confirmMs = Math.round(confirmMs * confirmMult);
+    }
     const hard = threshold * (1 + buffer);
     if (diff >= hard) {
       this.repriceHoldUntil.delete(order.order_hash);
@@ -2390,7 +2421,6 @@ export class MarketMaker {
       this.repriceHoldUntil.delete(order.order_hash);
       return false;
     }
-    const confirmMs = Math.max(0, this.config.mmRepriceConfirmMs ?? 0);
     if (confirmMs <= 0) {
       return true;
     }
