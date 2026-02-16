@@ -111,6 +111,8 @@ export interface Config {
   mmCancelBurstOnlyFar?: boolean;
   mmCancelBurstOnlyFarLayers?: number;
   mmCancelBurstLayerCap?: number;
+  mmCancelMaxPerCycle?: number;
+  mmCancelMaxPerCyclePanicBypass?: boolean;
   mmRiskThrottleEnabled?: boolean;
   mmRiskThrottleFillPenalty?: number;
   mmRiskThrottleCancelPenalty?: number;

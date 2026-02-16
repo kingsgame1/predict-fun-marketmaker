@@ -411,6 +411,8 @@
 - `MM_CANCEL_BURST_ONLY_FAR`：撤单爆发期间仅挂远层（true/false）。
 - `MM_CANCEL_BURST_ONLY_FAR_LAYERS`：撤单爆发期间仅挂的远层数量（0=仅挂最远一层）。
 - `MM_CANCEL_BURST_LAYER_CAP`：撤单爆发期间分层数量上限（0=不限制）。
+- `MM_CANCEL_MAX_PER_CYCLE`：单轮处理的撤单数量上限（0=不限制）。
+- `MM_CANCEL_MAX_PER_CYCLE_PANIC_BYPASS`：紧急撤单是否绕过单轮撤单上限。
 - `MM_RISK_THROTTLE_ENABLED`：启用做市风险节流（异常时自动降速/降量/拉宽）。
 - `MM_RISK_THROTTLE_FILL_PENALTY`：成交触发的节流惩罚（0-1）。
 - `MM_RISK_THROTTLE_CANCEL_PENALTY`：撤单触发的节流惩罚（0-1）。

@@ -2322,6 +2322,13 @@ export class MarketMaker {
     const wsHealth = this.getWsHealthSnapshot();
     const wsSingle = this.getWsHealthSingleSide();
     const wsSparse = this.shouldSparseWs();
+    const riskLocal = this.getRiskThrottleFactor(market.token_id);
+    const riskGlobal = this.getRiskThrottleFactor('__global__');
+    const riskThrottle = Math.min(riskLocal, riskGlobal);
+    const riskOnlyFarThreshold = Math.max(0, this.config.mmRiskThrottleOnlyFarThreshold ?? 0);
+    const riskOnlyFarActive = riskOnlyFarThreshold > 0 && riskThrottle <= riskOnlyFarThreshold;
+    const burstEntry = this.cancelBurst.get(market.token_id);
+    const burstCooldownMs = burstEntry?.cooldownUntil ? Math.max(0, burstEntry.cooldownUntil - Date.now()) : 0;
     const entry = {
       tokenId: market.token_id,
       question: market.question?.slice(0, 80),
@@ -2396,6 +2403,11 @@ export class MarketMaker {
       wsEmergencyRecoveryOffsetVolWeight: wsHealth.wsEmergencyRecoveryOffsetVolWeight,
       wsEmergencyRecoveryTemplateReset: wsHealth.wsEmergencyRecoveryTemplateReset,
       wsEmergencyRecoverySingleSideLossWeight: wsHealth.wsEmergencyRecoverySingleSideLossWeight,
+      riskThrottleFactor: riskThrottle,
+      riskOnlyFarActive,
+      cancelBurstActive: this.isCancelBurstActive(market.token_id),
+      cancelBurstCount: burstEntry?.count ?? 0,
+      cancelBurstCooldownMs: burstCooldownMs,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -3732,20 +3744,28 @@ export class MarketMaker {
     const bidLayers = bidTargets.length;
     const askLayers = askTargets.length;
     const canceledOrders = new Set<string>();
-    const pendingCancels: Order[] = [];
-    const enqueueCancel = (order: Order) => {
+    const pendingCancels: Array<{ order: Order; priority: number; panic: boolean; reason: string }> = [];
+    const enqueueCancel = (
+      order: Order,
+      meta?: { priority?: number; panic?: boolean; reason?: string }
+    ) => {
       if (canceledOrders.has(order.order_hash)) {
         return;
       }
       canceledOrders.add(order.order_hash);
-      pendingCancels.push(order);
+      pendingCancels.push({
+        order,
+        priority: meta?.priority ?? 0,
+        panic: meta?.panic ?? false,
+        reason: meta?.reason ?? 'unknown',
+      });
     };
 
     for (let i = 0; i < existingBids.length; i += 1) {
       const existingBid = existingBids[i];
       const targetPrice = bidTargets[i];
       if (targetPrice === undefined) {
-        enqueueCancel(existingBid);
+        enqueueCancel(existingBid, { priority: 0, reason: 'excess-layer', panic: false });
         continue;
       }
       let risk = this.evaluateOrderRisk(existingBid, orderbook);
@@ -3825,7 +3845,19 @@ export class MarketMaker {
             this.applySizePenalty(tokenId, sizePenalty, true);
           }
         }
-        enqueueCancel(existingBid);
+        const cancelPriority = risk.panic
+          ? 3
+          : risk.cancel &&
+              (risk.reason.startsWith('near-touch') ||
+                risk.reason === 'anti-fill' ||
+                risk.reason.startsWith('hit-warning') ||
+                risk.reason === 'aggressive-move' ||
+                risk.reason === 'price-accel' ||
+                risk.reason === 'vwap-risk' ||
+                risk.reason.startsWith('restore-no-near-touch'))
+            ? 2
+            : 1;
+        enqueueCancel(existingBid, { priority: cancelPriority, panic: risk.panic, reason: risk.reason || '' });
         const softCooldown = this.config.mmSoftCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const hardCooldown = this.config.mmHardCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const baseCooldown = risk.panic ? hardCooldown : softCooldown;
@@ -3854,7 +3886,7 @@ export class MarketMaker {
       const existingAsk = existingAsks[i];
       const targetPrice = askTargets[i];
       if (targetPrice === undefined) {
-        enqueueCancel(existingAsk);
+        enqueueCancel(existingAsk, { priority: 0, reason: 'excess-layer', panic: false });
         continue;
       }
       let risk = this.evaluateOrderRisk(existingAsk, orderbook);
@@ -3934,7 +3966,19 @@ export class MarketMaker {
             this.applySizePenalty(tokenId, sizePenalty, true);
           }
         }
-        enqueueCancel(existingAsk);
+        const cancelPriority = risk.panic
+          ? 3
+          : risk.cancel &&
+              (risk.reason.startsWith('near-touch') ||
+                risk.reason === 'anti-fill' ||
+                risk.reason.startsWith('hit-warning') ||
+                risk.reason === 'aggressive-move' ||
+                risk.reason === 'price-accel' ||
+                risk.reason === 'vwap-risk' ||
+                risk.reason.startsWith('restore-no-near-touch'))
+            ? 2
+            : 1;
+        enqueueCancel(existingAsk, { priority: cancelPriority, panic: risk.panic, reason: risk.reason || '' });
         const softCooldown = this.config.mmSoftCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const hardCooldown = this.config.mmHardCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const baseCooldown = risk.panic ? hardCooldown : softCooldown;
@@ -3959,7 +4003,36 @@ export class MarketMaker {
       }
     }
 
-    await this.cancelOrdersBatch(pendingCancels, 'quote-refresh');
+    let cancelBatch = pendingCancels;
+    const cancelCap = Math.max(0, this.config.mmCancelMaxPerCycle ?? 0);
+    if (cancelCap > 0 && pendingCancels.length > cancelCap) {
+      const panicBypass = this.config.mmCancelMaxPerCyclePanicBypass !== false;
+      const sorted = [...pendingCancels].sort((a, b) => b.priority - a.priority);
+      let selected: typeof pendingCancels;
+      if (panicBypass) {
+        const panic = sorted.filter((item) => item.panic);
+        const nonPanic = sorted.filter((item) => !item.panic);
+        const remaining = Math.max(0, cancelCap - panic.length);
+        selected = panic.concat(nonPanic.slice(0, remaining));
+      } else {
+        selected = sorted.slice(0, cancelCap);
+      }
+      const selectedSet = new Set(selected.map((item) => item.order.order_hash));
+      const skipped = sorted.filter((item) => !selectedSet.has(item.order.order_hash));
+      if (skipped.length > 0) {
+        this.recordMmEvent(
+          'CANCEL_QUEUE_LIMIT',
+          `keep=${selectedSet.size} skip=${skipped.length} cap=${cancelCap}`,
+          tokenId
+        );
+      }
+      cancelBatch = selected;
+    }
+
+    await this.cancelOrdersBatch(
+      cancelBatch.map((item) => item.order),
+      'quote-refresh'
+    );
 
     const refreshedOrders = Array.from(this.openOrders.values()).filter(
       (o) => o.token_id === tokenId && o.status === 'OPEN'

@@ -254,6 +254,8 @@ const FIX_HINTS = {
   MM_CANCEL_BURST_ONLY_FAR: '撤单爆发期间仅挂远层',
   MM_CANCEL_BURST_ONLY_FAR_LAYERS: '撤单爆发远层数量',
   MM_CANCEL_BURST_LAYER_CAP: '撤单爆发分层上限',
+  MM_CANCEL_MAX_PER_CYCLE: '单轮撤单数量上限',
+  MM_CANCEL_MAX_PER_CYCLE_PANIC_BYPASS: '紧急撤单绕过单轮上限',
   ARB_MAX_VWAP_DEVIATION_BPS: 'VWAP 最大允许偏离（bps）',
   ARB_RECHECK_DEVIATION_BPS: '偏离过大时需要二次确认（bps）',
   ARB_MAX_VWAP_LEVELS: '限制 VWAP 使用的档位数',
@@ -4117,7 +4119,11 @@ async function loadMmMetrics() {
           const wsSparse = m.wsSparseOdd ? '稀疏' : '常规';
           const wsCap = Number.isFinite(m.wsLayerCap) ? `cap=${m.wsLayerCap}` : '';
           const wsEmergency = m.wsEmergencyActive ? 'emg=on' : '';
-          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle} ${wsCap} ${wsEmergency}`.trim();
+          const riskThrottle = Number.isFinite(m.riskThrottleFactor) ? `rt=${m.riskThrottleFactor.toFixed(2)}` : '';
+          const riskFar = m.riskOnlyFarActive ? 'riskFar' : '';
+          const burst = m.cancelBurstActive ? 'burst=on' : '';
+          hint.textContent =
+            `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle} ${wsCap} ${wsEmergency} ${riskThrottle} ${riskFar} ${burst}`.trim();
           row.appendChild(label);
           row.appendChild(hint);
           mmMarketsList.appendChild(row);

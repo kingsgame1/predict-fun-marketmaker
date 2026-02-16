@@ -157,6 +157,8 @@ export function loadConfig(): Config {
     mmCancelBurstOnlyFar: process.env.MM_CANCEL_BURST_ONLY_FAR === 'true',
     mmCancelBurstOnlyFarLayers: parseInt(process.env.MM_CANCEL_BURST_ONLY_FAR_LAYERS || '0'),
     mmCancelBurstLayerCap: parseInt(process.env.MM_CANCEL_BURST_LAYER_CAP || '0'),
+    mmCancelMaxPerCycle: parseInt(process.env.MM_CANCEL_MAX_PER_CYCLE || '0'),
+    mmCancelMaxPerCyclePanicBypass: process.env.MM_CANCEL_MAX_PER_CYCLE_PANIC_BYPASS !== 'false',
     mmRiskThrottleEnabled: process.env.MM_RISK_THROTTLE_ENABLED === 'true',
     mmRiskThrottleFillPenalty: parseFloat(process.env.MM_RISK_THROTTLE_FILL_PENALTY || '0'),
     mmRiskThrottleCancelPenalty: parseFloat(process.env.MM_RISK_THROTTLE_CANCEL_PENALTY || '0'),
@@ -1154,6 +1156,9 @@ export function loadConfig(): Config {
   if ((config.mmCancelBurstLayerCap ?? 0) < 0) {
     config.mmCancelBurstLayerCap = 0;
   }
+  if ((config.mmCancelMaxPerCycle ?? 0) < 0) {
+    config.mmCancelMaxPerCycle = 0;
+  }
   if ((config.mmRiskThrottleWindowMs ?? 0) < 0) {
     config.mmRiskThrottleWindowMs = 0;
   }
@@ -1954,6 +1959,9 @@ export function printConfig(config: Config): void {
   );
   console.log(
     `MM Cancel Burst: limit=${config.mmCancelBurstLimit ?? 0} window=${config.mmCancelBurstWindowMs ?? 0}ms cooldown=${config.mmCancelBurstCooldownMs ?? 0}ms panicBypass=${config.mmCancelBurstPanicBypass !== false ? '✅' : '❌'} retreat=${config.mmCancelBurstRetreatMs ?? 0}ms onlyFar=${config.mmCancelBurstOnlyFar ? '✅' : '❌'} farLayers=${config.mmCancelBurstOnlyFarLayers ?? 0} layerCap=${config.mmCancelBurstLayerCap ?? 0}`
+  );
+  console.log(
+    `MM Cancel Cap: perCycle=${config.mmCancelMaxPerCycle ?? 0} panicBypass=${config.mmCancelMaxPerCyclePanicBypass !== false ? '✅' : '❌'}`
   );
   console.log(
     `MM Min Order Lifetime: ${config.mmMinOrderLifetimeMs ?? 0}ms panicBypass=${config.mmMinOrderLifetimePanicBypass !== false ? '✅' : '❌'}`
