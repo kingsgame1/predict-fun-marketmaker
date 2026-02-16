@@ -224,6 +224,8 @@ export interface Config {
   mmSafeModeOnlyFarLayers?: number;
   mmSafeModeMinIntervalMs?: number;
   mmSafeModeMaxSharesPerOrder?: number;
+  mmSafeModeDepthUsageMult?: number;
+  mmSafeModeDepthCapMult?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

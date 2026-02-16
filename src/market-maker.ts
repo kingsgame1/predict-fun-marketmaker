@@ -2209,11 +2209,23 @@ export class MarketMaker {
       return { shares: 0, usdt: 0 };
     }
 
+    const safeModeActive = this.isSafeModeActive(market.token_id, {
+      volEma: this.volatilityEma.get(market.token_id) ?? 0,
+      depthTrend: this.depthTrend.get(market.token_id) ?? 0,
+      depthSpeedBps: this.lastDepthSpeedBps.get(market.token_id) ?? 0,
+    });
+
     let shares = Math.floor(targetOrderValue / price);
     const depthUsage = this.config.mmOrderDepthUsage ?? 0;
     const topDepth = this.lastDepth.get(market.token_id);
     if (depthUsage > 0 && topDepth && topDepth > 0) {
-      const cap = Math.max(1, Math.floor(topDepth * depthUsage));
+      let cap = Math.max(1, Math.floor(topDepth * depthUsage));
+      if (safeModeActive) {
+        const mult = Math.max(0, this.config.mmSafeModeDepthUsageMult ?? 1);
+        if (mult > 0) {
+          cap = Math.max(1, Math.floor(cap * mult));
+        }
+      }
       shares = Math.min(shares, cap);
     }
 
@@ -2223,6 +2235,12 @@ export class MarketMaker {
       const levels = this.config.mmDepthLevels ?? 3;
       const sideLevels = side === 'BUY' ? orderbook.bids : orderbook.asks;
       depthCap = Math.floor(this.sumDepthLevels(sideLevels, levels) * depthFactor);
+      if (safeModeActive) {
+        const mult = Math.max(0, this.config.mmSafeModeDepthCapMult ?? 1);
+        if (mult > 0) {
+          depthCap = Math.max(1, Math.floor(depthCap * mult));
+        }
+      }
     }
 
     const inventoryBias = this.calculateInventoryBias(market.token_id);
@@ -2272,11 +2290,6 @@ export class MarketMaker {
     if (maxShares > 0) {
       shares = Math.min(shares, Math.floor(maxShares));
     }
-    const safeModeActive = this.isSafeModeActive(market.token_id, {
-      volEma: this.volatilityEma.get(market.token_id) ?? 0,
-      depthTrend: this.depthTrend.get(market.token_id) ?? 0,
-      depthSpeedBps: this.lastDepthSpeedBps.get(market.token_id) ?? 0,
-    });
     if (safeModeActive) {
       const maxSafe = this.config.mmSafeModeMaxSharesPerOrder ?? 0;
       if (maxSafe > 0) {

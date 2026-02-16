@@ -151,6 +151,8 @@
 - `MM_SAFE_MODE_ONLY_FAR_LAYERS`：安全档仅挂最远的层数（0=不启用）。
 - `MM_SAFE_MODE_MIN_INTERVAL_MS`：安全档最小下单间隔（毫秒）。
 - `MM_SAFE_MODE_MAX_SHARES_PER_ORDER`：安全档单笔挂单最大份额上限。
+- `MM_SAFE_MODE_DEPTH_USAGE_MULT`：安全档盘口深度占用比例倍数。
+- `MM_SAFE_MODE_DEPTH_CAP_MULT`：安全档深度上限缩放倍数。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
