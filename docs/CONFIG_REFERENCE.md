@@ -96,6 +96,7 @@
 - `MM_LAYER_PANIC_SIZE_MIN_FACTOR`：强撤单后，挂单份额最小系数（0-1）。
 - `MM_LAYER_STEP_BPS_RETREAT_ADD`：撤退模式下每层额外偏移（bps）。
 - `MM_LAYER_PANIC_INTERVAL_MULT`：强撤单保护期内，下单间隔倍数。
+- `MM_LAYER_PANIC_ONLY_FAR`：强撤单保护期仅挂最远一层。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

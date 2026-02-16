@@ -2359,6 +2359,9 @@ export class MarketMaker {
           (risk.reason.startsWith('near-touch') ||
             risk.reason === 'anti-fill' ||
             risk.reason.startsWith('hit-warning') ||
+            risk.reason === 'aggressive-move' ||
+            risk.reason === 'price-accel' ||
+            risk.reason === 'vwap-risk' ||
             risk.reason.startsWith('restore-no-near-touch'))
         ) {
           const intensity = risk.panic ? 1.5 : 1;
@@ -2424,6 +2427,9 @@ export class MarketMaker {
           (risk.reason.startsWith('near-touch') ||
             risk.reason === 'anti-fill' ||
             risk.reason.startsWith('hit-warning') ||
+            risk.reason === 'aggressive-move' ||
+            risk.reason === 'price-accel' ||
+            risk.reason === 'vwap-risk' ||
             risk.reason.startsWith('restore-no-near-touch'))
         ) {
           const intensity = risk.panic ? 1.5 : 1;
@@ -2545,8 +2551,9 @@ export class MarketMaker {
         (this.config.mmLayerDepthSpeedRetreatBps &&
           metrics.depthSpeedBps >= this.config.mmLayerDepthSpeedRetreatBps));
     const restoreOnlyFar = this.config.mmLayerRestoreOnlyFar === true && this.isLayerRestoreActive(tokenId);
+    const panicOnlyFar = this.config.mmLayerPanicOnlyFar === true && this.isLayerPanicActive(tokenId);
     const forceSingle = this.shouldForceSingleLayer(tokenId);
-    const farOnly = retreatOnlyFar || restoreOnlyFar;
+    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar;
     const bidStart = farOnly ? bidLayers - 1 : 0;
     const askStart = farOnly ? askLayers - 1 : 0;
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;
