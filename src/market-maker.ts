@@ -2466,6 +2466,10 @@ export class MarketMaker {
           this.applyNearTouchPenalty(tokenId, intensity);
           if (risk.panic) {
             this.applyLayerPanic(tokenId);
+            const panicPause = Math.max(0, this.config.mmPanicPauseMs ?? 0);
+            if (panicPause > 0) {
+              this.pauseUntil.set(tokenId, Date.now() + panicPause);
+            }
           }
           const sizePenalty = this.config.mmNearTouchSizePenalty ?? 0;
           if (sizePenalty > 0 && sizePenalty < 1) {
@@ -2544,6 +2548,10 @@ export class MarketMaker {
           this.applyNearTouchPenalty(tokenId, intensity);
           if (risk.panic) {
             this.applyLayerPanic(tokenId);
+            const panicPause = Math.max(0, this.config.mmPanicPauseMs ?? 0);
+            if (panicPause > 0) {
+              this.pauseUntil.set(tokenId, Date.now() + panicPause);
+            }
           }
           const sizePenalty = this.config.mmNearTouchSizePenalty ?? 0;
           if (sizePenalty > 0 && sizePenalty < 1) {

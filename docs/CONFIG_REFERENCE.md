@@ -111,6 +111,7 @@
 - `MM_PANIC_COOLDOWN_MULT`：强撤单保护期冷却时间倍数。
 - `MM_RESTORE_COOLDOWN_MULT`：恢复期冷却时间倍数。
 - `MM_RESTORE_EXIT_FORCE_REPRICE`：恢复期结束后强制刷新报价。
+- `MM_PANIC_PAUSE_MS`：强撤单触发后的短暂停挂时间（毫秒）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
