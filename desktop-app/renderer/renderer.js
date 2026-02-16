@@ -3770,8 +3770,12 @@ async function loadMmMetrics() {
         const singleMode = wsHealth.singleMode || 'NORMAL';
         const touchAdd = Number.isFinite(wsHealth.touchBufferAddBps) ? wsHealth.touchBufferAddBps.toFixed(1) : '--';
         const sparse = wsHealth.sparseOdd ? '稀疏' : '常规';
+        const layerCap = Number.isFinite(wsHealth.wsLayerCap) ? wsHealth.wsLayerCap : '--';
+        const maxOrdersMult = Number.isFinite(wsHealth.wsMaxOrdersMult) ? wsHealth.wsMaxOrdersMult.toFixed(2) : '--';
+        const softCancelMult = Number.isFinite(wsHealth.wsSoftCancelMult) ? wsHealth.wsSoftCancelMult.toFixed(2) : '--';
+        const hardCancelMult = Number.isFinite(wsHealth.wsHardCancelMult) ? wsHealth.wsHardCancelMult.toFixed(2) : '--';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
-        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} 模式=${onlyFar} 更新=${updatedAt}`;
+        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} 模式=${onlyFar} 更新=${updatedAt}`;
       }
     }
 
@@ -3800,7 +3804,8 @@ async function loadMmMetrics() {
           const wsOnlyFar = m.wsOnlyFar ? '远层' : '常规';
           const wsSingle = m.wsSingleSide ? String(m.wsSingleSide) : 'NONE';
           const wsSparse = m.wsSparseOdd ? '稀疏' : '常规';
-          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle}`;
+          const wsCap = Number.isFinite(m.wsLayerCap) ? `cap=${m.wsLayerCap}` : '';
+          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle} ${wsCap}`.trim();
           row.appendChild(label);
           row.appendChild(hint);
           mmMarketsList.appendChild(row);

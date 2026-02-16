@@ -736,8 +736,16 @@ export class MarketMaker {
     const antiMult = this.getVolatilityMultiplier(order.token_id, this.config.mmAntiFillVolMultiplier ?? 1.5);
     const nearTouch = nearTouchBase * nearMult;
     const antiFill = antiFillBase * antiMult;
-    const softCancel = this.config.mmSoftCancelBps ?? nearTouch;
-    const hardCancel = this.config.mmHardCancelBps ?? antiFill;
+    let softCancel = this.config.mmSoftCancelBps ?? nearTouch;
+    let hardCancel = this.config.mmHardCancelBps ?? antiFill;
+    const wsSoftMult = this.getWsHealthSoftCancelMult();
+    const wsHardMult = this.getWsHealthHardCancelMult();
+    if (wsSoftMult !== 1) {
+      softCancel *= wsSoftMult;
+    }
+    if (wsHardMult !== 1) {
+      hardCancel *= wsHardMult;
+    }
     const holdMs = this.config.mmHoldNearTouchMs ?? 800;
     const holdMax = this.config.mmHoldNearTouchMaxBps ?? nearTouch;
     const aggressiveMove = this.config.mmAggressiveMoveBps ?? 0.002;
@@ -1368,6 +1376,41 @@ export class MarketMaker {
     return 1 - (1 - minMult) * ratio;
   }
 
+  private getWsHealthLayerCap(): number {
+    const cap = Math.max(0, Math.floor(this.config.mmWsHealthLayerCountCap ?? 0));
+    if (cap <= 0) {
+      return 0;
+    }
+    return this.getWsHealthRatio() > 0 ? cap : 0;
+  }
+
+  private getWsHealthMaxOrdersMult(): number {
+    const minMult = this.config.mmWsHealthMaxOrdersMultMin ?? 1;
+    if (minMult >= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 - (1 - minMult) * ratio;
+  }
+
+  private getWsHealthSoftCancelMult(): number {
+    const maxMult = this.config.mmWsHealthSoftCancelMultMax ?? 1;
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 + (maxMult - 1) * ratio;
+  }
+
+  private getWsHealthHardCancelMult(): number {
+    const maxMult = this.config.mmWsHealthHardCancelMultMax ?? 1;
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 + (maxMult - 1) * ratio;
+  }
+
   private getWsHealthCancelMult(): number {
     const maxMult = this.config.mmWsHealthCancelMultMax ?? 1;
     if (maxMult <= 1) {
@@ -1694,6 +1737,10 @@ export class MarketMaker {
       wsSingleMode: wsSingle.mode,
       wsTouchBufferAddBps: this.getWsHealthTouchBufferAddBps(),
       wsSparseOdd: this.shouldSparseWs(),
+      wsLayerCap: this.getWsHealthLayerCap(),
+      wsMaxOrdersMult: this.getWsHealthMaxOrdersMult(),
+      wsSoftCancelMult: this.getWsHealthSoftCancelMult(),
+      wsHardCancelMult: this.getWsHealthHardCancelMult(),
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -1959,6 +2006,10 @@ export class MarketMaker {
       if (cap > 0) {
         effective = Math.min(effective, cap);
       }
+    }
+    const wsCap = this.getWsHealthLayerCap();
+    if (wsCap > 0) {
+      effective = Math.min(effective, wsCap);
     }
     const wsLayerMult = this.getWsHealthLayerMult();
     if (wsLayerMult > 0 && wsLayerMult !== 1) {
@@ -2686,7 +2737,12 @@ export class MarketMaker {
     if (layerCount <= 1) {
       return base;
     }
-    return Math.max(base, layerCount * 2);
+    let maxOrders = Math.max(base, layerCount * 2);
+    const wsMult = this.getWsHealthMaxOrdersMult();
+    if (wsMult > 0 && wsMult !== 1) {
+      maxOrders = Math.max(1, Math.floor(maxOrders * wsMult));
+    }
+    return maxOrders;
   }
 
   async placeMMOrders(market: Market, orderbook: Orderbook): Promise<void> {

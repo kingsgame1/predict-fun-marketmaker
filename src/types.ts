@@ -123,6 +123,10 @@ export interface Config {
   mmWsHealthSingleSideOffsetBps?: number;
   mmWsHealthTouchBufferAddBps?: number;
   mmWsHealthSparseOdd?: boolean;
+  mmWsHealthLayerCountCap?: number;
+  mmWsHealthMaxOrdersMultMin?: number;
+  mmWsHealthSoftCancelMultMax?: number;
+  mmWsHealthHardCancelMultMax?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
