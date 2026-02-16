@@ -1983,6 +1983,10 @@ export class MarketMaker {
     if (safeModeActive) {
       const spreadMult = Math.max(1, this.config.mmSafeModeSpreadMult ?? 1);
       adaptiveSpread *= spreadMult;
+      const spreadAdd = Math.max(0, this.config.mmSafeModeSpreadAdd ?? 0);
+      if (spreadAdd > 0) {
+        adaptiveSpread += spreadAdd;
+      }
     }
 
     adaptiveSpread = this.clamp(adaptiveSpread, minSpread, maxSpread);

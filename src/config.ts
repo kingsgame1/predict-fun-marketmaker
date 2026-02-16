@@ -260,6 +260,7 @@ export function loadConfig(): Config {
     mmSafeModeSingleSide: (process.env.MM_SAFE_MODE_SINGLE_SIDE || 'NONE') as Config['mmSafeModeSingleSide'],
     mmSafeModeSingleSideMode: (process.env.MM_SAFE_MODE_SINGLE_SIDE_MODE || 'NORMAL') as Config['mmSafeModeSingleSideMode'],
     mmSafeModeSingleSideOffsetBps: parseFloat(process.env.MM_SAFE_MODE_SINGLE_SIDE_OFFSET_BPS || '0'),
+    mmSafeModeSpreadAdd: parseFloat(process.env.MM_SAFE_MODE_SPREAD_ADD || '0'),
     mmLayerSizeDecay: parseFloat(process.env.MM_LAYER_SIZE_DECAY || '0.6'),
     mmLayerAllowBelowMinShares: process.env.MM_LAYER_ALLOW_BELOW_MIN_SHARES === 'true',
     mmDepthSpeedWindowMs: parseInt(process.env.MM_DEPTH_SPEED_WINDOW_MS || '0'),
