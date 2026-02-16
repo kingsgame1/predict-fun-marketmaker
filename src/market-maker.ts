@@ -2871,14 +2871,6 @@ export class MarketMaker {
       targetAskShares = Math.max(1, Math.floor(targetAskShares * exitSizeFactor));
     }
 
-    if (safeModeActive) {
-      const scale = this.config.mmSafeModeSizeScale ?? 0;
-      if (scale > 0 && scale < 1) {
-        targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
-        targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
-      }
-    }
-
     if (effectiveSingleSide === 'BUY') {
       targetAskShares = 0;
     } else if (effectiveSingleSide === 'SELL') {
