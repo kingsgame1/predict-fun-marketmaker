@@ -284,6 +284,9 @@ export class MarketMaker {
     wsEmergencyRecoveryCancelIntervalMult: number;
     wsEmergencyRecoverySingleOffsetBps: number;
     wsEmergencyRecoveryTemplate: boolean;
+    wsEmergencyRecoveryAuto: boolean;
+    wsEmergencyRecoveryImbalanceThreshold: number;
+    wsEmergencyRecoveryMinIntervalMs: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -338,6 +341,10 @@ export class MarketMaker {
       wsEmergencyRecoveryCancelIntervalMult: this.getWsEmergencyRecoveryCancelIntervalMult(),
       wsEmergencyRecoverySingleOffsetBps: this.getWsHealthSingleSide().offsetBps,
       wsEmergencyRecoveryTemplate: this.config.mmWsHealthEmergencyRecoveryTemplateEnabled === true,
+      wsEmergencyRecoveryAuto: this.config.mmWsHealthEmergencyRecoverySingleSideAuto === true,
+      wsEmergencyRecoveryImbalanceThreshold:
+        this.config.mmWsHealthEmergencyRecoverySingleSideImbalanceThreshold ?? 0,
+      wsEmergencyRecoveryMinIntervalMs: this.config.mmWsHealthEmergencyRecoveryMinIntervalMs ?? 0,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -450,7 +457,14 @@ export class MarketMaker {
       multiplier *= panicRestoreMult;
     }
     multiplier *= this.getFillSlowdownMultiplier(tokenId);
-    return Math.max(500, Math.round(base * multiplier));
+    let interval = Math.max(500, Math.round(base * multiplier));
+    if (this.isWsEmergencyRecoveryActive()) {
+      const minInterval = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMinIntervalMs ?? 0);
+      if (minInterval > interval) {
+        interval = minInterval;
+      }
+    }
+    return interval;
   }
 
   private getEffectiveCancelConfirmMs(baseMs: number): number {
@@ -1852,8 +1866,18 @@ export class MarketMaker {
         recoveryOffsetBase > 0
           ? recoveryOffsetMin + (recoveryOffsetBase - recoveryOffsetMin) * (1 - recoveryInfo.progress)
           : 0;
-      if (recoverySide !== 'NONE') {
-        side = recoverySide;
+      let resolvedSide = recoverySide;
+      if (this.config.mmWsHealthEmergencyRecoverySingleSideAuto) {
+        const inventoryBias = this.getGlobalInventoryBias();
+        const imbalance = this.getGlobalImbalance();
+        const threshold = Math.max(0, this.config.mmWsHealthEmergencyRecoverySingleSideImbalanceThreshold ?? 0.15);
+        const signal = inventoryBias - imbalance;
+        if (Math.abs(signal) >= threshold) {
+          resolvedSide = signal > 0 ? 'SELL' : 'BUY';
+        }
+      }
+      if (resolvedSide !== 'NONE') {
+        side = resolvedSide;
         mode = recoveryMode;
         if (recoveryOffset > 0) {
           offsetBps = recoveryOffset;
@@ -2179,6 +2203,9 @@ export class MarketMaker {
       wsEmergencyRecoveryCancelIntervalMult: wsHealth.wsEmergencyRecoveryCancelIntervalMult,
       wsEmergencyRecoverySingleOffsetBps: wsHealth.wsEmergencyRecoverySingleOffsetBps,
       wsEmergencyRecoveryTemplate: wsHealth.wsEmergencyRecoveryTemplate,
+      wsEmergencyRecoveryAuto: wsHealth.wsEmergencyRecoveryAuto,
+      wsEmergencyRecoveryImbalanceThreshold: wsHealth.wsEmergencyRecoveryImbalanceThreshold,
+      wsEmergencyRecoveryMinIntervalMs: wsHealth.wsEmergencyRecoveryMinIntervalMs,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2603,6 +2630,37 @@ export class MarketMaker {
     const normalized = netShares / maxPosition;
 
     return this.clamp(normalized, -1, 1);
+  }
+
+  private getGlobalInventoryBias(): number {
+    if (this.positions.size === 0) {
+      return 0;
+    }
+    let netShares = 0;
+    for (const pos of this.positions.values()) {
+      netShares += (pos.yes_amount || 0) - (pos.no_amount || 0);
+    }
+    const denom = this.getEffectiveMaxPosition() * Math.max(1, this.positions.size);
+    return this.clamp(denom > 0 ? netShares / denom : 0, -1, 1);
+  }
+
+  private getGlobalImbalance(): number {
+    if (this.lastImbalance.size === 0) {
+      return 0;
+    }
+    let sum = 0;
+    let count = 0;
+    for (const value of this.lastImbalance.values()) {
+      if (!Number.isFinite(value)) {
+        continue;
+      }
+      sum += value;
+      count += 1;
+    }
+    if (!count) {
+      return 0;
+    }
+    return this.clamp(sum / count, -1, 1);
   }
 
   calculatePrices(market: Market, orderbook: Orderbook): QuotePrices | null {

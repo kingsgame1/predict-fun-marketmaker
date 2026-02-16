@@ -169,6 +169,9 @@ export interface Config {
   mmWsHealthEmergencyRecoverySingleSideOffsetBps?: number;
   mmWsHealthEmergencyRecoverySingleSideOffsetMinBps?: number;
   mmWsHealthEmergencyRecoveryFarLayerStep?: number;
+  mmWsHealthEmergencyRecoverySingleSideAuto?: boolean;
+  mmWsHealthEmergencyRecoverySingleSideImbalanceThreshold?: number;
+  mmWsHealthEmergencyRecoveryMinIntervalMs?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
