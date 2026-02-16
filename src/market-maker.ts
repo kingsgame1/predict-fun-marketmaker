@@ -2695,13 +2695,13 @@ export class MarketMaker {
       targetAskShares = Math.max(1, Math.floor(targetAskShares * exitSizeFactor));
     }
 
-    if (this.isLayerPanicActive(tokenId)) {
-      const side = (this.config.mmPanicSingleSide || 'NONE').toUpperCase();
-      if (side === 'BUY') {
-        targetAskShares = 0;
-      } else if (side === 'SELL') {
-        targetBidShares = 0;
-      }
+    const panicSingleSide = this.isLayerPanicActive(tokenId)
+      ? (this.config.mmPanicSingleSide || 'NONE').toUpperCase()
+      : 'NONE';
+    if (panicSingleSide === 'BUY') {
+      targetAskShares = 0;
+    } else if (panicSingleSide === 'SELL') {
+      targetBidShares = 0;
     }
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
@@ -2719,8 +2719,10 @@ export class MarketMaker {
           metrics.depthSpeedBps >= this.config.mmLayerDepthSpeedRetreatBps));
     const restoreOnlyFar = this.config.mmLayerRestoreOnlyFar === true && this.isLayerRestoreActive(tokenId);
     const panicOnlyFar = this.config.mmLayerPanicOnlyFar === true && this.isLayerPanicActive(tokenId);
+    const panicSingleSideMode = (this.config.mmPanicSingleSideMode || 'NORMAL').toUpperCase();
+    const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
     const forceSingle = this.shouldForceSingleLayer(tokenId);
-    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar;
+    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly;
     const bidStart = farOnly ? bidLayers - 1 : 0;
     const askStart = farOnly ? askLayers - 1 : 0;
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;

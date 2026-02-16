@@ -187,6 +187,7 @@ export interface Config {
   mmPanicPauseMs?: number;
   mmPanicCleanupOnRestore?: boolean;
   mmPanicSingleSide?: 'BUY' | 'SELL' | 'NONE';
+  mmPanicSingleSideMode?: 'REMOTE' | 'NORMAL';
   mmRestoreExitMinDepthShares?: number;
   mmRestoreExitMinDepthUsd?: number;
   mmRestoreExitDepthCooldownMs?: number;
