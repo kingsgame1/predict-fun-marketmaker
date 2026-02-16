@@ -2896,8 +2896,17 @@ export class MarketMaker {
     const forceSingle = this.shouldForceSingleLayer(tokenId);
     const safeModeOnlyFar = safeModeActive && this.config.mmSafeModeOnlyFar === true;
     const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly || safeRemoteOnly || safeModeOnlyFar;
-    const bidStart = farOnly ? bidLayers - 1 : 0;
-    const askStart = farOnly ? askLayers - 1 : 0;
+    const safeOnlyFarLayers = safeModeActive ? Math.max(0, this.config.mmSafeModeOnlyFarLayers ?? 0) : 0;
+    const bidStart = farOnly
+      ? bidLayers - 1
+      : safeOnlyFarLayers > 0
+        ? Math.max(0, bidLayers - safeOnlyFarLayers)
+        : 0;
+    const askStart = farOnly
+      ? askLayers - 1
+      : safeOnlyFarLayers > 0
+        ? Math.max(0, askLayers - safeOnlyFarLayers)
+        : 0;
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;
 
     if (!suppressBuy && bidOrderSize.shares > 0) {
