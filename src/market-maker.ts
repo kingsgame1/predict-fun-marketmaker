@@ -257,6 +257,10 @@ export class MarketMaker {
     const boost = this.getCancelBoost(tokenId);
     const noFill = this.getNoFillPenalty(tokenId);
     let threshold = (base + (noFill.cancelBps || 0) / 10000) / mult / boost;
+    const wsCancelMult = this.getWsHealthCancelMult();
+    if (wsCancelMult > 0 && wsCancelMult !== 1) {
+      threshold = threshold / wsCancelMult;
+    }
     let buffer = Math.max(0, this.config.mmCancelBufferBps ?? 0);
     if (
       this.isSafeModeActive(tokenId, {
@@ -1354,6 +1358,24 @@ export class MarketMaker {
     }
     const ratio = this.getWsHealthRatio();
     return 1 - (1 - minMult) * ratio;
+  }
+
+  private getWsHealthCancelMult(): number {
+    const maxMult = this.config.mmWsHealthCancelMultMax ?? 1;
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 + (maxMult - 1) * ratio;
+  }
+
+  private getWsHealthRepriceMult(): number {
+    const maxMult = this.config.mmWsHealthRepriceMultMax ?? 1;
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 + (maxMult - 1) * ratio;
   }
 
   private maybePauseForWsHealth(tokenId: string): void {
@@ -2500,6 +2522,10 @@ export class MarketMaker {
     const mult = this.getVolatilityMultiplier(order.token_id, this.config.mmRepriceVolMultiplier ?? 1.5);
     const noFill = this.getNoFillPenalty(order.token_id);
     let threshold = (base + (noFill.repriceBps || 0) / 10000) / mult;
+    const wsRepriceMult = this.getWsHealthRepriceMult();
+    if (wsRepriceMult > 0 && wsRepriceMult !== 1) {
+      threshold = threshold / wsRepriceMult;
+    }
     let buffer = Math.max(0, this.config.mmRepriceBufferBps ?? 0);
     let confirmMs = Math.max(0, this.config.mmRepriceConfirmMs ?? 0);
     if (
@@ -2634,6 +2660,9 @@ export class MarketMaker {
     }
     this.maybePauseForWsHealth(tokenId);
     if (this.isPaused(tokenId)) {
+      if (this.config.mmWsHealthCancelOnPause) {
+        await this.cancelOrdersForMarket(tokenId);
+      }
       return;
     }
     if (this.layerRestoreExitRepricePending.has(tokenId)) {

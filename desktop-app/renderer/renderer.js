@@ -3763,7 +3763,8 @@ async function loadMmMetrics() {
         const spreadMult = Number.isFinite(wsHealth.spreadMult) ? wsHealth.spreadMult.toFixed(2) : '--';
         const sizeMult = Number.isFinite(wsHealth.sizeMult) ? wsHealth.sizeMult.toFixed(2) : '--';
         const layerMult = Number.isFinite(wsHealth.layerMult) ? wsHealth.layerMult.toFixed(2) : '--';
-        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult}`;
+        const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
+        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} 更新=${updatedAt}`;
       }
     }
 

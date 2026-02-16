@@ -111,6 +111,9 @@ export interface Config {
   mmWsHealthHardThreshold?: number;
   mmWsHealthPauseMs?: number;
   mmWsHealthRecoverMs?: number;
+  mmWsHealthCancelOnPause?: boolean;
+  mmWsHealthCancelMultMax?: number;
+  mmWsHealthRepriceMultMax?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

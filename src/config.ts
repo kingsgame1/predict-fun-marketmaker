@@ -157,6 +157,9 @@ export function loadConfig(): Config {
     mmWsHealthHardThreshold: parseFloat(process.env.MM_WS_HEALTH_HARD_THRESHOLD || '0'),
     mmWsHealthPauseMs: parseInt(process.env.MM_WS_HEALTH_PAUSE_MS || '0'),
     mmWsHealthRecoverMs: parseInt(process.env.MM_WS_HEALTH_RECOVER_MS || '60000'),
+    mmWsHealthCancelOnPause: process.env.MM_WS_HEALTH_CANCEL_ON_PAUSE === 'true',
+    mmWsHealthCancelMultMax: parseFloat(process.env.MM_WS_HEALTH_CANCEL_MULT_MAX || '1'),
+    mmWsHealthRepriceMultMax: parseFloat(process.env.MM_WS_HEALTH_REPRICE_MULT_MAX || '1'),
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1471,6 +1474,12 @@ export function loadConfig(): Config {
   if ((config.mmWsHealthRecoverMs ?? 0) < 0) {
     config.mmWsHealthRecoverMs = 0;
   }
+  if ((config.mmWsHealthCancelMultMax ?? 0) < 1) {
+    config.mmWsHealthCancelMultMax = 1;
+  }
+  if ((config.mmWsHealthRepriceMultMax ?? 0) < 1) {
+    config.mmWsHealthRepriceMultMax = 1;
+  }
 
   return config;
 }
@@ -1542,6 +1551,11 @@ export function printConfig(config: Config): void {
     if (spreadMult !== 1 || sizeMin !== 1 || layerMin !== 1) {
       console.log(
         `MM WS Health: spreadMax=${spreadMult} sizeMin=${sizeMin} layerMin=${layerMin} hard=${config.mmWsHealthHardThreshold} pause=${config.mmWsHealthPauseMs}ms recover=${config.mmWsHealthRecoverMs}ms`
+      );
+    }
+    if ((config.mmWsHealthCancelMultMax ?? 1) !== 1 || (config.mmWsHealthRepriceMultMax ?? 1) !== 1) {
+      console.log(
+        `MM WS Health Cancel/Reprice: cancelMax=${config.mmWsHealthCancelMultMax} repriceMax=${config.mmWsHealthRepriceMultMax} cancelOnPause=${config.mmWsHealthCancelOnPause ? '✅' : '❌'}`
       );
     }
   } else {

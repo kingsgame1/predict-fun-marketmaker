@@ -179,6 +179,9 @@
 - `MM_WS_HEALTH_HARD_THRESHOLD`：WS 健康度硬阈值（0-100，低于则暂停）。
 - `MM_WS_HEALTH_PAUSE_MS`：WS 健康度触发暂停的时间（毫秒）。
 - `MM_WS_HEALTH_RECOVER_MS`：WS 健康度恢复的渐进时间（毫秒，数值越大恢复越慢）。
+- `MM_WS_HEALTH_CANCEL_ON_PAUSE`：WS 健康度触发暂停时是否撤掉挂单。
+- `MM_WS_HEALTH_CANCEL_MULT_MAX`：WS 健康度最差时的撤单敏感倍数上限。
+- `MM_WS_HEALTH_REPRICE_MULT_MAX`：WS 健康度最差时的重报价敏感倍数上限。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
