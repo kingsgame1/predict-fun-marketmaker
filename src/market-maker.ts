@@ -1989,6 +1989,13 @@ export class MarketMaker {
       }
     }
 
+    if (safeModeActive) {
+      const safeMin = Math.max(0, this.config.mmSafeModeMinSpread ?? 0);
+      if (safeMin > minSpread) {
+        minSpread = safeMin;
+      }
+    }
+
     adaptiveSpread = this.clamp(adaptiveSpread, minSpread, maxSpread);
 
     const inventoryBias = this.calculateInventoryBias(market.token_id);

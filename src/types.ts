@@ -213,6 +213,7 @@ export interface Config {
   mmSafeModeSingleSideMode?: 'REMOTE' | 'NORMAL';
   mmSafeModeSingleSideOffsetBps?: number;
   mmSafeModeSpreadAdd?: number;
+  mmSafeModeMinSpread?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;
