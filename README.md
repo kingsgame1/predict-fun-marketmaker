@@ -249,6 +249,23 @@ POLYMARKET_WS_INITIAL_DUMP=true
 POLYMARKET_WS_STALE_MS=20000
 POLYMARKET_WS_RESET_ON_RECONNECT=true
 POLYMARKET_CACHE_TTL_MS=60000
+
+# Probable
+PROBABLE_ENABLED=false
+PROBABLE_MARKET_API_URL=https://market-api.probable.markets
+PROBABLE_ORDERBOOK_API_URL=https://api.probable.markets/public/api/v1
+PROBABLE_MAX_MARKETS=30
+PROBABLE_FEE_BPS=0
+PROBABLE_WS_ENABLED=false
+PROBABLE_WS_URL=wss://ws.probable.markets/public/api/v1
+PROBABLE_WS_STALE_MS=20000
+PROBABLE_WS_RESET_ON_RECONNECT=true
+PROBABLE_CACHE_TTL_MS=60000
+PROBABLE_PRIVATE_KEY=
+PROBABLE_CHAIN_ID=56
+PROBABLE_AUTO_DERIVE_API_KEY=true
+PROBABLE_RPC_URL=
+
 PREDICT_WS_ENABLED=false
 PREDICT_WS_URL=wss://ws.predict.fun/ws
 PREDICT_WS_API_KEY=
@@ -450,6 +467,7 @@ Note: The desktop console reads the root `.env` file and spawns bots via `npx ts
 Cross-platform auto-execution requirements:
 - Polymarket: configure `POLYMARKET_PRIVATE_KEY` (API keys can be derived or set manually).
 - Opinion: install `opinion_clob_sdk` (Python) and set `OPINION_API_KEY` + `OPINION_PRIVATE_KEY`.
+- Probable: set `PROBABLE_PRIVATE_KEY` (auto-derives API Key) and keep `PROBABLE_ENABLED=true`.
 For unattended mode set `AUTO_CONFIRM=true` and `CROSS_PLATFORM_AUTO_EXECUTE=true`.
 For strict event matching, maintain `cross-platform-mapping.json` with `predictMarketId` and external token IDs.
 

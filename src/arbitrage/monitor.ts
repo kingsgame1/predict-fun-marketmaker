@@ -179,7 +179,7 @@ export class ArbitrageMonitor {
       maxVwapLevels: this.config.arbMaxVwapLevels,
     });
     this.crossArbDetector = new CrossPlatformArbitrageDetector(
-      ['Predict', 'Polymarket', 'Opinion'],
+      ['Predict', 'Polymarket', 'Opinion', 'Probable'],
       this.config.minProfitThreshold,
       this.config.crossPlatformTransferCost,
       this.config.crossPlatformMinSimilarity,

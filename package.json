@@ -25,12 +25,14 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@prob/clob": "^1.0.0",
     "@polymarket/clob-client": "^5.2.3",
     "@polymarket/order-utils": "^3.0.1",
     "@predictdotfun/sdk": "^1.0.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.0",
+    "viem": "^2.21.4",
     "ws": "^8.17.0"
   },
   "devDependencies": {

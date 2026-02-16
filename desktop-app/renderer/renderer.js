@@ -1602,6 +1602,8 @@ function buildMappingIndex(entries) {
     addToken('Polymarket', entry.polymarketNoTokenId);
     addToken('Opinion', entry.opinionYesTokenId);
     addToken('Opinion', entry.opinionNoTokenId);
+    addToken('Probable', entry.probableYesTokenId);
+    addToken('Probable', entry.probableNoTokenId);
   });
   return { tokenIndex, predictIndex, questionIndex };
 }
@@ -1642,6 +1644,8 @@ function generateMappingTemplate(missing) {
       polymarketNoTokenId: item.platform === 'Polymarket' ? item.noTokenId : '',
       opinionYesTokenId: item.platform === 'Opinion' ? item.yesTokenId : '',
       opinionNoTokenId: item.platform === 'Opinion' ? item.noTokenId : '',
+      probableYesTokenId: item.platform === 'Probable' ? item.yesTokenId : '',
+      probableNoTokenId: item.platform === 'Probable' ? item.noTokenId : '',
     }));
   return JSON.stringify({ entries }, null, 2);
 }
@@ -1657,6 +1661,8 @@ function generateConfirmedMapping(entries) {
       polymarketNoTokenId: item.platform === 'Polymarket' ? item.noTokenId : '',
       opinionYesTokenId: item.platform === 'Opinion' ? item.yesTokenId : '',
       opinionNoTokenId: item.platform === 'Opinion' ? item.noTokenId : '',
+      probableYesTokenId: item.platform === 'Probable' ? item.yesTokenId : '',
+      probableNoTokenId: item.platform === 'Probable' ? item.noTokenId : '',
     }));
   return JSON.stringify({ entries: confirmed }, null, 2);
 }
@@ -1748,9 +1754,15 @@ async function checkMappingMissing() {
   };
   platforms.push(await loadPlatform('polymarket'));
   platforms.push(await loadPlatform('opinion'));
+  platforms.push(await loadPlatform('probable'));
   const missing = [];
   platforms.forEach((platformData) => {
-    const platformName = platformData.platform === 'polymarket' ? 'Polymarket' : 'Opinion';
+    const platformName =
+      platformData.platform === 'polymarket'
+        ? 'Polymarket'
+        : platformData.platform === 'opinion'
+        ? 'Opinion'
+        : 'Probable';
     platformData.list.forEach((row) => {
       const market = parseMarketRow(row);
       if (!market || !market.yesTokenId || !market.noTokenId) return;

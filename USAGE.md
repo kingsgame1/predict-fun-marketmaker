@@ -32,7 +32,8 @@
 跨平台一键套利：
 - `CROSS_PLATFORM_ENABLED=true`
 - `CROSS_PLATFORM_AUTO_EXECUTE=true`
-- 配置 Polymarket / Opinion 的密钥
+- 配置 Polymarket / Opinion / Probable 的密钥
+- 使用 Probable 时设置 `PROBABLE_ENABLED=true`
 - 可选：`CROSS_PLATFORM_ADAPTIVE_SIZE=true`（按深度缩小下单量）
 - 可选：`CROSS_PLATFORM_DEPTH_USAGE=0.5`（使用深度的最大比例）
 - 可选：`CROSS_PLATFORM_MAX_NOTIONAL=200`（名义金额上限）
@@ -56,6 +57,10 @@
 实时行情（Polymarket WebSocket）：
 - `POLYMARKET_WS_ENABLED=true`
 - `POLYMARKET_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market`
+
+实时行情（Probable WebSocket）：
+- `PROBABLE_WS_ENABLED=true`
+- `PROBABLE_WS_URL=wss://ws.probable.markets/public/api/v1`
 
 实时行情（Predict WebSocket）：
 - `PREDICT_WS_ENABLED=true`

@@ -1,4 +1,4 @@
-export type ExternalPlatform = 'Predict' | 'Polymarket' | 'Opinion';
+export type ExternalPlatform = 'Predict' | 'Polymarket' | 'Opinion' | 'Probable';
 
 export interface DepthLevel {
   price: number;

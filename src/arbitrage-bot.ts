@@ -165,9 +165,10 @@ class ArbitrageBot {
     if (
       this.config.crossPlatformWsRealtime &&
       !this.config.polymarketWsEnabled &&
-      !this.config.opinionWsEnabled
+      !this.config.opinionWsEnabled &&
+      !this.config.probableWsEnabled
     ) {
-      throw new Error('CROSS_PLATFORM_WS_REALTIME=true requires POLYMARKET_WS_ENABLED or OPINION_WS_ENABLED');
+      throw new Error('CROSS_PLATFORM_WS_REALTIME=true requires POLYMARKET_WS_ENABLED, OPINION_WS_ENABLED, or PROBABLE_WS_ENABLED');
     }
 
     if (this.config.enableTrading) {
@@ -1389,6 +1390,12 @@ class ArbitrageBot {
         const score = this.calcWsHealthScore(status.opinion.lastMessageAt, this.getWsHealthMaxAge(), now);
         lines.push(
           `OpinionWS connected=${status.opinion.connected} subscribed=${status.opinion.subscribed} cache=${status.opinion.cacheSize} last=${this.formatAge(now, status.opinion.lastMessageAt)} msgs=${status.opinion.messageCount} score=${score}`
+        );
+      }
+      if (status.probable) {
+        const score = this.calcWsHealthScore(status.probable.lastMessageAt, this.getWsHealthMaxAge(), now);
+        lines.push(
+          `ProbableWS connected=${status.probable.connected} subscribed=${status.probable.subscribed} cache=${status.probable.cacheSize} last=${this.formatAge(now, status.probable.lastMessageAt)} msgs=${status.probable.messageCount} score=${score}`
         );
       }
     }

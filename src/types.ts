@@ -873,6 +873,16 @@ export interface Config {
   polymarketWsStaleMs?: number;
   polymarketWsResetOnReconnect?: boolean;
   polymarketCacheTtlMs?: number;
+  probableEnabled?: boolean;
+  probableMarketApiUrl?: string;
+  probableOrderbookApiUrl?: string;
+  probableMaxMarkets?: number;
+  probableFeeBps?: number;
+  probableWsEnabled?: boolean;
+  probableWsUrl?: string;
+  probableWsStaleMs?: number;
+  probableWsResetOnReconnect?: boolean;
+  probableCacheTtlMs?: number;
   predictWsEnabled?: boolean;
   predictWsUrl?: string;
   predictWsApiKey?: string;
@@ -885,6 +895,10 @@ export interface Config {
   polymarketApiPassphrase?: string;
   polymarketChainId?: number;
   polymarketAutoDeriveApiKey?: boolean;
+  probablePrivateKey?: string;
+  probableChainId?: number;
+  probableAutoDeriveApiKey?: boolean;
+  probableRpcUrl?: string;
   opinionOpenApiUrl?: string;
   opinionApiKey?: string;
   opinionMaxMarkets?: number;

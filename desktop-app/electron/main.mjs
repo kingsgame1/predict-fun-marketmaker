@@ -305,6 +305,43 @@ async function readPlatformMarkets(platform) {
     }));
     return JSON.stringify(results);
   }
+  if (lower === 'probable') {
+    const marketApiUrl = env.get('PROBABLE_MARKET_API_URL') || 'https://market-api.probable.markets';
+    const limit = Math.max(1, parseInt(env.get('PROBABLE_MAX_MARKETS') || '30', 10));
+    const url = `${marketApiUrl.replace(/\/+$/, '')}/public/api/v1/markets/?active=true&closed=false&limit=${limit}`;
+    const raw = await fetchJson(url, { method: 'GET' });
+    const list = Array.isArray(raw?.markets)
+      ? raw.markets
+      : Array.isArray(raw?.data?.markets)
+      ? raw.data.markets
+      : Array.isArray(raw?.data)
+      ? raw.data
+      : Array.isArray(raw?.result)
+      ? raw.result
+      : Array.isArray(raw)
+      ? raw
+      : [];
+    const results = [];
+    for (const market of list) {
+      if (market?.active === false || market?.closed === true) continue;
+      const outcomes = toArray(market?.outcomes || market?.outcomeNames);
+      const tokens = toArray(market?.clobTokenIds || market?.clob_token_ids || market?.tokens || market?.tokenIds);
+      if (outcomes.length < 2 || tokens.length < 2) continue;
+      const yesIndex = outcomes.findIndex((o) => String(o).toUpperCase() === 'YES');
+      const noIndex = outcomes.findIndex((o) => String(o).toUpperCase() === 'NO');
+      if (yesIndex < 0 || noIndex < 0) continue;
+      const yesTokenId = tokens[yesIndex];
+      const noTokenId = tokens[noIndex];
+      if (!yesTokenId || !noTokenId) continue;
+      results.push({
+        marketId: market.id || market.marketId || `${yesTokenId}-${noTokenId}`,
+        marketTitle: market.question || market.title || '',
+        yesTokenId,
+        noTokenId,
+      });
+    }
+    return JSON.stringify(results);
+  }
   if (lower === 'predict') {
     const apiBase = env.get('API_BASE_URL') || 'https://predict.fun/api';
     const apiKey = env.get('API_KEY') || '';
@@ -675,11 +712,12 @@ function buildDiagnostics() {
   if (crossEnabled) {
     const polyKey = env.get('POLYMARKET_API_KEY');
     const opKey = env.get('OPINION_API_KEY');
-    if (!polyKey && !opKey) {
+    const probKey = env.get('PROBABLE_PRIVATE_KEY');
+    if (!polyKey && !opKey && !probKey) {
       items.push({
         level: 'warn',
         title: '跨平台密钥',
-        message: '跨平台已启用但未检测到 Polymarket/Opinion API Key',
+        message: '跨平台已启用但未检测到 Polymarket/Opinion API Key 或 Probable 私钥',
       });
     } else {
       items.push({ level: 'ok', title: '跨平台密钥', message: '已检测到至少一个平台密钥' });
@@ -689,13 +727,14 @@ function buildDiagnostics() {
   const wsPredict = (env.get('PREDICT_WS_ENABLED') || '').toLowerCase() === 'true';
   const wsPoly = (env.get('POLYMARKET_WS_ENABLED') || '').toLowerCase() === 'true';
   const wsOpinion = (env.get('OPINION_WS_ENABLED') || '').toLowerCase() === 'true';
-  if (!wsPredict && !wsPoly && !wsOpinion) {
+  const wsProbable = (env.get('PROBABLE_WS_ENABLED') || '').toLowerCase() === 'true';
+  if (!wsPredict && !wsPoly && !wsOpinion && !wsProbable) {
     items.push({ level: 'warn', title: 'WebSocket', message: 'WS 未开启，行情更新可能延迟' });
   } else {
     items.push({
       level: 'ok',
       title: 'WebSocket',
-      message: `Predict=${wsPredict ? '开' : '关'} Polymarket=${wsPoly ? '开' : '关'} Opinion=${wsOpinion ? '开' : '关'}`,
+      message: `Predict=${wsPredict ? '开' : '关'} Polymarket=${wsPoly ? '开' : '关'} Opinion=${wsOpinion ? '开' : '关'} Probable=${wsProbable ? '开' : '关'}`,
     });
   }
 

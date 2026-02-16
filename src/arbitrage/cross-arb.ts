@@ -27,7 +27,7 @@ export class CrossPlatformArbitrageDetector {
   private topDepthUsage: number;
 
   constructor(
-    platforms: string[] = ['Predict', 'Polymarket', 'Opinion'],
+    platforms: string[] = ['Predict', 'Polymarket', 'Opinion', 'Probable'],
     minProfitThreshold: number = 0.02,
     estimatedTransferCost: number = 0.005,
     minSimilarity: number = 0.78,

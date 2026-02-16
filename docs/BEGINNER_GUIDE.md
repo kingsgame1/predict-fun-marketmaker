@@ -52,7 +52,8 @@
 
 需要：
 - `CROSS_PLATFORM_ENABLED=true`
-- 配好 Polymarket / Opinion 密钥
+- 配好 Polymarket / Opinion / Probable 密钥
+- 使用 Probable 时设置 `PROBABLE_ENABLED=true`
 - 编辑 `cross-platform-mapping.json`
 - 如需更稳健执行：`CROSS_PLATFORM_EXECUTION_VWAP_CHECK=true`
 - 可选：`CROSS_PLATFORM_PRICE_DRIFT_BPS=40`（限制最优价漂移）
@@ -88,6 +89,7 @@
 开启：
 - `PREDICT_WS_ENABLED=true`
 - `POLYMARKET_WS_ENABLED=true`
+- `PROBABLE_WS_ENABLED=true`
 - `OPINION_WS_ENABLED=true`
 可选增强：
 - `PREDICT_WS_STALE_MS=20000`（无消息自动重连）
