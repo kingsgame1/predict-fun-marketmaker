@@ -820,11 +820,47 @@ function exportMmEventsBundle() {
 
   const mmMetricsPath = resolveMmMetricsPath();
   const metricsSnapshot = readJsonFile(mmMetricsPath) || {};
+  const events = Array.isArray(metricsSnapshot.events) ? metricsSnapshot.events : [];
+  const now = Date.now();
+  const cutoff24h = now - 24 * 60 * 60 * 1000;
+  const counts = {};
+  const counts24h = {};
+  const recoveryDurations = [];
+  let lastRecoveryStart = null;
+  events.forEach((event) => {
+    const type = event?.type || 'UNKNOWN';
+    counts[type] = (counts[type] || 0) + 1;
+    if (event?.ts && event.ts >= cutoff24h) {
+      counts24h[type] = (counts24h[type] || 0) + 1;
+    }
+    if (type === 'WS_EMERGENCY_RECOVERY_START' && event?.ts) {
+      lastRecoveryStart = event.ts;
+    }
+    if (type === 'WS_EMERGENCY_RECOVERY_END' && event?.ts && lastRecoveryStart) {
+      recoveryDurations.push(Math.max(0, event.ts - lastRecoveryStart));
+      lastRecoveryStart = null;
+    }
+  });
+  const recoveryStats = recoveryDurations.length
+    ? {
+        count: recoveryDurations.length,
+        avgMs: Math.round(recoveryDurations.reduce((a, b) => a + b, 0) / recoveryDurations.length),
+        minMs: Math.min(...recoveryDurations),
+        maxMs: Math.max(...recoveryDurations),
+      }
+    : { count: 0, avgMs: 0, minMs: 0, maxMs: 0 };
   const payload = {
     version: 1,
     ts: Date.now(),
     source: mmMetricsPath,
-    events: Array.isArray(metricsSnapshot.events) ? metricsSnapshot.events : [],
+    summary: {
+      total: events.length,
+      lastEventAt: events.length ? events[events.length - 1].ts || null : null,
+      counts,
+      counts24h,
+      recoveryStats,
+    },
+    events,
   };
   const target = path.join(outputDir, `mm-events_${stamp}.json`);
   fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');

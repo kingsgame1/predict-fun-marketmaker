@@ -267,6 +267,7 @@ export class MarketMaker {
     wsEmergencyRecoveryStage: number;
     wsEmergencyRecoverySteps: number;
     wsEmergencyRecoveryRatio: number;
+    wsEmergencyRecoveryProgress: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -301,6 +302,7 @@ export class MarketMaker {
       wsEmergencyRecoveryStage: recoveryInfo.stage,
       wsEmergencyRecoverySteps: recoveryInfo.steps,
       wsEmergencyRecoveryRatio: recoveryInfo.ratio,
+      wsEmergencyRecoveryProgress: recoveryInfo.progress,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1267,13 +1269,13 @@ export class MarketMaker {
     return this.wsEmergencyRecoveryActive;
   }
 
-  private getWsEmergencyRecoveryInfo(): { ratio: number; stage: number; steps: number } {
+  private getWsEmergencyRecoveryInfo(): { ratio: number; stage: number; steps: number; progress: number } {
     const base = this.clamp(this.config.mmWsHealthEmergencyRecoveryRatio ?? 0.7, 0, 1);
     const minRatio = this.clamp(this.config.mmWsHealthEmergencyRecoveryMinRatio ?? 0.2, 0, base);
     const steps = Math.max(1, Math.floor(this.config.mmWsHealthEmergencyRecoverySteps ?? 3));
     const duration = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMs ?? 0);
     if (!this.isWsEmergencyRecoveryActive() || duration <= 0) {
-      return { ratio: base, stage: -1, steps };
+      return { ratio: base, stage: -1, steps, progress: 1 };
     }
     const elapsed = Math.max(0, Date.now() - this.wsEmergencyRecoveryStart);
     const progress = Math.min(1, duration > 0 ? elapsed / duration : 1);
@@ -1287,7 +1289,7 @@ export class MarketMaker {
         `Recovery stage ${stage + 1}/${steps}, ratioFloor=${ratio.toFixed(2)}`
       );
     }
-    return { ratio, stage, steps };
+    return { ratio, stage, steps, progress };
   }
 
   private applyIcebergPenalty(tokenId: string): void {
@@ -1490,6 +1492,14 @@ export class MarketMaker {
 
   private getWsHealthLayerCap(): number {
     const cap = Math.max(0, Math.floor(this.config.mmWsHealthLayerCountCap ?? 0));
+    if (this.isWsEmergencyRecoveryActive()) {
+      const baseCap = cap > 0 ? cap : Math.max(1, Math.floor(this.config.mmLayerCount ?? 1));
+      const minCap = Math.max(1, Math.floor(this.config.mmWsHealthEmergencyRecoveryLayerCapMin ?? 1));
+      const info = this.getWsEmergencyRecoveryInfo();
+      const progress = Math.max(0, Math.min(1, info.progress));
+      const dynamicCap = Math.round(minCap + (baseCap - minCap) * progress);
+      return Math.max(1, Math.min(baseCap, dynamicCap));
+    }
     if (cap <= 0) {
       return 0;
     }
@@ -1655,6 +1665,13 @@ export class MarketMaker {
       const ultraScale = Math.max(0, Math.min(1, this.config.mmWsHealthUltraSafeSizeScale ?? 0.3));
       const blended = 1 - (1 - ultraScale) * ratio;
       scale = Math.min(scale, blended);
+    }
+    if (this.isWsEmergencyRecoveryActive()) {
+      const minRecoveryScale = this.clamp(this.config.mmWsHealthEmergencyRecoverySizeScaleMin ?? 0.25, 0, 1);
+      const info = this.getWsEmergencyRecoveryInfo();
+      const progress = Math.max(0, Math.min(1, info.progress));
+      const maxScale = minRecoveryScale + (1 - minRecoveryScale) * progress;
+      scale = Math.min(scale, maxScale);
     }
     return scale;
   }
