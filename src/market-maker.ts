@@ -2134,6 +2134,9 @@ export class MarketMaker {
     if (this.isLayerPanicActive(market.token_id)) {
       touchBufferBps += Math.max(0, this.config.mmPanicTouchBufferBps ?? 0);
     }
+    if (safeModeActive) {
+      touchBufferBps += Math.max(0, this.config.mmSafeModeTouchBufferBps ?? 0);
+    }
     if (touchBufferBps > 0) {
       const buffer = touchBufferBps / 10000;
       const maxBid = bestBid * (1 - buffer);
