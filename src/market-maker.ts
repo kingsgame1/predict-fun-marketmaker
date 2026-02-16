@@ -1804,6 +1804,13 @@ export class MarketMaker {
       step += Math.max(0, this.config.mmLayerStepBpsRestoreExtra ?? 0);
       step += Math.max(0, this.config.mmRestoreLayerStepBpsAdd ?? 0);
     }
+    if (this.isLayerPanicActive(tokenId)) {
+      const mult = Math.max(1, this.config.mmPanicStepBpsMult ?? 1);
+      step *= mult;
+    } else if (this.isLayerRestoreActive(tokenId)) {
+      const mult = Math.max(1, this.config.mmRestoreStepBpsMult ?? 1);
+      step *= mult;
+    }
     return step;
   }
 
