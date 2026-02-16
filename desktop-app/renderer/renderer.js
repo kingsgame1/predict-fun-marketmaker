@@ -3763,8 +3763,10 @@ async function loadMmMetrics() {
         const spreadMult = Number.isFinite(wsHealth.spreadMult) ? wsHealth.spreadMult.toFixed(2) : '--';
         const sizeMult = Number.isFinite(wsHealth.sizeMult) ? wsHealth.sizeMult.toFixed(2) : '--';
         const layerMult = Number.isFinite(wsHealth.layerMult) ? wsHealth.layerMult.toFixed(2) : '--';
+        const intervalMult = Number.isFinite(wsHealth.intervalMult) ? wsHealth.intervalMult.toFixed(2) : '--';
+        const onlyFar = wsHealth.onlyFar ? '远层' : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
-        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} 更新=${updatedAt}`;
+        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} 模式=${onlyFar} 更新=${updatedAt}`;
       }
     }
 
@@ -3790,7 +3792,8 @@ async function loadMmMetrics() {
           const vol = m.volEma ? (m.volEma * 100).toFixed(2) : '--';
           const depth = m.depthEma ? m.depthEma.toFixed(0) : '--';
           const wsScore = Number.isFinite(m.wsHealthScore) ? Math.round(m.wsHealthScore) : '--';
-          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore}`;
+          const wsOnlyFar = m.wsOnlyFar ? '远层' : '常规';
+          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar}`;
           row.appendChild(label);
           row.appendChild(hint);
           mmMarketsList.appendChild(row);

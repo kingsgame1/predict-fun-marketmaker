@@ -234,6 +234,8 @@ export class MarketMaker {
     spreadMult: number;
     sizeMult: number;
     layerMult: number;
+    intervalMult: number;
+    onlyFar: boolean;
     updatedAt: number;
   } {
     return {
@@ -241,6 +243,8 @@ export class MarketMaker {
       spreadMult: this.getWsHealthSpreadMult(),
       sizeMult: this.getWsHealthSizeMult(),
       layerMult: this.getWsHealthLayerMult(),
+      intervalMult: this.getWsHealthIntervalMult(),
+      onlyFar: this.shouldForceOnlyFarWs(),
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -354,6 +358,10 @@ export class MarketMaker {
       return false;
     }
     let minInterval = this.getAdaptiveMinInterval(tokenId);
+    const wsIntervalMult = this.getWsHealthIntervalMult();
+    if (wsIntervalMult > 1) {
+      minInterval = Math.round(minInterval * wsIntervalMult);
+    }
     const safeModeActive = this.isSafeModeActive(tokenId, {
       volEma: this.volatilityEma.get(tokenId) ?? 0,
       depthTrend: this.depthTrend.get(tokenId) ?? 0,
@@ -1378,6 +1386,23 @@ export class MarketMaker {
     return 1 + (maxMult - 1) * ratio;
   }
 
+  private getWsHealthIntervalMult(): number {
+    const maxMult = this.config.mmWsHealthMinIntervalMultMax ?? 1;
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 + (maxMult - 1) * ratio;
+  }
+
+  private shouldForceOnlyFarWs(): boolean {
+    if (!this.config.mmWsHealthForceOnlyFar) {
+      return false;
+    }
+    const ratio = this.getWsHealthRatio();
+    return ratio > 0;
+  }
+
   private maybePauseForWsHealth(tokenId: string): void {
     const threshold = this.config.mmWsHealthHardThreshold ?? 0;
     const pauseMs = this.config.mmWsHealthPauseMs ?? 0;
@@ -1620,6 +1645,8 @@ export class MarketMaker {
       wsSpreadMult: wsHealth.spreadMult,
       wsSizeMult: wsHealth.sizeMult,
       wsLayerMult: wsHealth.layerMult,
+      wsOnlyFar: this.shouldForceOnlyFarWs(),
+      wsIntervalMult: this.getWsHealthIntervalMult(),
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -3115,19 +3142,30 @@ export class MarketMaker {
     const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
     const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';
     const forceSingle = this.shouldForceSingleLayer(tokenId);
+    const wsOnlyFar = this.shouldForceOnlyFarWs();
     const safeModeOnlyFar = safeModeActive && this.config.mmSafeModeOnlyFar === true;
     const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly || safeRemoteOnly || safeModeOnlyFar;
     const safeOnlyFarLayers = safeModeActive ? Math.max(0, this.config.mmSafeModeOnlyFarLayers ?? 0) : 0;
-    const bidStart = farOnly
+    let bidStart = farOnly
       ? bidLayers - 1
       : safeOnlyFarLayers > 0
         ? Math.max(0, bidLayers - safeOnlyFarLayers)
         : 0;
-    const askStart = farOnly
+    let askStart = farOnly
       ? askLayers - 1
       : safeOnlyFarLayers > 0
         ? Math.max(0, askLayers - safeOnlyFarLayers)
         : 0;
+    if (wsOnlyFar) {
+      const farLayers = Math.max(0, this.config.mmWsHealthOnlyFarLayers ?? 0);
+      if (farLayers > 0) {
+        bidStart = Math.max(bidStart, Math.max(0, bidLayers - farLayers));
+        askStart = Math.max(askStart, Math.max(0, askLayers - farLayers));
+      } else {
+        bidStart = Math.max(0, bidLayers - 1);
+        askStart = Math.max(0, askLayers - 1);
+      }
+    }
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;
 
     if (!suppressBuy && bidOrderSize.shares > 0) {
