@@ -152,6 +152,7 @@ const recoveryTemplateResetHint = document.getElementById('recoveryTemplateReset
 const applyRecoveryTemplateSafeBtn = document.getElementById('applyRecoveryTemplateSafe');
 const applyRecoveryTemplateUltraBtn = document.getElementById('applyRecoveryTemplateUltra');
 const applyRecoveryTemplateExtremeBtn = document.getElementById('applyRecoveryTemplateExtreme');
+const applyRecoveryTemplateResetBtn = document.getElementById('applyRecoveryTemplateReset');
 
 const logs = [];
 const MAX_LOGS = 800;
@@ -2130,30 +2131,52 @@ function applyEnvLines(lines, message) {
   }
 }
 
+function formatUpdateList(updates) {
+  return Object.entries(updates)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('，');
+}
+
+function applyRecoveryTemplateReset() {
+  let text = envEditor.value || '';
+  const resetLines = {
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED: 'false',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE: 'NONE',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_MODE: 'REMOTE',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_OFFSET_BPS: '0',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_OFFSET_MIN_BPS: '0',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_AUTO: 'false',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MIN: '1',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MAX: '3',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYER_STEP: '1',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_CANCEL_INTERVAL_MULT_MAX: '2',
+    MM_WS_HEALTH_EMERGENCY_RECOVERY_MIN_INTERVAL_MS: '0',
+  };
+  Object.entries(resetLines).forEach(([key, value]) => {
+    text = setEnvValue(text, key, value);
+  });
+  envEditor.value = text;
+  detectTradingMode(text);
+  syncTogglesFromEnv(text);
+  updateMetricsPaths();
+  if (saveEnvButton) {
+    saveEnvButton.classList.add('attention');
+  }
+  if (recoveryTemplateResetHint) {
+    recoveryTemplateResetHint.textContent = `已恢复默认：${formatUpdateList(resetLines)}（请保存生效）`;
+  }
+  pushLog({ type: 'system', level: 'system', message: '已恢复默认恢复模板参数（请保存生效）' });
+}
+
 function toggleRecoveryTemplate(enabled) {
   let text = envEditor.value || '';
   text = setEnvValue(text, 'MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED', enabled ? 'true' : 'false');
   if (!enabled) {
     const resetEnabled = /MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_RESET_ENABLED\s*=\s*true/i.test(text);
     if (resetEnabled) {
-      const resetLines = [
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE=NONE',
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_MODE=REMOTE',
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_OFFSET_BPS=0',
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_OFFSET_MIN_BPS=0',
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MIN=1',
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MAX=3',
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYER_STEP=1',
-        'MM_WS_HEALTH_EMERGENCY_RECOVERY_CANCEL_INTERVAL_MULT_MAX=2',
-      ];
-      resetLines.forEach((line) => {
-        const idx = line.indexOf('=');
-        if (idx === -1) return;
-        text = setEnvValue(text, line.slice(0, idx), line.slice(idx + 1));
-      });
-      if (recoveryTemplateResetHint) {
-        recoveryTemplateResetHint.textContent = '已按模板恢复默认参数（请保存生效）。';
-      }
+      envEditor.value = text;
+      applyRecoveryTemplateReset();
+      text = envEditor.value || '';
     }
   }
   envEditor.value = text;
@@ -2246,6 +2269,9 @@ function applyRecoveryTemplatePreset(level) {
   }
   const label = level === 'extreme' ? '极限' : level === 'ultra' ? '极保守' : '保守';
   pushLog({ type: 'system', level: 'system', message: `已应用恢复模板${label}档（请保存生效）` });
+  if (recoveryTemplateResetHint) {
+    recoveryTemplateResetHint.textContent = `本次更新：${formatUpdateList(updates)}（请保存生效）`;
+  }
 }
 
 function parseFixTemplate(template) {
@@ -4199,6 +4225,7 @@ disableRecoveryTemplateBtn?.addEventListener('click', () => toggleRecoveryTempla
 applyRecoveryTemplateSafeBtn?.addEventListener('click', () => applyRecoveryTemplatePreset('safe'));
 applyRecoveryTemplateUltraBtn?.addEventListener('click', () => applyRecoveryTemplatePreset('ultra'));
 applyRecoveryTemplateExtremeBtn?.addEventListener('click', () => applyRecoveryTemplatePreset('extreme'));
+applyRecoveryTemplateResetBtn?.addEventListener('click', applyRecoveryTemplateReset);
 copyFailuresBtn.addEventListener('click', copyFailures);
 if (copyFixTemplateBtn) {
   copyFixTemplateBtn.addEventListener('click', copyFixTemplate);
