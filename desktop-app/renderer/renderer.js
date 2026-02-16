@@ -141,6 +141,7 @@ const mmPositions = document.getElementById('mmPositions');
 const mmWsHealth = document.getElementById('mmWsHealth');
 const mmWsHealthHint = document.getElementById('mmWsHealthHint');
 const mmMarketsList = document.getElementById('mmMarketsList');
+const mmEventList = document.getElementById('mmEventList');
 const refreshMmMetrics = document.getElementById('refreshMmMetrics');
 
 const logs = [];
@@ -3822,6 +3823,28 @@ async function loadMmMetrics() {
           row.appendChild(label);
           row.appendChild(hint);
           mmMarketsList.appendChild(row);
+        });
+      }
+    }
+
+    if (mmEventList) {
+      mmEventList.innerHTML = '';
+      const events = Array.isArray(data.events) ? data.events : [];
+      const recent = events.slice(-8).reverse();
+      if (recent.length === 0) {
+        const item = document.createElement('div');
+        item.className = 'health-item ok';
+        item.textContent = '暂无事件。';
+        mmEventList.appendChild(item);
+      } else {
+        recent.forEach((event) => {
+          const row = document.createElement('div');
+          const isRecovery = event?.type && String(event.type).includes('RECOVERY_END');
+          row.className = `health-item ${isRecovery ? 'ok' : 'warn'}`;
+          const ts = event?.ts ? formatTimestamp(event.ts) : '--';
+          const token = event?.tokenId ? ` | ${event.tokenId}` : '';
+          row.textContent = `${ts} | ${event?.type || 'EVENT'}${token} | ${event?.message || ''}`.trim();
+          mmEventList.appendChild(row);
         });
       }
     }

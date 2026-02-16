@@ -110,6 +110,7 @@ export class MarketMaker {
   private wsEmergencyGlobalUntil = 0;
   private wsEmergencyGlobalLast = 0;
   private wsEmergencyRecoveryUntil = 0;
+  private wsEmergencyRecoveryActive = false;
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -1243,8 +1244,17 @@ export class MarketMaker {
     }
   }
 
+  private updateWsEmergencyRecoveryState(): void {
+    const active = this.wsEmergencyRecoveryUntil > Date.now();
+    if (this.wsEmergencyRecoveryActive && !active) {
+      this.recordMmEvent('WS_EMERGENCY_RECOVERY_END', 'Emergency recovery window ended');
+    }
+    this.wsEmergencyRecoveryActive = active;
+  }
+
   private isWsEmergencyRecoveryActive(): boolean {
-    return this.wsEmergencyRecoveryUntil > Date.now();
+    this.updateWsEmergencyRecoveryState();
+    return this.wsEmergencyRecoveryActive;
   }
 
   private getWsEmergencyRecoveryRatio(): number {
@@ -1535,6 +1545,9 @@ export class MarketMaker {
     if (!this.config.mmWsHealthEmergencyCancelAll) {
       return false;
     }
+    if (this.isWsEmergencyRecoveryActive()) {
+      return false;
+    }
     if (this.getWsHealthRatio() <= 0) {
       return false;
     }
@@ -1549,6 +1562,9 @@ export class MarketMaker {
 
   private shouldEmergencyCancelGlobal(): boolean {
     if (!this.config.mmWsHealthEmergencyCancelAll) {
+      return false;
+    }
+    if (this.isWsEmergencyRecoveryActive()) {
       return false;
     }
     if (this.getWsHealthRatio() <= 0) {
@@ -2976,6 +2992,7 @@ export class MarketMaker {
       const recoveryMs = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMs ?? 0);
       if (recoveryMs > 0) {
         this.wsEmergencyRecoveryUntil = now + recoveryMs;
+        this.wsEmergencyRecoveryActive = true;
       }
       const recoveryNote = recoveryMs > 0 ? `, recovery ${recoveryMs}ms` : '';
       console.log(`🧯 WS health low: emergency cancel-all${cooldown > 0 ? `, cooldown ${cooldown}ms` : ''}${recoveryNote}`);
@@ -2984,6 +3001,9 @@ export class MarketMaker {
         `Emergency cancel-all${cooldown > 0 ? `, cooldown ${cooldown}ms` : ''}${recoveryNote}`,
         tokenId
       );
+      if (recoveryMs > 0) {
+        this.recordMmEvent('WS_EMERGENCY_RECOVERY_START', `Emergency recovery window ${recoveryMs}ms`, tokenId);
+      }
       this.markAction(tokenId);
       return;
     }
