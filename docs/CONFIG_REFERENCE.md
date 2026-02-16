@@ -117,6 +117,8 @@
 - `MM_RESTORE_EXIT_MIN_DEPTH_SHARES`：恢复期结束后重挂前最小顶层深度（份额）。
 - `MM_RESTORE_EXIT_MIN_DEPTH_USD`：恢复期结束后重挂前最小顶层深度（USD）。
 - `MM_RESTORE_EXIT_DEPTH_COOLDOWN_MS`：恢复期结束深度不足时的冷却时间（毫秒）。
+- `MM_RESTORE_LAYER_COUNT_CAP`：恢复期内的最大分层上限（0=不启用）。
+- `MM_RESTORE_LAYER_STEP_BPS_ADD`：恢复期每层额外偏移（bps）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

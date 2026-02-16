@@ -1688,6 +1688,10 @@ export class MarketMaker {
       if (cap > 0) {
         effective = Math.min(effective, cap);
       }
+      const hardCap = Math.max(0, Math.floor(this.config.mmRestoreLayerCountCap ?? 0));
+      if (hardCap > 0) {
+        effective = Math.min(effective, hardCap);
+      }
     }
     return Math.max(minCount, effective);
   }
@@ -1796,6 +1800,7 @@ export class MarketMaker {
     }
     if (this.isLayerRestoreActive(tokenId)) {
       step += Math.max(0, this.config.mmLayerStepBpsRestoreExtra ?? 0);
+      step += Math.max(0, this.config.mmRestoreLayerStepBpsAdd ?? 0);
     }
     return step;
   }
