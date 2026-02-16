@@ -219,6 +219,7 @@ export interface Config {
   mmSafeModeLayerCountCap?: number;
   mmSafeModeRejectThin?: boolean;
   mmSafeModeCancelBufferAddBps?: number;
+  mmSafeModeExitHoldMs?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

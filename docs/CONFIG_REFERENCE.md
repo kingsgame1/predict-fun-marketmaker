@@ -146,6 +146,7 @@
 - `MM_SAFE_MODE_LAYER_COUNT_CAP`：安全档分层上限（0=不启用）。
 - `MM_SAFE_MODE_REJECT_THIN`：安全档下流动性过低则跳过挂单。
 - `MM_SAFE_MODE_CANCEL_BUFFER_ADD_BPS`：安全档撤单缓冲额外增加（bps）。
+- `MM_SAFE_MODE_EXIT_HOLD_MS`：安全档退出后延迟恢复的时间（毫秒）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

@@ -103,6 +103,7 @@ export class MarketMaker {
   private layerRestoreExitSizeRampStartAt: Map<string, number> = new Map();
   private layerRestoreExitSizeRampUntil: Map<string, number> = new Map();
   private layerRestoreExitRepricePending: Set<string> = new Set();
+  private safeModeExitUntil: Map<string, number> = new Map();
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -1568,13 +1569,22 @@ export class MarketMaker {
     if (!this.config.mmSafeModeEnabled) {
       return false;
     }
+    const now = Date.now();
+    const holdUntil = this.safeModeExitUntil.get(tokenId) || 0;
+    if (holdUntil > now) {
+      return true;
+    }
     const volThreshold = Math.max(0, this.config.mmSafeModeVolBps ?? 0);
     const depthThreshold = this.config.mmSafeModeDepthTrend ?? 0;
     const depthSpeedThreshold = Math.max(0, this.config.mmSafeModeDepthSpeedBps ?? 0);
     const volTrigger = volThreshold > 0 && metrics.volEma >= volThreshold;
     const depthTrigger = depthThreshold > 0 && metrics.depthTrend <= depthThreshold;
     const depthSpeedTrigger = depthSpeedThreshold > 0 && metrics.depthSpeedBps >= depthSpeedThreshold;
-    return volTrigger || depthTrigger || depthSpeedTrigger;
+    const active = volTrigger || depthTrigger || depthSpeedTrigger;
+    if (!active && holdUntil) {
+      this.safeModeExitUntil.delete(tokenId);
+    }
+    return active;
   }
 
   private applyLayerRetreat(tokenId: string): void {
@@ -2022,6 +2032,11 @@ export class MarketMaker {
       const cancelBufferAdd = Math.max(0, this.config.mmSafeModeCancelBufferAddBps ?? 0);
       if (cancelBufferAdd > 0) {
         adaptiveSpread += cancelBufferAdd / 10000;
+      }
+    } else {
+      const holdMs = Math.max(0, this.config.mmSafeModeExitHoldMs ?? 0);
+      if (holdMs > 0) {
+        this.safeModeExitUntil.set(market.token_id, Date.now() + holdMs);
       }
     }
 
