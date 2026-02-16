@@ -309,7 +309,18 @@ export class MarketMaker {
     if (lockUntil > now) {
       return false;
     }
-    const minInterval = this.getAdaptiveMinInterval(tokenId);
+    let minInterval = this.getAdaptiveMinInterval(tokenId);
+    const safeModeActive = this.isSafeModeActive(tokenId, {
+      volEma: this.volatilityEma.get(tokenId) ?? 0,
+      depthTrend: this.depthTrend.get(tokenId) ?? 0,
+      depthSpeedBps: this.lastDepthSpeedBps.get(tokenId) ?? 0,
+    });
+    if (safeModeActive) {
+      const safeMin = Math.max(0, this.config.mmSafeModeMinIntervalMs ?? 0);
+      if (safeMin > minInterval) {
+        minInterval = safeMin;
+      }
+    }
     const lastAt = this.lastActionAt.get(tokenId) || 0;
     const cooldownUntil = this.cooldownUntil.get(tokenId) || 0;
     return now - lastAt >= minInterval && now >= cooldownUntil;
