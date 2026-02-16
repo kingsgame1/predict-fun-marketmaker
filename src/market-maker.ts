@@ -107,6 +107,8 @@ export class MarketMaker {
   private wsHealthScore = 100;
   private wsHealthUpdatedAt = 0;
   private wsEmergencyLast: Map<string, number> = new Map();
+  private wsEmergencyGlobalUntil = 0;
+  private wsEmergencyGlobalLast = 0;
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -237,8 +239,28 @@ export class MarketMaker {
     layerMult: number;
     intervalMult: number;
     onlyFar: boolean;
+    sizeScale: number;
+    singleSide: 'BUY' | 'SELL' | 'NONE';
+    singleMode: 'NORMAL' | 'REMOTE';
+    touchBufferAddBps: number;
+    sparseOdd: boolean;
+    wsLayerCap: number;
+    wsMaxOrdersMult: number;
+    wsSoftCancelMult: number;
+    wsHardCancelMult: number;
+    wsCancelBufferAddBps: number;
+    wsRepriceBufferAddBps: number;
+    wsCancelConfirmMult: number;
+    wsRepriceConfirmMult: number;
+    wsForceSafe: boolean;
+    wsDisableHedge: boolean;
+    wsReadOnly: boolean;
+    wsUltraSafe: boolean;
+    wsEmergencyCancel: boolean;
+    wsEmergencyActive: boolean;
     updatedAt: number;
   } {
+    const wsSingle = this.getWsHealthSingleSide();
     return {
       score: this.wsHealthScore,
       spreadMult: this.getWsHealthSpreadMult(),
@@ -246,6 +268,25 @@ export class MarketMaker {
       layerMult: this.getWsHealthLayerMult(),
       intervalMult: this.getWsHealthIntervalMult(),
       onlyFar: this.shouldForceOnlyFarWs(),
+      sizeScale: this.getWsHealthSizeScale(),
+      singleSide: wsSingle.side,
+      singleMode: wsSingle.mode,
+      touchBufferAddBps: this.getWsHealthTouchBufferAddBps(),
+      sparseOdd: this.shouldSparseWs(),
+      wsLayerCap: this.getWsHealthLayerCap(),
+      wsMaxOrdersMult: this.getWsHealthMaxOrdersMult(),
+      wsSoftCancelMult: this.getWsHealthSoftCancelMult(),
+      wsHardCancelMult: this.getWsHealthHardCancelMult(),
+      wsCancelBufferAddBps: this.getWsHealthCancelBufferAddBps(),
+      wsRepriceBufferAddBps: this.getWsHealthRepriceBufferAddBps(),
+      wsCancelConfirmMult: this.getWsHealthCancelConfirmMult(),
+      wsRepriceConfirmMult: this.getWsHealthRepriceConfirmMult(),
+      wsForceSafe: this.config.mmWsHealthForceSafeMode === true,
+      wsDisableHedge: this.config.mmWsHealthDisableHedge === true,
+      wsReadOnly: this.config.mmWsHealthReadOnly === true,
+      wsUltraSafe: this.isWsUltraSafeActive(),
+      wsEmergencyCancel: this.config.mmWsHealthEmergencyCancelAll === true,
+      wsEmergencyActive: this.wsEmergencyGlobalUntil > Date.now(),
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1479,6 +1520,21 @@ export class MarketMaker {
     return true;
   }
 
+  private shouldEmergencyCancelGlobal(): boolean {
+    if (!this.config.mmWsHealthEmergencyCancelAll) {
+      return false;
+    }
+    if (this.getWsHealthRatio() <= 0) {
+      return false;
+    }
+    const intervalMs = Math.max(0, this.config.mmWsHealthEmergencyIntervalMs ?? 0);
+    if (intervalMs > 0 && Date.now() - this.wsEmergencyGlobalLast < intervalMs) {
+      return false;
+    }
+    this.wsEmergencyGlobalLast = Date.now();
+    return true;
+  }
+
   private getWsHealthCancelMult(): number {
     const maxMult = this.config.mmWsHealthCancelMultMax ?? 1;
     if (maxMult <= 1) {
@@ -1837,6 +1893,7 @@ export class MarketMaker {
       wsReadOnly: this.config.mmWsHealthReadOnly === true,
       wsUltraSafe: this.isWsUltraSafeActive(),
       wsEmergencyCancel: this.config.mmWsHealthEmergencyCancelAll === true,
+      wsEmergencyActive: this.wsEmergencyGlobalUntil > Date.now(),
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2877,6 +2934,19 @@ export class MarketMaker {
       this.lastFillAt.set(tokenId, Date.now());
     }
 
+    const now = Date.now();
+    if (this.wsEmergencyGlobalUntil > now) {
+      return;
+    }
+    if (this.shouldEmergencyCancelGlobal()) {
+      await this.cancelAllOpenOrders();
+      const cooldown = Math.max(0, this.config.mmWsHealthEmergencyCooldownMs ?? 0);
+      if (cooldown > 0) {
+        this.wsEmergencyGlobalUntil = now + cooldown;
+      }
+      this.markAction(tokenId);
+      return;
+    }
     if (this.isPaused(tokenId)) {
       return;
     }
@@ -3533,6 +3603,13 @@ export class MarketMaker {
     }
     if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceRefresh) {
       this.markAction(tokenId);
+    }
+  }
+
+  private async cancelAllOpenOrders(): Promise<void> {
+    const ordersToCancel = Array.from(this.openOrders.values()).filter((o) => o.status === 'OPEN');
+    for (const order of ordersToCancel) {
+      await this.cancelOrder(order);
     }
   }
 
