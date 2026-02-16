@@ -195,6 +195,9 @@
 - `MM_WS_HEALTH_MAX_ORDERS_MULT_MIN`：WS 健康度较差时最大挂单数缩放下限（0-1）。
 - `MM_WS_HEALTH_SOFT_CANCEL_MULT_MAX`：WS 健康度较差时软撤单敏感倍数上限。
 - `MM_WS_HEALTH_HARD_CANCEL_MULT_MAX`：WS 健康度较差时硬撤单敏感倍数上限。
+- `MM_WS_HEALTH_REPRICE_BUFFER_ADD_BPS`：WS 健康度较差时额外重报价缓冲（bps）。
+- `MM_WS_HEALTH_CANCEL_BUFFER_ADD_BPS`：WS 健康度较差时额外撤单缓冲（bps）。
+- `MM_WS_HEALTH_FORCE_SAFE_MODE`：WS 健康度较差时强制触发安全档逻辑。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

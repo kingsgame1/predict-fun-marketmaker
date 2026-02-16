@@ -3774,8 +3774,11 @@ async function loadMmMetrics() {
         const maxOrdersMult = Number.isFinite(wsHealth.wsMaxOrdersMult) ? wsHealth.wsMaxOrdersMult.toFixed(2) : '--';
         const softCancelMult = Number.isFinite(wsHealth.wsSoftCancelMult) ? wsHealth.wsSoftCancelMult.toFixed(2) : '--';
         const hardCancelMult = Number.isFinite(wsHealth.wsHardCancelMult) ? wsHealth.wsHardCancelMult.toFixed(2) : '--';
+        const cancelBufferAdd = Number.isFinite(wsHealth.wsCancelBufferAddBps) ? wsHealth.wsCancelBufferAddBps.toFixed(1) : '--';
+        const repriceBufferAdd = Number.isFinite(wsHealth.wsRepriceBufferAddBps) ? wsHealth.wsRepriceBufferAddBps.toFixed(1) : '--';
+        const forceSafe = wsHealth.wsForceSafe ? '安全档' : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
-        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} 模式=${onlyFar} 更新=${updatedAt}`;
+        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} ${forceSafe} 模式=${onlyFar} 更新=${updatedAt}`;
       }
     }
 

@@ -266,6 +266,10 @@ export class MarketMaker {
       threshold = threshold / wsCancelMult;
     }
     let buffer = Math.max(0, this.config.mmCancelBufferBps ?? 0);
+    const wsCancelAdd = this.getWsHealthCancelBufferAddBps();
+    if (wsCancelAdd > 0) {
+      buffer += wsCancelAdd / 10000;
+    }
     if (
       this.isSafeModeActive(tokenId, {
         volEma: this.volatilityEma.get(tokenId) ?? 0,
@@ -1411,6 +1415,24 @@ export class MarketMaker {
     return 1 + (maxMult - 1) * ratio;
   }
 
+  private getWsHealthRepriceBufferAddBps(): number {
+    const add = Math.max(0, this.config.mmWsHealthRepriceBufferAddBps ?? 0);
+    if (add <= 0) {
+      return 0;
+    }
+    const ratio = this.getWsHealthRatio();
+    return add * ratio;
+  }
+
+  private getWsHealthCancelBufferAddBps(): number {
+    const add = Math.max(0, this.config.mmWsHealthCancelBufferAddBps ?? 0);
+    if (add <= 0) {
+      return 0;
+    }
+    const ratio = this.getWsHealthRatio();
+    return add * ratio;
+  }
+
   private getWsHealthCancelMult(): number {
     const maxMult = this.config.mmWsHealthCancelMultMax ?? 1;
     if (maxMult <= 1) {
@@ -1741,6 +1763,9 @@ export class MarketMaker {
       wsMaxOrdersMult: this.getWsHealthMaxOrdersMult(),
       wsSoftCancelMult: this.getWsHealthSoftCancelMult(),
       wsHardCancelMult: this.getWsHealthHardCancelMult(),
+      wsRepriceBufferAddBps: this.getWsHealthRepriceBufferAddBps(),
+      wsCancelBufferAddBps: this.getWsHealthCancelBufferAddBps(),
+      wsForceSafe: this.config.mmWsHealthForceSafeMode === true,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -1841,8 +1866,11 @@ export class MarketMaker {
     tokenId: string,
     metrics: { volEma: number; depthTrend: number; depthSpeedBps: number }
   ): boolean {
-    if (!this.config.mmSafeModeEnabled) {
+    if (!this.config.mmSafeModeEnabled && !this.config.mmWsHealthForceSafeMode) {
       return false;
+    }
+    if (this.config.mmWsHealthForceSafeMode && this.getWsHealthRatio() > 0) {
+      return true;
     }
     const now = Date.now();
     const holdUntil = this.safeModeExitUntil.get(tokenId) || 0;
@@ -2665,6 +2693,10 @@ export class MarketMaker {
       threshold = threshold / wsRepriceMult;
     }
     let buffer = Math.max(0, this.config.mmRepriceBufferBps ?? 0);
+    const wsRepriceAdd = this.getWsHealthRepriceBufferAddBps();
+    if (wsRepriceAdd > 0) {
+      buffer += wsRepriceAdd / 10000;
+    }
     let confirmMs = Math.max(0, this.config.mmRepriceConfirmMs ?? 0);
     if (
       this.isSafeModeActive(order.token_id, {

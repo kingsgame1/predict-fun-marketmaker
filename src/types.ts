@@ -127,6 +127,9 @@ export interface Config {
   mmWsHealthMaxOrdersMultMin?: number;
   mmWsHealthSoftCancelMultMax?: number;
   mmWsHealthHardCancelMultMax?: number;
+  mmWsHealthRepriceBufferAddBps?: number;
+  mmWsHealthCancelBufferAddBps?: number;
+  mmWsHealthForceSafeMode?: boolean;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
