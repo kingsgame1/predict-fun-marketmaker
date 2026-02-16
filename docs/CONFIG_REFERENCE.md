@@ -198,6 +198,9 @@
 - `MM_WS_HEALTH_REPRICE_BUFFER_ADD_BPS`：WS 健康度较差时额外重报价缓冲（bps）。
 - `MM_WS_HEALTH_CANCEL_BUFFER_ADD_BPS`：WS 健康度较差时额外撤单缓冲（bps）。
 - `MM_WS_HEALTH_FORCE_SAFE_MODE`：WS 健康度较差时强制触发安全档逻辑。
+- `MM_WS_HEALTH_CANCEL_CONFIRM_MULT_MIN`：WS 健康度较差时撤单确认时间缩放下限（0-1）。
+- `MM_WS_HEALTH_REPRICE_CONFIRM_MULT_MIN`：WS 健康度较差时重报价确认时间缩放下限（0-1）。
+- `MM_WS_HEALTH_DISABLE_HEDGE`：WS 健康度较差时禁用对冲执行。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

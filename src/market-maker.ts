@@ -290,7 +290,11 @@ export class MarketMaker {
       return true;
     }
     if (priceChange > threshold) {
-      const confirmMs = Math.max(0, this.config.mmCancelConfirmMs ?? 0);
+      let confirmMs = Math.max(0, this.config.mmCancelConfirmMs ?? 0);
+      const wsConfirmMult = this.getWsHealthCancelConfirmMult();
+      if (wsConfirmMult > 0 && wsConfirmMult !== 1) {
+        confirmMs = Math.round(confirmMs * wsConfirmMult);
+      }
       if (confirmMs <= 0) {
         return true;
       }
@@ -1433,6 +1437,24 @@ export class MarketMaker {
     return add * ratio;
   }
 
+  private getWsHealthCancelConfirmMult(): number {
+    const minMult = this.config.mmWsHealthCancelConfirmMultMin ?? 1;
+    if (minMult >= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 - (1 - minMult) * ratio;
+  }
+
+  private getWsHealthRepriceConfirmMult(): number {
+    const minMult = this.config.mmWsHealthRepriceConfirmMultMin ?? 1;
+    if (minMult >= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 - (1 - minMult) * ratio;
+  }
+
   private getWsHealthCancelMult(): number {
     const maxMult = this.config.mmWsHealthCancelMultMax ?? 1;
     if (maxMult <= 1) {
@@ -1766,6 +1788,9 @@ export class MarketMaker {
       wsRepriceBufferAddBps: this.getWsHealthRepriceBufferAddBps(),
       wsCancelBufferAddBps: this.getWsHealthCancelBufferAddBps(),
       wsForceSafe: this.config.mmWsHealthForceSafeMode === true,
+      wsCancelConfirmMult: this.getWsHealthCancelConfirmMult(),
+      wsRepriceConfirmMult: this.getWsHealthRepriceConfirmMult(),
+      wsDisableHedge: this.config.mmWsHealthDisableHedge === true,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2698,6 +2723,10 @@ export class MarketMaker {
       buffer += wsRepriceAdd / 10000;
     }
     let confirmMs = Math.max(0, this.config.mmRepriceConfirmMs ?? 0);
+    const wsConfirmMult = this.getWsHealthRepriceConfirmMult();
+    if (wsConfirmMult > 0 && wsConfirmMult !== 1) {
+      confirmMs = Math.round(confirmMs * wsConfirmMult);
+    }
     if (
       this.isSafeModeActive(order.token_id, {
         volEma: this.volatilityEma.get(order.token_id) ?? 0,
@@ -3527,14 +3556,16 @@ export class MarketMaker {
       }
       if (absDelta >= triggerShares) {
         this.applyIcebergPenalty(tokenId);
-        if (!disableHedge) {
+        const wsDisableHedge = this.config.mmWsHealthDisableHedge && this.getWsHealthRatio() > 0;
+        if (!disableHedge && !wsDisableHedge) {
           await this.handleFillHedge(tokenId, delta, position.question);
         }
       } else if (absDelta >= partialThreshold && this.config.mmPartialFillHedge) {
         const maxShares = this.config.mmPartialFillHedgeMaxShares ?? 20;
         const hedgeShares = Math.min(absDelta, maxShares);
         if (hedgeShares > 0) {
-          if (!disableHedge && !disablePartial) {
+          const wsDisableHedge = this.config.mmWsHealthDisableHedge && this.getWsHealthRatio() > 0;
+          if (!disableHedge && !disablePartial && !wsDisableHedge) {
             await this.flattenOnPredict(tokenId, delta, hedgeShares, this.config.mmPartialFillHedgeSlippageBps);
           }
         }

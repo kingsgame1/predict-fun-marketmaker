@@ -130,6 +130,9 @@ export interface Config {
   mmWsHealthRepriceBufferAddBps?: number;
   mmWsHealthCancelBufferAddBps?: number;
   mmWsHealthForceSafeMode?: boolean;
+  mmWsHealthCancelConfirmMultMin?: number;
+  mmWsHealthRepriceConfirmMultMin?: number;
+  mmWsHealthDisableHedge?: boolean;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
