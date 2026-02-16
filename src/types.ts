@@ -102,6 +102,14 @@ export interface Config {
   mmWsOnlyDirty?: boolean;
   mmWsDirtyMaxBatch?: number;
   mmWsIdleSleepMs?: number;
+  mmWsGapMax?: number;
+  mmWsGapCooldownMs?: number;
+  mmWsGapReconnect?: boolean;
+  mmWsHealthSpreadMultMax?: number;
+  mmWsHealthSizeMultMin?: number;
+  mmWsHealthLayerMultMin?: number;
+  mmWsHealthHardThreshold?: number;
+  mmWsHealthPauseMs?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

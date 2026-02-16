@@ -69,6 +69,8 @@
 - `MM_WS_ONLY_DIRTY=true`（只处理有 WS 更新的市场）
 - `MM_WS_DIRTY_MAX_BATCH=20`（每轮最大处理量）
 - `MM_WS_IDLE_SLEEP_MS=200`（空闲轮询间隔）
+- `MM_WS_GAP_MAX=3`（WS 盘口异常容忍次数）
+- `MM_WS_GAP_COOLDOWN_MS=30000`（触发回退后冷却）
 
 实时行情（Opinion WebSocket）：
 - `OPINION_WS_ENABLED=true`

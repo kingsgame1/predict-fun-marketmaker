@@ -104,6 +104,7 @@ export class MarketMaker {
   private layerRestoreExitSizeRampUntil: Map<string, number> = new Map();
   private layerRestoreExitRepricePending: Set<string> = new Set();
   private safeModeExitUntil: Map<string, number> = new Map();
+  private wsHealthScore = 100;
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -217,6 +218,13 @@ export class MarketMaker {
     } catch (error) {
       console.error('Error updating state:', error);
     }
+  }
+
+  setWsHealthScore(score: number): void {
+    if (!Number.isFinite(score)) {
+      return;
+    }
+    this.wsHealthScore = this.clamp(score, 0, 100);
   }
 
   shouldCancelOrders(tokenId: string, orderbook: Orderbook): boolean {
@@ -1298,6 +1306,49 @@ export class MarketMaker {
     return true;
   }
 
+  private getWsHealthRatio(): number {
+    const ratio = Math.max(0, Math.min(1, 1 - this.wsHealthScore / 100));
+    return ratio;
+  }
+
+  private getWsHealthSpreadMult(): number {
+    const maxMult = this.config.mmWsHealthSpreadMultMax ?? 1;
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 + (maxMult - 1) * ratio;
+  }
+
+  private getWsHealthSizeMult(): number {
+    const minMult = this.config.mmWsHealthSizeMultMin ?? 1;
+    if (minMult >= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 - (1 - minMult) * ratio;
+  }
+
+  private getWsHealthLayerMult(): number {
+    const minMult = this.config.mmWsHealthLayerMultMin ?? 1;
+    if (minMult >= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 - (1 - minMult) * ratio;
+  }
+
+  private maybePauseForWsHealth(tokenId: string): void {
+    const threshold = this.config.mmWsHealthHardThreshold ?? 0;
+    const pauseMs = this.config.mmWsHealthPauseMs ?? 0;
+    if (threshold <= 0 || pauseMs <= 0) {
+      return;
+    }
+    if (this.wsHealthScore <= threshold) {
+      this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    }
+  }
+
   private updateFillPressure(tokenId: string, shares: number): void {
     if (!Number.isFinite(shares) || shares <= 0) {
       return;
@@ -1787,6 +1838,10 @@ export class MarketMaker {
         effective = Math.min(effective, cap);
       }
     }
+    const wsLayerMult = this.getWsHealthLayerMult();
+    if (wsLayerMult > 0 && wsLayerMult !== 1) {
+      effective = Math.max(1, Math.floor(effective * wsLayerMult));
+    }
     return Math.max(minCount, effective);
   }
 
@@ -2106,6 +2161,15 @@ export class MarketMaker {
       }
     }
 
+    const wsSpreadMult = this.getWsHealthSpreadMult();
+    if (wsSpreadMult > 0 && wsSpreadMult !== 1) {
+      adaptiveSpread *= wsSpreadMult;
+      minSpread *= wsSpreadMult;
+      if (maxSpread > 0) {
+        maxSpread *= wsSpreadMult;
+      }
+    }
+
     adaptiveSpread = this.clamp(adaptiveSpread, minSpread, maxSpread);
 
     const inventoryBias = this.calculateInventoryBias(market.token_id);
@@ -2341,6 +2405,11 @@ export class MarketMaker {
       }
     }
 
+    const wsSizeMult = this.getWsHealthSizeMult();
+    if (wsSizeMult > 0 && wsSizeMult !== 1) {
+      shares = Math.floor(shares * wsSizeMult);
+    }
+
     if (shares <= 0) {
       return { shares: 0, usdt: 0 };
     }
@@ -2536,6 +2605,10 @@ export class MarketMaker {
       if (pauseMs > 0) {
         this.pauseUntil.set(tokenId, Date.now() + pauseMs);
       }
+    }
+    this.maybePauseForWsHealth(tokenId);
+    if (this.isPaused(tokenId)) {
+      return;
     }
     if (this.layerRestoreExitRepricePending.has(tokenId)) {
       let effectiveMetrics = metrics;

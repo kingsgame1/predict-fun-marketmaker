@@ -148,6 +148,14 @@ export function loadConfig(): Config {
     mmWsOnlyDirty: process.env.MM_WS_ONLY_DIRTY === 'true',
     mmWsDirtyMaxBatch: parseInt(process.env.MM_WS_DIRTY_MAX_BATCH || '0'),
     mmWsIdleSleepMs: parseInt(process.env.MM_WS_IDLE_SLEEP_MS || '0'),
+    mmWsGapMax: parseInt(process.env.MM_WS_GAP_MAX || '3'),
+    mmWsGapCooldownMs: parseInt(process.env.MM_WS_GAP_COOLDOWN_MS || '30000'),
+    mmWsGapReconnect: process.env.MM_WS_GAP_RECONNECT === 'true',
+    mmWsHealthSpreadMultMax: parseFloat(process.env.MM_WS_HEALTH_SPREAD_MULT_MAX || '1'),
+    mmWsHealthSizeMultMin: parseFloat(process.env.MM_WS_HEALTH_SIZE_MULT_MIN || '1'),
+    mmWsHealthLayerMultMin: parseFloat(process.env.MM_WS_HEALTH_LAYER_MULT_MIN || '1'),
+    mmWsHealthHardThreshold: parseFloat(process.env.MM_WS_HEALTH_HARD_THRESHOLD || '0'),
+    mmWsHealthPauseMs: parseInt(process.env.MM_WS_HEALTH_PAUSE_MS || '0'),
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1429,6 +1437,36 @@ export function loadConfig(): Config {
   if ((config.mmWsIdleSleepMs ?? 0) < 0) {
     config.mmWsIdleSleepMs = 0;
   }
+  if ((config.mmWsGapMax ?? 0) < 0) {
+    config.mmWsGapMax = 0;
+  }
+  if ((config.mmWsGapCooldownMs ?? 0) < 0) {
+    config.mmWsGapCooldownMs = 0;
+  }
+  if ((config.mmWsHealthSpreadMultMax ?? 0) < 1) {
+    config.mmWsHealthSpreadMultMax = 1;
+  }
+  if ((config.mmWsHealthSizeMultMin ?? 0) <= 0) {
+    config.mmWsHealthSizeMultMin = 1;
+  }
+  if ((config.mmWsHealthSizeMultMin ?? 0) > 1) {
+    config.mmWsHealthSizeMultMin = 1;
+  }
+  if ((config.mmWsHealthLayerMultMin ?? 0) <= 0) {
+    config.mmWsHealthLayerMultMin = 1;
+  }
+  if ((config.mmWsHealthLayerMultMin ?? 0) > 1) {
+    config.mmWsHealthLayerMultMin = 1;
+  }
+  if ((config.mmWsHealthHardThreshold ?? 0) < 0) {
+    config.mmWsHealthHardThreshold = 0;
+  }
+  if ((config.mmWsHealthHardThreshold ?? 0) > 100) {
+    config.mmWsHealthHardThreshold = 100;
+  }
+  if ((config.mmWsHealthPauseMs ?? 0) < 0) {
+    config.mmWsHealthPauseMs = 0;
+  }
 
   return config;
 }
@@ -1489,6 +1527,19 @@ export function printConfig(config: Config): void {
     console.log(
       `MM WS: ✅ maxAge=${maxAge}ms fallback=${config.mmWsFallbackRest ? '✅' : '❌'} onlyDirty=${config.mmWsOnlyDirty ? '✅' : '❌'}`
     );
+    if (config.mmWsGapMax && config.mmWsGapMax > 0) {
+      console.log(
+        `MM WS Gap: max=${config.mmWsGapMax} cooldown=${config.mmWsGapCooldownMs}ms reconnect=${config.mmWsGapReconnect ? '✅' : '❌'}`
+      );
+    }
+    const spreadMult = config.mmWsHealthSpreadMultMax ?? 1;
+    const sizeMin = config.mmWsHealthSizeMultMin ?? 1;
+    const layerMin = config.mmWsHealthLayerMultMin ?? 1;
+    if (spreadMult !== 1 || sizeMin !== 1 || layerMin !== 1) {
+      console.log(
+        `MM WS Health: spreadMax=${spreadMult} sizeMin=${sizeMin} layerMin=${layerMin} hard=${config.mmWsHealthHardThreshold} pause=${config.mmWsHealthPauseMs}ms`
+      );
+    }
   } else {
     console.log(`MM WS: ❌`);
   }

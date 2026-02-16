@@ -170,6 +170,14 @@
 - `MM_WS_ONLY_DIRTY`：仅处理 WS 有更新的市场（减少轮询）。
 - `MM_WS_DIRTY_MAX_BATCH`：每轮最多处理的更新市场数量（0=不限）。
 - `MM_WS_IDLE_SLEEP_MS`：仅处理更新市场时的空闲休眠（毫秒）。
+- `MM_WS_GAP_MAX`：WS 订单簿异常/缺失的最大容忍次数（超过触发回退）。
+- `MM_WS_GAP_COOLDOWN_MS`：触发回退后冷却时间（毫秒）。
+- `MM_WS_GAP_RECONNECT`：触发回退时是否重连 WS。
+- `MM_WS_HEALTH_SPREAD_MULT_MAX`：WS 健康度最差时的价差放大倍数上限。
+- `MM_WS_HEALTH_SIZE_MULT_MIN`：WS 健康度最差时的挂单份额缩放下限。
+- `MM_WS_HEALTH_LAYER_MULT_MIN`：WS 健康度最差时的分层数量缩放下限。
+- `MM_WS_HEALTH_HARD_THRESHOLD`：WS 健康度硬阈值（0-100，低于则暂停）。
+- `MM_WS_HEALTH_PAUSE_MS`：WS 健康度触发暂停的时间（毫秒）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

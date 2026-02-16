@@ -25,6 +25,8 @@ class PredictMarketMakerBot {
   private wsDirtyTokens: Set<string> = new Set();
   private wsDirtyUnsub?: () => void;
   private wsFallbackAt: Map<string, number> = new Map();
+  private wsBadCount: Map<string, number> = new Map();
+  private wsGapUntil: Map<string, number> = new Map();
   private warnedMissingJwt = false;
 
   private getAccountAddressForQueries(): string {
@@ -179,12 +181,72 @@ class PredictMarketMakerBot {
     return 5000;
   }
 
+  private updateWsHealth(): void {
+    if (!this.config.mmWsEnabled || !this.wsFeed) {
+      this.marketMaker.setWsHealthScore(100);
+      return;
+    }
+    const status = this.wsFeed.getStatus();
+    const maxAge = this.resolveMmWsMaxAgeMs();
+    if (!status.connected || !status.lastMessageAt) {
+      this.marketMaker.setWsHealthScore(0);
+      return;
+    }
+    const age = Math.max(0, Date.now() - status.lastMessageAt);
+    if (maxAge <= 0) {
+      this.marketMaker.setWsHealthScore(100);
+      return;
+    }
+    const ratio = Math.min(1, age / maxAge);
+    const score = Math.max(0, Math.round(100 * (1 - ratio)));
+    this.marketMaker.setWsHealthScore(score);
+  }
+
+  private isOrderbookValid(orderbook: Orderbook | null | undefined): boolean {
+    if (!orderbook) {
+      return false;
+    }
+    const bestBid = orderbook.best_bid ?? 0;
+    const bestAsk = orderbook.best_ask ?? 0;
+    if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk)) {
+      return false;
+    }
+    if (bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
+      return false;
+    }
+    return true;
+  }
+
   private async getOrderbookForMarket(market: Market): Promise<Orderbook | null> {
     if (this.wsFeed && this.config.mmWsEnabled) {
+      const gapUntil = this.wsGapUntil.get(market.token_id) || 0;
+      if (gapUntil && Date.now() < gapUntil) {
+        if (this.config.mmWsFallbackRest !== false) {
+          return await this.api.getOrderbook(market.token_id);
+        }
+        return null;
+      }
       const maxAge = this.resolveMmWsMaxAgeMs();
       const cached = this.wsFeed.getOrderbook(market.token_id, maxAge);
-      if (cached) {
+      if (cached && this.isOrderbookValid(cached)) {
+        this.wsBadCount.delete(market.token_id);
         return cached;
+      }
+      if (cached) {
+        const bad = (this.wsBadCount.get(market.token_id) || 0) + 1;
+        this.wsBadCount.set(market.token_id, bad);
+        const maxBad = Math.max(0, Number(this.config.mmWsGapMax || 0));
+        if (maxBad > 0 && bad >= maxBad) {
+          const cooldown = Math.max(0, Number(this.config.mmWsGapCooldownMs || 0));
+          if (cooldown > 0) {
+            this.wsGapUntil.set(market.token_id, Date.now() + cooldown);
+          }
+          this.wsBadCount.delete(market.token_id);
+          if (this.config.mmWsGapReconnect && this.wsFeed) {
+            this.wsFeed.stop();
+            this.wsFeed.start();
+          }
+        }
       }
       if (this.config.mmWsFallbackRest !== false) {
         const minInterval = Math.max(0, Number(this.config.mmWsFallbackMinIntervalMs || 0));
@@ -193,7 +255,8 @@ class PredictMarketMakerBot {
           return null;
         }
         this.wsFallbackAt.set(market.token_id, Date.now());
-        return await this.api.getOrderbook(market.token_id);
+        const restBook = await this.api.getOrderbook(market.token_id);
+        return this.isOrderbookValid(restBook) ? restBook : null;
       }
       return null;
     }
@@ -236,6 +299,7 @@ class PredictMarketMakerBot {
 
     while (this.running) {
       try {
+        this.updateWsHealth();
         // Update state (private endpoint requires JWT)
         if (this.config.jwtToken) {
           await this.marketMaker.updateState(this.getAccountAddressForQueries());
