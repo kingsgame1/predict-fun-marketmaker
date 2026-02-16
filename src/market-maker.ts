@@ -280,6 +280,7 @@ export class MarketMaker {
     wsEmergencyRecoveryMaxNotionalMult: number;
     wsEmergencyRecoveryFarLayersMin: number;
     wsEmergencyRecoveryCancelIntervalMult: number;
+    wsEmergencyRecoverySingleOffsetBps: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -330,6 +331,7 @@ export class MarketMaker {
       wsEmergencyRecoveryMaxNotionalMult: this.config.mmWsHealthEmergencyRecoveryMaxNotionalMultMin ?? 1,
       wsEmergencyRecoveryFarLayersMin: this.getWsEmergencyRecoveryInfo().farLayers,
       wsEmergencyRecoveryCancelIntervalMult: this.getWsEmergencyRecoveryCancelIntervalMult(),
+      wsEmergencyRecoverySingleOffsetBps: this.getWsHealthSingleSide().offsetBps,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1347,7 +1349,7 @@ export class MarketMaker {
     const farMax = Math.max(farMin, this.config.mmWsHealthEmergencyRecoveryFarLayersMax ?? farMin);
     let farLayers = farMin;
     if (this.config.mmWsHealthEmergencyRecoveryLayerConvergeEnabled) {
-      farLayers = Math.round(farMax - (farMax - farMin) * progress);
+      farLayers = Math.max(farMin, farMax - stage);
     } else {
       farLayers = farMax;
     }
@@ -1355,7 +1357,7 @@ export class MarketMaker {
       this.wsEmergencyRecoveryStage = stage;
       this.recordMmEvent(
         'WS_EMERGENCY_RECOVERY_STAGE',
-        `Recovery stage ${stage + 1}/${steps}, ratioFloor=${ratio.toFixed(2)}`
+        `Recovery stage ${stage + 1}/${steps}, ratioFloor=${ratio.toFixed(2)}, far=${farLayers}`
       );
     }
     return { ratio, stage, steps, progress, singleActive, farLayers };
@@ -1837,9 +1839,18 @@ export class MarketMaker {
       const recoveryMode = (this.config.mmWsHealthEmergencyRecoverySingleSideMode || 'REMOTE').toUpperCase() as
         | 'NORMAL'
         | 'REMOTE';
+      const recoveryOffsetBase = Math.max(0, this.config.mmWsHealthEmergencyRecoverySingleSideOffsetBps ?? 0);
+      const recoveryOffsetMin = Math.max(0, this.config.mmWsHealthEmergencyRecoverySingleSideOffsetMinBps ?? 0);
+      const recoveryOffset =
+        recoveryOffsetBase > 0
+          ? recoveryOffsetMin + (recoveryOffsetBase - recoveryOffsetMin) * (1 - recoveryInfo.progress)
+          : 0;
       if (recoverySide !== 'NONE') {
         side = recoverySide;
         mode = recoveryMode;
+        if (recoveryOffset > 0) {
+          offsetBps = recoveryOffset;
+        }
       }
     }
     if (this.isWsUltraSafeActive()) {
@@ -2157,6 +2168,7 @@ export class MarketMaker {
       wsEmergencyRecoveryMaxNotionalMult: wsHealth.wsEmergencyRecoveryMaxNotionalMult,
       wsEmergencyRecoveryFarLayersMin: wsHealth.wsEmergencyRecoveryFarLayersMin,
       wsEmergencyRecoveryCancelIntervalMult: wsHealth.wsEmergencyRecoveryCancelIntervalMult,
+      wsEmergencyRecoverySingleOffsetBps: wsHealth.wsEmergencyRecoverySingleOffsetBps,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };

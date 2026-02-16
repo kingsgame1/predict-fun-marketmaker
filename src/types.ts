@@ -166,6 +166,8 @@ export interface Config {
   mmWsHealthEmergencyRecoveryFarLayersMax?: number;
   mmWsHealthEmergencyRecoveryLayerConvergeEnabled?: boolean;
   mmWsHealthEmergencyRecoveryTemplateEnabled?: boolean;
+  mmWsHealthEmergencyRecoverySingleSideOffsetBps?: number;
+  mmWsHealthEmergencyRecoverySingleSideOffsetMinBps?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
