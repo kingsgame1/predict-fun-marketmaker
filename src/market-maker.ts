@@ -661,6 +661,9 @@ export class MarketMaker {
         nearTouchBase += add / 10000;
         antiFillBase += add / 10000;
       }
+      const cancelMult = Math.max(1, this.config.mmSafeModeCancelMult ?? 1);
+      nearTouchBase *= cancelMult;
+      antiFillBase *= cancelMult;
     }
     const autoTuneMult = this.getAutoTuneMultiplier(order.token_id);
     if (autoTuneMult !== 1) {

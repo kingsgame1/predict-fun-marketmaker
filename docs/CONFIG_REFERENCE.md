@@ -156,6 +156,7 @@
 - `MM_SAFE_MODE_NEAR_TOUCH_MULT`：安全档 near-touch 阈值倍数。
 - `MM_SAFE_MODE_ANTI_FILL_MULT`：安全档 anti-fill 阈值倍数。
 - `MM_SAFE_MODE_NEAR_TOUCH_ADD_BPS`：安全档 near-touch 额外增加（bps）。
+- `MM_SAFE_MODE_CANCEL_MULT`：安全档撤单敏感度倍数。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
