@@ -2480,12 +2480,19 @@ export class MarketMaker {
     const panicSingleSide = this.isLayerPanicActive(tokenId)
       ? (this.config.mmPanicSingleSide || 'NONE').toUpperCase()
       : 'NONE';
+    const safeSingleSide =
+      panicSingleSide === 'NONE' && safeModeActive
+        ? (this.config.mmSafeModeSingleSide || 'NONE').toUpperCase()
+        : 'NONE';
+    const effectiveSingleSide = panicSingleSide !== 'NONE' ? panicSingleSide : safeSingleSide;
     const panicSingleSideOffsetBps = Math.max(0, this.config.mmPanicSingleSideOffsetBps ?? 0);
-    if (panicSingleSideOffsetBps > 0 && panicSingleSide !== 'NONE') {
-      const offset = panicSingleSideOffsetBps / 10000;
-      if (panicSingleSide === 'BUY') {
+    const safeSingleSideOffsetBps = Math.max(0, this.config.mmSafeModeSingleSideOffsetBps ?? 0);
+    const singleSideOffsetBps = panicSingleSide !== 'NONE' ? panicSingleSideOffsetBps : safeSingleSideOffsetBps;
+    if (singleSideOffsetBps > 0 && effectiveSingleSide !== 'NONE') {
+      const offset = singleSideOffsetBps / 10000;
+      if (effectiveSingleSide === 'BUY') {
         bidPriceBase = Math.max(0.01, bidPriceBase * (1 - offset));
-      } else if (panicSingleSide === 'SELL') {
+      } else if (effectiveSingleSide === 'SELL') {
         askPriceBase = Math.min(0.99, askPriceBase * (1 + offset));
       }
     }
@@ -2776,9 +2783,17 @@ export class MarketMaker {
       targetAskShares = Math.max(1, Math.floor(targetAskShares * exitSizeFactor));
     }
 
-    if (panicSingleSide === 'BUY') {
+    if (safeModeActive) {
+      const scale = this.config.mmSafeModeSizeScale ?? 0;
+      if (scale > 0 && scale < 1) {
+        targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
+        targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+      }
+    }
+
+    if (effectiveSingleSide === 'BUY') {
       targetAskShares = 0;
-    } else if (panicSingleSide === 'SELL') {
+    } else if (effectiveSingleSide === 'SELL') {
       targetBidShares = 0;
     }
     const restoreCap =
@@ -2799,9 +2814,11 @@ export class MarketMaker {
     const panicOnlyFar = this.config.mmLayerPanicOnlyFar === true && this.isLayerPanicActive(tokenId);
     const panicSingleSideMode = (this.config.mmPanicSingleSideMode || 'NORMAL').toUpperCase();
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
+    const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
+    const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';
     const forceSingle = this.shouldForceSingleLayer(tokenId);
     const safeModeOnlyFar = safeModeActive && this.config.mmSafeModeOnlyFar === true;
-    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly || safeModeOnlyFar;
+    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly || safeRemoteOnly || safeModeOnlyFar;
     const bidStart = farOnly ? bidLayers - 1 : 0;
     const askStart = farOnly ? askLayers - 1 : 0;
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;

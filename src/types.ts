@@ -208,6 +208,10 @@ export interface Config {
   mmSafeModeStepMult?: number;
   mmSafeModeCooldownMult?: number;
   mmSafeModeOnlyFar?: boolean;
+  mmSafeModeSizeScale?: number;
+  mmSafeModeSingleSide?: 'BUY' | 'SELL' | 'NONE';
+  mmSafeModeSingleSideMode?: 'REMOTE' | 'NORMAL';
+  mmSafeModeSingleSideOffsetBps?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;
