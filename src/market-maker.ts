@@ -2336,6 +2336,18 @@ export class MarketMaker {
     }
 
     const metrics = this.updateMarketMetrics(tokenId, orderbook);
+    if (this.layerRestoreExitRepricePending.has(tokenId)) {
+      const minShares = Math.max(0, this.config.mmRestoreExitMinDepthShares ?? 0);
+      const minUsd = Math.max(0, this.config.mmRestoreExitMinDepthUsd ?? 0);
+      if ((minShares > 0 && metrics.topDepth < minShares) || (minUsd > 0 && metrics.topDepthUsd < minUsd)) {
+        await this.cancelOrdersForMarket(tokenId);
+        const cooldown =
+          Math.max(0, this.config.mmRestoreExitDepthCooldownMs ?? 0) ||
+          (this.config.cooldownAfterCancelMs ?? 4000);
+        this.markCooldown(tokenId, cooldown);
+        return;
+      }
+    }
 
     if (!this.canSendAction(tokenId)) {
       return;

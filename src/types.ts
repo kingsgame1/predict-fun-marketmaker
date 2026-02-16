@@ -187,6 +187,9 @@ export interface Config {
   mmPanicPauseMs?: number;
   mmPanicCleanupOnRestore?: boolean;
   mmPanicSingleSide?: 'BUY' | 'SELL' | 'NONE';
+  mmRestoreExitMinDepthShares?: number;
+  mmRestoreExitMinDepthUsd?: number;
+  mmRestoreExitDepthCooldownMs?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;
