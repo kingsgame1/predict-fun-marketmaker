@@ -269,6 +269,7 @@ export class MarketMaker {
     wsEmergencyRecoveryRatio: number;
     wsEmergencyRecoveryIntervalMult: number;
     wsEmergencyRecoveryProgress: number;
+    wsEmergencyRecoverySingleActive: boolean;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -306,6 +307,7 @@ export class MarketMaker {
       wsEmergencyRecoveryRatio: recoveryInfo.ratio,
       wsEmergencyRecoveryIntervalMult: recoveryIntervalMult,
       wsEmergencyRecoveryProgress: recoveryInfo.progress,
+      wsEmergencyRecoverySingleActive: recoveryInfo.singleActive,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1272,19 +1274,21 @@ export class MarketMaker {
     return this.wsEmergencyRecoveryActive;
   }
 
-  private getWsEmergencyRecoveryInfo(): { ratio: number; stage: number; steps: number; progress: number } {
+  private getWsEmergencyRecoveryInfo(): { ratio: number; stage: number; steps: number; progress: number; singleActive: boolean } {
     const base = this.clamp(this.config.mmWsHealthEmergencyRecoveryRatio ?? 0.7, 0, 1);
     const minRatio = this.clamp(this.config.mmWsHealthEmergencyRecoveryMinRatio ?? 0.2, 0, base);
     const steps = Math.max(1, Math.floor(this.config.mmWsHealthEmergencyRecoverySteps ?? 3));
     const duration = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMs ?? 0);
     if (!this.isWsEmergencyRecoveryActive() || duration <= 0) {
-      return { ratio: base, stage: -1, steps, progress: 1 };
+      return { ratio: base, stage: -1, steps, progress: 1, singleActive: false };
     }
     const elapsed = Math.max(0, Date.now() - this.wsEmergencyRecoveryStart);
     const progress = Math.min(1, duration > 0 ? elapsed / duration : 1);
     const stage = Math.min(steps - 1, Math.floor(progress * steps));
     const stepFactor = steps <= 1 ? 0 : 1 - stage / (steps - 1);
     const ratio = Math.max(minRatio, base * stepFactor);
+    const exitProgress = this.clamp(this.config.mmWsHealthEmergencyRecoverySingleSideExitProgress ?? 0.7, 0, 1);
+    const singleActive = progress <= exitProgress;
     if (stage !== this.wsEmergencyRecoveryStage) {
       this.wsEmergencyRecoveryStage = stage;
       this.recordMmEvent(
@@ -1292,7 +1296,7 @@ export class MarketMaker {
         `Recovery stage ${stage + 1}/${steps}, ratioFloor=${ratio.toFixed(2)}`
       );
     }
-    return { ratio, stage, steps, progress };
+    return { ratio, stage, steps, progress, singleActive };
   }
 
   private applyIcebergPenalty(tokenId: string): void {
@@ -1702,6 +1706,20 @@ export class MarketMaker {
     let mode = (this.config.mmWsHealthSingleSideMode || 'NORMAL').toUpperCase() as 'NORMAL' | 'REMOTE';
     let offsetBps = Math.max(0, this.config.mmWsHealthSingleSideOffsetBps ?? 0);
     const ratio = this.getWsHealthRatio();
+    const recoveryInfo = this.getWsEmergencyRecoveryInfo();
+    if (this.isWsEmergencyRecoveryActive() && recoveryInfo.singleActive) {
+      const recoverySide = (this.config.mmWsHealthEmergencyRecoverySingleSide || 'NONE').toUpperCase() as
+        | 'BUY'
+        | 'SELL'
+        | 'NONE';
+      const recoveryMode = (this.config.mmWsHealthEmergencyRecoverySingleSideMode || 'REMOTE').toUpperCase() as
+        | 'NORMAL'
+        | 'REMOTE';
+      if (recoverySide !== 'NONE') {
+        side = recoverySide;
+        mode = recoveryMode;
+      }
+    }
     if (this.isWsUltraSafeActive()) {
       const ultraSide = (this.config.mmWsHealthUltraSafeSide || 'NONE').toUpperCase() as 'BUY' | 'SELL' | 'NONE';
       const ultraMode = (this.config.mmWsHealthUltraSafeMode || 'REMOTE').toUpperCase() as 'NORMAL' | 'REMOTE';
@@ -2006,6 +2024,7 @@ export class MarketMaker {
       wsEmergencyRecoveryRatio: wsHealth.wsEmergencyRecoveryRatio,
       wsEmergencyRecoveryIntervalMult: wsHealth.wsEmergencyRecoveryIntervalMult,
       wsEmergencyRecoveryProgress: wsHealth.wsEmergencyRecoveryProgress,
+      wsEmergencyRecoverySingleActive: wsHealth.wsEmergencyRecoverySingleActive,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
