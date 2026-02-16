@@ -1550,6 +1550,9 @@ export class MarketMaker {
     if (restoreHold > 0 && restoreCount > 0) {
       this.layerRestoreAt.set(tokenId, now + restoreHold);
       this.layerRestoreStartAt.set(tokenId, now);
+      if (this.config.mmPanicCleanupOnRestore) {
+        this.layerRestoreExitPending.set(tokenId, true);
+      }
     }
   }
 
