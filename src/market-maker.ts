@@ -100,6 +100,8 @@ export class MarketMaker {
   private layerRestoreExitPending: Map<string, boolean> = new Map();
   private layerRestoreExitRampStartAt: Map<string, number> = new Map();
   private layerRestoreExitRampUntil: Map<string, number> = new Map();
+  private layerRestoreExitSizeRampStartAt: Map<string, number> = new Map();
+  private layerRestoreExitSizeRampUntil: Map<string, number> = new Map();
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -1581,14 +1583,22 @@ export class MarketMaker {
     if (until > 0) {
       this.layerRestoreAt.delete(tokenId);
       this.layerRestoreStartAt.delete(tokenId);
+      const now = Date.now();
       const exitRampMs = Math.max(0, this.config.mmRestoreExitRampMs ?? 0);
       if (exitRampMs > 0) {
-        const now = Date.now();
         this.layerRestoreExitRampStartAt.set(tokenId, now);
         this.layerRestoreExitRampUntil.set(tokenId, now + exitRampMs);
       } else {
         this.layerRestoreExitRampStartAt.delete(tokenId);
         this.layerRestoreExitRampUntil.delete(tokenId);
+      }
+      const exitSizeRampMs = Math.max(0, this.config.mmRestoreExitSizeRampMs ?? 0);
+      if (exitSizeRampMs > 0) {
+        this.layerRestoreExitSizeRampStartAt.set(tokenId, now);
+        this.layerRestoreExitSizeRampUntil.set(tokenId, now + exitSizeRampMs);
+      } else {
+        this.layerRestoreExitSizeRampStartAt.delete(tokenId);
+        this.layerRestoreExitSizeRampUntil.delete(tokenId);
       }
       if (this.config.mmLayerRestoreExitCleanup) {
         this.layerRestoreExitPending.set(tokenId, true);
@@ -1727,6 +1737,27 @@ export class MarketMaker {
     const base = Math.max(1, Math.floor(this.config.mmLayerMinCount ?? 1));
     const cap = Math.min(layerCount, base + currentStep);
     return Math.max(base, cap);
+  }
+
+  private getRestoreExitSizeFactor(tokenId: string): number {
+    const until = this.layerRestoreExitSizeRampUntil.get(tokenId) || 0;
+    if (!until || until <= Date.now()) {
+      this.layerRestoreExitSizeRampStartAt.delete(tokenId);
+      this.layerRestoreExitSizeRampUntil.delete(tokenId);
+      return 1;
+    }
+    const start = this.layerRestoreExitSizeRampStartAt.get(tokenId) || 0;
+    if (!start) {
+      return 1;
+    }
+    const totalMs = Math.max(1, this.config.mmRestoreExitSizeRampMs ?? 0);
+    const minFactor = this.clamp(this.config.mmRestoreExitSizeRampMinFactor ?? 0, 0.1, 1);
+    if (minFactor >= 1) {
+      return 1;
+    }
+    const elapsed = Math.max(0, Date.now() - start);
+    const progress = Math.min(1, elapsed / totalMs);
+    return this.clamp(minFactor + (1 - minFactor) * progress, minFactor, 1);
   }
 
   private getEffectiveLayerStepBps(
@@ -2600,6 +2631,11 @@ export class MarketMaker {
         targetBidShares = Math.max(1, Math.floor(targetBidShares * panicScale));
         targetAskShares = Math.max(1, Math.floor(targetAskShares * panicScale));
       }
+    }
+    const exitSizeFactor = this.getRestoreExitSizeFactor(tokenId);
+    if (exitSizeFactor < 1) {
+      targetBidShares = Math.max(1, Math.floor(targetBidShares * exitSizeFactor));
+      targetAskShares = Math.max(1, Math.floor(targetAskShares * exitSizeFactor));
     }
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares

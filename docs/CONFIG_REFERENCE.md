@@ -106,6 +106,8 @@
 - `MM_PANIC_RESTORE_INTERVAL_MULT`：强撤单恢复期下单间隔倍数。
 - `MM_RESTORE_EXIT_RAMP_MS`：恢复期结束后分层恢复的缓步时间（毫秒）。
 - `MM_RESTORE_EXIT_RAMP_STEPS`：恢复期结束后每步增加的层数。
+- `MM_RESTORE_EXIT_SIZE_RAMP_MS`：恢复期结束后挂单量恢复的缓步时间（毫秒）。
+- `MM_RESTORE_EXIT_SIZE_RAMP_MIN_FACTOR`：恢复期结束时挂单量最低系数（0-1）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
