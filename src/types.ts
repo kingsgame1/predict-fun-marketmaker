@@ -442,6 +442,9 @@ export interface Config {
   crossPlatformTokenCooldownMs?: number;
   crossPlatformMetricsLogMs?: number;
   crossPlatformDepthUsage?: number;
+  crossPlatformMinTopDepthShares?: number;
+  crossPlatformMinTopDepthUsd?: number;
+  crossPlatformTopDepthUsage?: number;
   crossPlatformMaxNotional?: number;
   crossPlatformRecheckMs?: number;
   crossPlatformRecheckDeviationBps?: number;

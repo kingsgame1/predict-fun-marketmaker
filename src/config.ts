@@ -540,6 +540,9 @@ export function loadConfig(): Config {
     crossPlatformTokenCooldownMs: parseInt(process.env.CROSS_PLATFORM_TOKEN_COOLDOWN_MS || '120000'),
     crossPlatformMetricsLogMs: parseInt(process.env.CROSS_PLATFORM_METRICS_LOG_MS || '0'),
     crossPlatformDepthUsage: parseFloat(process.env.CROSS_PLATFORM_DEPTH_USAGE || '0.5'),
+    crossPlatformMinTopDepthShares: parseFloat(process.env.CROSS_PLATFORM_MIN_TOP_DEPTH_SHARES || '0'),
+    crossPlatformMinTopDepthUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_TOP_DEPTH_USD || '0'),
+    crossPlatformTopDepthUsage: parseFloat(process.env.CROSS_PLATFORM_TOP_DEPTH_USAGE || '0'),
     crossPlatformMaxNotional: parseFloat(process.env.CROSS_PLATFORM_MAX_NOTIONAL || '200'),
     crossPlatformRecheckMs: parseInt(process.env.CROSS_PLATFORM_RECHECK_MS || '0'),
     crossPlatformRecheckDeviationBps: parseInt(process.env.CROSS_PLATFORM_RECHECK_DEVIATION_BPS || '0'),
@@ -1200,6 +1203,15 @@ export function loadConfig(): Config {
   }
   if ((config.crossPlatformDepthUsage ?? 0) <= 0 || (config.crossPlatformDepthUsage ?? 0) > 1) {
     config.crossPlatformDepthUsage = 0.5;
+  }
+  if ((config.crossPlatformMinTopDepthShares ?? 0) < 0) {
+    config.crossPlatformMinTopDepthShares = 0;
+  }
+  if ((config.crossPlatformMinTopDepthUsd ?? 0) < 0) {
+    config.crossPlatformMinTopDepthUsd = 0;
+  }
+  if ((config.crossPlatformTopDepthUsage ?? 0) < 0 || (config.crossPlatformTopDepthUsage ?? 0) > 1) {
+    config.crossPlatformTopDepthUsage = 0;
   }
   if ((config.crossPlatformMinNotionalUsd ?? 0) < 0) {
     config.crossPlatformMinNotionalUsd = 0;

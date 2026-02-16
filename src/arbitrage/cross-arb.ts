@@ -22,6 +22,9 @@ export class CrossPlatformArbitrageDetector {
   private depthUsage: number;
   private minNotionalUsd: number;
   private minProfitUsd: number;
+  private minTopDepthShares: number;
+  private minTopDepthUsd: number;
+  private topDepthUsage: number;
 
   constructor(
     platforms: string[] = ['Predict', 'Polymarket', 'Opinion'],
@@ -34,7 +37,10 @@ export class CrossPlatformArbitrageDetector {
     depthLevels: number = 0,
     depthUsage: number = 0.5,
     minNotionalUsd: number = 0,
-    minProfitUsd: number = 0
+    minProfitUsd: number = 0,
+    minTopDepthShares: number = 0,
+    minTopDepthUsd: number = 0,
+    topDepthUsage: number = 0
   ) {
     this.platforms = platforms;
     this.minProfitThreshold = minProfitThreshold;
@@ -47,6 +53,9 @@ export class CrossPlatformArbitrageDetector {
     this.depthUsage = Math.max(0.05, Math.min(1, depthUsage));
     this.minNotionalUsd = Math.max(0, minNotionalUsd);
     this.minProfitUsd = Math.max(0, minProfitUsd);
+    this.minTopDepthShares = Math.max(0, minTopDepthShares);
+    this.minTopDepthUsd = Math.max(0, minTopDepthUsd);
+    this.topDepthUsage = Math.max(0, Math.min(1, topDepthUsage));
   }
 
   setMinProfitThreshold(value: number): void {
@@ -69,6 +78,19 @@ export class CrossPlatformArbitrageDetector {
       return 0;
     }
     return levels.reduce((sum, level) => sum + (Number.isFinite(level.shares) ? level.shares : 0), 0);
+  }
+
+  private topSize(levels?: DepthLevel[], fallback?: number): number {
+    const fallbackSize = Number(fallback || 0);
+    if (Number.isFinite(fallbackSize) && fallbackSize > 0) {
+      return fallbackSize;
+    }
+    if (!levels || levels.length === 0) {
+      return 0;
+    }
+    const first = levels[0];
+    const shares = Number(first?.shares || 0);
+    return Number.isFinite(shares) && shares > 0 ? shares : 0;
   }
 
   private refineBuyCandidate(
@@ -198,10 +220,42 @@ export class CrossPlatformArbitrageDetector {
     const depthYesB = this.sumLevels(marketB.yesAsks) || marketB.yesAskSize || 0;
     const depthNoB = this.sumLevels(marketB.noAsks) || marketB.noAskSize || 0;
 
+    const topYesAskA = this.topSize(marketA.yesAsks, marketA.yesAskSize);
+    const topNoAskA = this.topSize(marketA.noAsks, marketA.noAskSize);
+    const topYesAskB = this.topSize(marketB.yesAsks, marketB.yesAskSize);
+    const topNoAskB = this.topSize(marketB.noAsks, marketB.noAskSize);
+    const topYesBidA = this.topSize(marketA.yesBids, marketA.yesBidSize);
+    const topNoBidA = this.topSize(marketA.noBids, marketA.noBidSize);
+    const topYesBidB = this.topSize(marketB.yesBids, marketB.yesBidSize);
+    const topNoBidB = this.topSize(marketB.noBids, marketB.noBidSize);
+
     const buyDepthAB = Math.min(depthYesA, depthNoB) * this.depthUsage;
     const buyDepthBA = Math.min(depthYesB, depthNoA) * this.depthUsage;
     const buySizeAB = buyDepthAB > 0 ? Math.max(1, Math.floor(Math.min(buyDepthAB, this.maxShares))) : 0;
     const buySizeBA = buyDepthBA > 0 ? Math.max(1, Math.floor(Math.min(buyDepthBA, this.maxShares))) : 0;
+
+    const topBuySharesAB = Math.min(topYesAskA, topNoAskB);
+    const topBuySharesBA = Math.min(topYesAskB, topNoAskA);
+    const topBuyUsdAB = Math.min(topYesAskA * yesAskA, topNoAskB * noAskB);
+    const topBuyUsdBA = Math.min(topYesAskB * yesAskB, topNoAskA * noAskA);
+
+    const buyTopOkAB =
+      (this.minTopDepthShares <= 0 || topBuySharesAB >= this.minTopDepthShares) &&
+      (this.minTopDepthUsd <= 0 || topBuyUsdAB >= this.minTopDepthUsd);
+    const buyTopOkBA =
+      (this.minTopDepthShares <= 0 || topBuySharesBA >= this.minTopDepthShares) &&
+      (this.minTopDepthUsd <= 0 || topBuyUsdBA >= this.minTopDepthUsd);
+
+    const buySizeCapAB =
+      this.topDepthUsage > 0 && topBuySharesAB > 0
+        ? Math.max(1, Math.floor(topBuySharesAB * this.topDepthUsage))
+        : buySizeAB;
+    const buySizeCapBA =
+      this.topDepthUsage > 0 && topBuySharesBA > 0
+        ? Math.max(1, Math.floor(topBuySharesBA * this.topDepthUsage))
+        : buySizeBA;
+    const finalBuySizeAB = Math.min(buySizeAB, buySizeCapAB);
+    const finalBuySizeBA = Math.min(buySizeBA, buySizeCapBA);
 
     const yesAskLevelsA = this.toEntries(marketA.yesAsks);
     const noAskLevelsA = this.toEntries(marketA.noAsks);
@@ -209,21 +263,21 @@ export class CrossPlatformArbitrageDetector {
     const noAskLevelsB = this.toEntries(marketB.noAsks);
 
     const requireDepth = this.depthLevels > 0;
-    const canUseAB = !requireDepth || (yesAskLevelsA.length > 0 && noAskLevelsB.length > 0);
-    const canUseBA = !requireDepth || (yesAskLevelsB.length > 0 && noAskLevelsA.length > 0);
+    const canUseAB = (!requireDepth || (yesAskLevelsA.length > 0 && noAskLevelsB.length > 0)) && buyTopOkAB;
+    const canUseBA = (!requireDepth || (yesAskLevelsB.length > 0 && noAskLevelsA.length > 0)) && buyTopOkBA;
 
     const buyYesA = canUseAB && yesAskLevelsA.length
-      ? estimateBuy(yesAskLevelsA, buySizeAB, feeA, feeCurveA, feeExpA, this.slippageBps)
+      ? estimateBuy(yesAskLevelsA, finalBuySizeAB, feeA, feeCurveA, feeExpA, this.slippageBps)
       : null;
     const buyNoB = canUseAB && noAskLevelsB.length
-      ? estimateBuy(noAskLevelsB, buySizeAB, feeB, feeCurveB, feeExpB, this.slippageBps)
+      ? estimateBuy(noAskLevelsB, finalBuySizeAB, feeB, feeCurveB, feeExpB, this.slippageBps)
       : null;
 
     const buyYesB = canUseBA && yesAskLevelsB.length
-      ? estimateBuy(yesAskLevelsB, buySizeBA, feeB, feeCurveB, feeExpB, this.slippageBps)
+      ? estimateBuy(yesAskLevelsB, finalBuySizeBA, feeB, feeCurveB, feeExpB, this.slippageBps)
       : null;
     const buyNoA = canUseBA && noAskLevelsA.length
-      ? estimateBuy(noAskLevelsA, buySizeBA, feeA, feeCurveA, feeExpA, this.slippageBps)
+      ? estimateBuy(noAskLevelsA, finalBuySizeBA, feeA, feeCurveA, feeExpA, this.slippageBps)
       : null;
 
     const buyCandidateAB = canUseAB && yesAskLevelsA.length && noAskLevelsB.length
@@ -236,7 +290,7 @@ export class CrossPlatformArbitrageDetector {
           feeCurveB,
           feeExpA,
           feeExpB,
-          buySizeAB
+          finalBuySizeAB
         )
       : null;
     const buyCandidateBA = canUseBA && yesAskLevelsB.length && noAskLevelsA.length
@@ -249,7 +303,7 @@ export class CrossPlatformArbitrageDetector {
           feeCurveA,
           feeExpB,
           feeExpA,
-          buySizeBA
+          finalBuySizeBA
         )
       : null;
 
@@ -257,16 +311,16 @@ export class CrossPlatformArbitrageDetector {
     let buyNetBA = -Infinity;
     let buyCostAB = 0;
     let buyCostBA = 0;
-    const resolvedBuySizeAB = buyCandidateAB?.size ?? buySizeAB;
-    const resolvedBuySizeBA = buyCandidateBA?.size ?? buySizeBA;
+    const resolvedBuySizeAB = buyCandidateAB?.size ?? finalBuySizeAB;
+    const resolvedBuySizeBA = buyCandidateBA?.size ?? finalBuySizeBA;
 
-    if (buySizeAB > 0 && canUseAB) {
+    if (finalBuySizeAB > 0 && canUseAB) {
       if (buyCandidateAB) {
         buyCostAB = buyCandidateAB.costPerShare;
         buyNetAB = buyCandidateAB.edge;
       } else {
         buyCostAB = buyYesA && buyNoB
-          ? (buyYesA.totalAllIn + buyNoB.totalAllIn) / buySizeAB
+          ? (buyYesA.totalAllIn + buyNoB.totalAllIn) / finalBuySizeAB
           : yesAskA + noAskB;
         const buyFeeAB = buyYesA && buyNoB
           ? 0
@@ -276,13 +330,13 @@ export class CrossPlatformArbitrageDetector {
       }
     }
 
-    if (buySizeBA > 0 && canUseBA) {
+    if (finalBuySizeBA > 0 && canUseBA) {
       if (buyCandidateBA) {
         buyCostBA = buyCandidateBA.costPerShare;
         buyNetBA = buyCandidateBA.edge;
       } else {
         buyCostBA = buyYesB && buyNoA
-          ? (buyYesB.totalAllIn + buyNoA.totalAllIn) / buySizeBA
+          ? (buyYesB.totalAllIn + buyNoA.totalAllIn) / finalBuySizeBA
           : yesAskB + noAskA;
         const buyFeeBA = buyYesB && buyNoA
           ? 0
@@ -361,25 +415,47 @@ export class CrossPlatformArbitrageDetector {
       const sellSizeAB = sellDepthAB > 0 ? Math.max(1, Math.floor(Math.min(sellDepthAB, this.maxShares))) : 0;
       const sellSizeBA = sellDepthBA > 0 ? Math.max(1, Math.floor(Math.min(sellDepthBA, this.maxShares))) : 0;
 
+      const topSellSharesAB = Math.min(topYesBidA, topNoBidB);
+      const topSellSharesBA = Math.min(topYesBidB, topNoBidA);
+      const topSellUsdAB = Math.min(topYesBidA * yesBidA, topNoBidB * noBidB);
+      const topSellUsdBA = Math.min(topYesBidB * yesBidB, topNoBidA * noBidA);
+      const sellTopOkAB =
+        (this.minTopDepthShares <= 0 || topSellSharesAB >= this.minTopDepthShares) &&
+        (this.minTopDepthUsd <= 0 || topSellUsdAB >= this.minTopDepthUsd);
+      const sellTopOkBA =
+        (this.minTopDepthShares <= 0 || topSellSharesBA >= this.minTopDepthShares) &&
+        (this.minTopDepthUsd <= 0 || topSellUsdBA >= this.minTopDepthUsd);
+
+      const sellSizeCapAB =
+        this.topDepthUsage > 0 && topSellSharesAB > 0
+          ? Math.max(1, Math.floor(topSellSharesAB * this.topDepthUsage))
+          : sellSizeAB;
+      const sellSizeCapBA =
+        this.topDepthUsage > 0 && topSellSharesBA > 0
+          ? Math.max(1, Math.floor(topSellSharesBA * this.topDepthUsage))
+          : sellSizeBA;
+      const finalSellSizeAB = Math.min(sellSizeAB, sellSizeCapAB);
+      const finalSellSizeBA = Math.min(sellSizeBA, sellSizeCapBA);
+
       const yesBidLevelsA = this.toEntries(marketA.yesBids);
       const noBidLevelsA = this.toEntries(marketA.noBids);
       const yesBidLevelsB = this.toEntries(marketB.yesBids);
       const noBidLevelsB = this.toEntries(marketB.noBids);
 
-      const canSellAB = !requireDepth || (yesBidLevelsA.length > 0 && noBidLevelsB.length > 0);
-      const canSellBA = !requireDepth || (yesBidLevelsB.length > 0 && noBidLevelsA.length > 0);
+      const canSellAB = (!requireDepth || (yesBidLevelsA.length > 0 && noBidLevelsB.length > 0)) && sellTopOkAB;
+      const canSellBA = (!requireDepth || (yesBidLevelsB.length > 0 && noBidLevelsA.length > 0)) && sellTopOkBA;
 
       const sellYesA = canSellAB && yesBidLevelsA.length
-        ? estimateSell(yesBidLevelsA, sellSizeAB, feeA, feeCurveA, feeExpA, this.slippageBps)
+        ? estimateSell(yesBidLevelsA, finalSellSizeAB, feeA, feeCurveA, feeExpA, this.slippageBps)
         : null;
       const sellNoB = canSellAB && noBidLevelsB.length
-        ? estimateSell(noBidLevelsB, sellSizeAB, feeB, feeCurveB, feeExpB, this.slippageBps)
+        ? estimateSell(noBidLevelsB, finalSellSizeAB, feeB, feeCurveB, feeExpB, this.slippageBps)
         : null;
       const sellYesB = canSellBA && yesBidLevelsB.length
-        ? estimateSell(yesBidLevelsB, sellSizeBA, feeB, feeCurveB, feeExpB, this.slippageBps)
+        ? estimateSell(yesBidLevelsB, finalSellSizeBA, feeB, feeCurveB, feeExpB, this.slippageBps)
         : null;
       const sellNoA = canSellBA && noBidLevelsA.length
-        ? estimateSell(noBidLevelsA, sellSizeBA, feeA, feeCurveA, feeExpA, this.slippageBps)
+        ? estimateSell(noBidLevelsA, finalSellSizeBA, feeA, feeCurveA, feeExpA, this.slippageBps)
         : null;
 
       const sellCandidateAB = canSellAB && yesBidLevelsA.length && noBidLevelsB.length
@@ -392,7 +468,7 @@ export class CrossPlatformArbitrageDetector {
             feeCurveB,
             feeExpA,
             feeExpB,
-            sellSizeAB
+            finalSellSizeAB
           )
         : null;
       const sellCandidateBA = canSellBA && yesBidLevelsB.length && noBidLevelsA.length
@@ -405,21 +481,21 @@ export class CrossPlatformArbitrageDetector {
             feeCurveA,
             feeExpB,
             feeExpA,
-            sellSizeBA
+            finalSellSizeBA
           )
         : null;
 
       let sellNetAB = -Infinity;
       let sellNetBA = -Infinity;
-      const resolvedSellSizeAB = sellCandidateAB?.size ?? sellSizeAB;
-      const resolvedSellSizeBA = sellCandidateBA?.size ?? sellSizeBA;
+      const resolvedSellSizeAB = sellCandidateAB?.size ?? finalSellSizeAB;
+      const resolvedSellSizeBA = sellCandidateBA?.size ?? finalSellSizeBA;
 
-      if (sellSizeAB > 0 && canSellAB) {
+      if (finalSellSizeAB > 0 && canSellAB) {
         if (sellCandidateAB) {
           sellNetAB = sellCandidateAB.edge;
         } else {
           const sellProceedsAB = sellYesA && sellNoB
-            ? (sellYesA.totalAllIn + sellNoB.totalAllIn) / sellSizeAB
+            ? (sellYesA.totalAllIn + sellNoB.totalAllIn) / finalSellSizeAB
             : yesBidA + noBidB;
           const sellFeeAB = sellYesA && sellNoB
             ? 0
@@ -429,12 +505,12 @@ export class CrossPlatformArbitrageDetector {
         }
       }
 
-      if (sellSizeBA > 0 && canSellBA) {
+      if (finalSellSizeBA > 0 && canSellBA) {
         if (sellCandidateBA) {
           sellNetBA = sellCandidateBA.edge;
         } else {
           const sellProceedsBA = sellYesB && sellNoA
-            ? (sellYesB.totalAllIn + sellNoA.totalAllIn) / sellSizeBA
+            ? (sellYesB.totalAllIn + sellNoA.totalAllIn) / finalSellSizeBA
             : yesBidB + noBidA;
           const sellFeeBA = sellYesB && sellNoA
             ? 0

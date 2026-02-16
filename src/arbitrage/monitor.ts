@@ -32,6 +32,9 @@ export interface ArbitrageConfig {
   crossPlatformDepthLevels: number;
   crossPlatformSlippageBps: number;
   crossPlatformDepthUsage: number;
+  crossPlatformMinTopDepthShares: number;
+  crossPlatformMinTopDepthUsd: number;
+  crossPlatformTopDepthUsage: number;
   crossPlatformMinNotionalUsd: number;
   crossPlatformMinProfitUsd: number;
   predictFeeBps: number;
@@ -99,6 +102,9 @@ export class ArbitrageMonitor {
       crossPlatformDepthLevels: 10,
       crossPlatformSlippageBps: 250,
       crossPlatformDepthUsage: 0.5,
+      crossPlatformMinTopDepthShares: 0,
+      crossPlatformMinTopDepthUsd: 0,
+      crossPlatformTopDepthUsage: 0,
       crossPlatformMinNotionalUsd: 0,
       crossPlatformMinProfitUsd: 0,
       predictFeeBps: 100,
@@ -183,7 +189,10 @@ export class ArbitrageMonitor {
       this.config.crossPlatformDepthLevels,
       this.config.crossPlatformDepthUsage ?? 0.5,
       this.config.crossPlatformMinNotionalUsd ?? 0,
-      this.config.crossPlatformMinProfitUsd ?? 0
+      this.config.crossPlatformMinProfitUsd ?? 0,
+      this.config.crossPlatformMinTopDepthShares ?? 0,
+      this.config.crossPlatformMinTopDepthUsd ?? 0,
+      this.config.crossPlatformTopDepthUsage ?? 0
     );
     if (this.config.enableDependency) {
       this.dependencyDetector = new DependencyArbitrageDetector({
