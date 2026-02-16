@@ -122,6 +122,8 @@
 - `MM_RESTORE_LAYER_COUNT_CAP`：恢复期内的最大分层上限（0=不启用）。
 - `MM_RESTORE_LAYER_STEP_BPS_ADD`：恢复期每层额外偏移（bps）。
 - `MM_PANIC_RESTORE_LAYER_COUNT_CAP`：强撤单恢复期分层上限（0=不启用）。
+- `MM_PANIC_COOLDOWN_SIZE_SCALE`：强撤单冷却期挂单份额缩放（0-1）。
+- `MM_RESTORE_COOLDOWN_SIZE_SCALE`：恢复期冷却期挂单份额缩放（0-1）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

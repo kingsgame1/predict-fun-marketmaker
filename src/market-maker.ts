@@ -2692,6 +2692,22 @@ export class MarketMaker {
         targetAskShares = Math.max(1, Math.floor(targetAskShares * panicScale));
       }
     }
+    const cooldownUntil = this.cooldownUntil.get(tokenId) || 0;
+    if (cooldownUntil > Date.now()) {
+      if (this.isLayerPanicActive(tokenId)) {
+        const scale = this.config.mmPanicCooldownSizeScale ?? 0;
+        if (scale > 0 && scale < 1) {
+          targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
+          targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+        }
+      } else if (this.isLayerRestoreActive(tokenId)) {
+        const scale = this.config.mmRestoreCooldownSizeScale ?? 0;
+        if (scale > 0 && scale < 1) {
+          targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
+          targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+        }
+      }
+    }
     const exitSizeFactor = this.getRestoreExitSizeFactor(tokenId);
     if (exitSizeFactor < 1) {
       targetBidShares = Math.max(1, Math.floor(targetBidShares * exitSizeFactor));
