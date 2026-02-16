@@ -2272,6 +2272,17 @@ export class MarketMaker {
     if (maxShares > 0) {
       shares = Math.min(shares, Math.floor(maxShares));
     }
+    const safeModeActive = this.isSafeModeActive(market.token_id, {
+      volEma: this.volatilityEma.get(market.token_id) ?? 0,
+      depthTrend: this.depthTrend.get(market.token_id) ?? 0,
+      depthSpeedBps: this.lastDepthSpeedBps.get(market.token_id) ?? 0,
+    });
+    if (safeModeActive) {
+      const maxSafe = this.config.mmSafeModeMaxSharesPerOrder ?? 0;
+      if (maxSafe > 0) {
+        shares = Math.min(shares, Math.floor(maxSafe));
+      }
+    }
 
     if (shares <= 0) {
       return { shares: 0, usdt: 0 };

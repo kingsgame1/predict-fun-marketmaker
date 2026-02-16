@@ -223,6 +223,7 @@ export interface Config {
   mmSafeModeTouchBufferBps?: number;
   mmSafeModeOnlyFarLayers?: number;
   mmSafeModeMinIntervalMs?: number;
+  mmSafeModeMaxSharesPerOrder?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;
