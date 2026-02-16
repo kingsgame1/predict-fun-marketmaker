@@ -646,6 +646,22 @@ export class MarketMaker {
         antiFillBase *= restoreCancelMult;
       }
     }
+    const safeModeActive = this.isSafeModeActive(order.token_id, {
+      volEma: this.volatilityEma.get(order.token_id) ?? 0,
+      depthTrend: this.depthTrend.get(order.token_id) ?? 0,
+      depthSpeedBps: this.lastDepthSpeedBps.get(order.token_id) ?? 0,
+    });
+    if (safeModeActive) {
+      const mult = Math.max(1, this.config.mmSafeModeNearTouchMult ?? 1);
+      nearTouchBase *= mult;
+      const antiMult = Math.max(1, this.config.mmSafeModeAntiFillMult ?? mult);
+      antiFillBase *= antiMult;
+      const add = Math.max(0, this.config.mmSafeModeNearTouchAddBps ?? 0);
+      if (add > 0) {
+        nearTouchBase += add / 10000;
+        antiFillBase += add / 10000;
+      }
+    }
     const autoTuneMult = this.getAutoTuneMultiplier(order.token_id);
     if (autoTuneMult !== 1) {
       nearTouchBase *= autoTuneMult;

@@ -153,6 +153,9 @@
 - `MM_SAFE_MODE_MAX_SHARES_PER_ORDER`：安全档单笔挂单最大份额上限。
 - `MM_SAFE_MODE_DEPTH_USAGE_MULT`：安全档盘口深度占用比例倍数。
 - `MM_SAFE_MODE_DEPTH_CAP_MULT`：安全档深度上限缩放倍数。
+- `MM_SAFE_MODE_NEAR_TOUCH_MULT`：安全档 near-touch 阈值倍数。
+- `MM_SAFE_MODE_ANTI_FILL_MULT`：安全档 anti-fill 阈值倍数。
+- `MM_SAFE_MODE_NEAR_TOUCH_ADD_BPS`：安全档 near-touch 额外增加（bps）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
