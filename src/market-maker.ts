@@ -267,11 +267,13 @@ export class MarketMaker {
     wsEmergencyRecoveryStage: number;
     wsEmergencyRecoverySteps: number;
     wsEmergencyRecoveryRatio: number;
+    wsEmergencyRecoveryIntervalMult: number;
     wsEmergencyRecoveryProgress: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
     const recoveryInfo = this.getWsEmergencyRecoveryInfo();
+    const recoveryIntervalMult = this.getWsEmergencyRecoveryIntervalMult();
     return {
       score: this.wsHealthScore,
       spreadMult: this.getWsHealthSpreadMult(),
@@ -302,6 +304,7 @@ export class MarketMaker {
       wsEmergencyRecoveryStage: recoveryInfo.stage,
       wsEmergencyRecoverySteps: recoveryInfo.steps,
       wsEmergencyRecoveryRatio: recoveryInfo.ratio,
+      wsEmergencyRecoveryIntervalMult: recoveryIntervalMult,
       wsEmergencyRecoveryProgress: recoveryInfo.progress,
       updatedAt: this.wsHealthUpdatedAt,
     };
@@ -1637,10 +1640,24 @@ export class MarketMaker {
   private getWsHealthIntervalMult(): number {
     const maxMult = this.config.mmWsHealthMinIntervalMultMax ?? 1;
     if (maxMult <= 1) {
-      return 1;
+      return this.getWsEmergencyRecoveryIntervalMult();
     }
     const ratio = this.getWsHealthRatio();
-    return 1 + (maxMult - 1) * ratio;
+    const base = 1 + (maxMult - 1) * ratio;
+    return Math.max(base, this.getWsEmergencyRecoveryIntervalMult());
+  }
+
+  private getWsEmergencyRecoveryIntervalMult(): number {
+    if (!this.isWsEmergencyRecoveryActive()) {
+      return 1;
+    }
+    const maxMult = Math.max(1, this.config.mmWsHealthEmergencyRecoveryIntervalMultMax ?? 1);
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const info = this.getWsEmergencyRecoveryInfo();
+    const progress = Math.max(0, Math.min(1, info.progress));
+    return 1 + (maxMult - 1) * (1 - progress);
   }
 
   private shouldForceOnlyFarWs(): boolean {
@@ -1984,6 +2001,11 @@ export class MarketMaker {
       wsEmergencyCancel: this.config.mmWsHealthEmergencyCancelAll === true,
       wsEmergencyActive: this.wsEmergencyGlobalUntil > Date.now(),
       wsEmergencyRecovery: this.isWsEmergencyRecoveryActive(),
+      wsEmergencyRecoveryStage: wsHealth.wsEmergencyRecoveryStage,
+      wsEmergencyRecoverySteps: wsHealth.wsEmergencyRecoverySteps,
+      wsEmergencyRecoveryRatio: wsHealth.wsEmergencyRecoveryRatio,
+      wsEmergencyRecoveryIntervalMult: wsHealth.wsEmergencyRecoveryIntervalMult,
+      wsEmergencyRecoveryProgress: wsHealth.wsEmergencyRecoveryProgress,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };

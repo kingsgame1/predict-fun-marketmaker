@@ -149,6 +149,7 @@ export interface Config {
   mmWsHealthEmergencyRecoverySteps?: number;
   mmWsHealthEmergencyRecoverySizeScaleMin?: number;
   mmWsHealthEmergencyRecoveryLayerCapMin?: number;
+  mmWsHealthEmergencyRecoveryIntervalMultMax?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

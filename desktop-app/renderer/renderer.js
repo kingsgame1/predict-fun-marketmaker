@@ -3814,11 +3814,14 @@ async function loadMmMetrics() {
         const recoveryRatio = Number.isFinite(wsHealth.wsEmergencyRecoveryRatio)
           ? wsHealth.wsEmergencyRecoveryRatio.toFixed(2)
           : '--';
+        const recoveryInterval = Number.isFinite(wsHealth.wsEmergencyRecoveryIntervalMult)
+          ? wsHealth.wsEmergencyRecoveryIntervalMult.toFixed(2)
+          : '--';
         const recoveryProgress = Number.isFinite(wsHealth.wsEmergencyRecoveryProgress)
           ? Math.round(wsHealth.wsEmergencyRecoveryProgress * 100)
           : '--';
         const emergency = wsHealth.wsEmergencyCancel
-          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},prog=${recoveryProgress}%)`
+          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},prog=${recoveryProgress}%)`
           : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
@@ -3879,6 +3882,14 @@ async function loadMmMetrics() {
           row.textContent = `${ts} | ${event?.type || 'EVENT'}${token} | ${event?.message || ''}`.trim();
           mmEventList.appendChild(row);
         });
+      }
+      if (mmEventHint) {
+        const total = events.length;
+        const last = events.length ? events[events.length - 1] : null;
+        const lastText = last?.ts ? `${formatTimestamp(last.ts)} ${last.type || ''}`.trim() : '暂无';
+        const emergencyCount = events.filter((e) => String(e?.type || '').includes('EMERGENCY_CANCEL')).length;
+        const recoveryCount = events.filter((e) => String(e?.type || '').includes('RECOVERY_START')).length;
+        mmEventHint.textContent = `事件总数 ${total} | 最近 ${lastText} | 急撤 ${emergencyCount} | 恢复 ${recoveryCount}`;
       }
     }
   } catch (error) {
