@@ -287,6 +287,8 @@ export class MarketMaker {
     wsEmergencyRecoveryAuto: boolean;
     wsEmergencyRecoveryImbalanceThreshold: number;
     wsEmergencyRecoveryMinIntervalMs: number;
+    wsEmergencyRecoveryOffsetVolWeight: number;
+    wsEmergencyRecoveryTemplateReset: boolean;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -345,6 +347,8 @@ export class MarketMaker {
       wsEmergencyRecoveryImbalanceThreshold:
         this.config.mmWsHealthEmergencyRecoverySingleSideImbalanceThreshold ?? 0,
       wsEmergencyRecoveryMinIntervalMs: this.config.mmWsHealthEmergencyRecoveryMinIntervalMs ?? 0,
+      wsEmergencyRecoveryOffsetVolWeight: this.config.mmWsHealthEmergencyRecoveryOffsetVolWeight ?? 0,
+      wsEmergencyRecoveryTemplateReset: this.config.mmWsHealthEmergencyRecoveryTemplateResetEnabled === true,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1862,9 +1866,11 @@ export class MarketMaker {
         | 'REMOTE';
       const recoveryOffsetBase = Math.max(0, this.config.mmWsHealthEmergencyRecoverySingleSideOffsetBps ?? 0);
       const recoveryOffsetMin = Math.max(0, this.config.mmWsHealthEmergencyRecoverySingleSideOffsetMinBps ?? 0);
+      const volWeight = Math.max(0, this.config.mmWsHealthEmergencyRecoveryOffsetVolWeight ?? 0);
+      const volBoost = 1 + Math.max(0, this.getGlobalVolatility()) * volWeight;
       const recoveryOffset =
         recoveryOffsetBase > 0
-          ? recoveryOffsetMin + (recoveryOffsetBase - recoveryOffsetMin) * (1 - recoveryInfo.progress)
+          ? (recoveryOffsetMin + (recoveryOffsetBase - recoveryOffsetMin) * (1 - recoveryInfo.progress)) * volBoost
           : 0;
       let resolvedSide = recoverySide;
       if (this.config.mmWsHealthEmergencyRecoverySingleSideAuto) {
@@ -2206,6 +2212,8 @@ export class MarketMaker {
       wsEmergencyRecoveryAuto: wsHealth.wsEmergencyRecoveryAuto,
       wsEmergencyRecoveryImbalanceThreshold: wsHealth.wsEmergencyRecoveryImbalanceThreshold,
       wsEmergencyRecoveryMinIntervalMs: wsHealth.wsEmergencyRecoveryMinIntervalMs,
+      wsEmergencyRecoveryOffsetVolWeight: wsHealth.wsEmergencyRecoveryOffsetVolWeight,
+      wsEmergencyRecoveryTemplateReset: wsHealth.wsEmergencyRecoveryTemplateReset,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2661,6 +2669,20 @@ export class MarketMaker {
       return 0;
     }
     return this.clamp(sum / count, -1, 1);
+  }
+
+  private getGlobalVolatility(): number {
+    if (this.volatilityEma.size === 0) {
+      return 0;
+    }
+    let sum = 0;
+    let count = 0;
+    for (const value of this.volatilityEma.values()) {
+      if (!Number.isFinite(value)) continue;
+      sum += value;
+      count += 1;
+    }
+    return count ? sum / count : 0;
   }
 
   calculatePrices(market: Market, orderbook: Orderbook): QuotePrices | null {

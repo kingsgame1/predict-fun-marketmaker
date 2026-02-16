@@ -148,6 +148,7 @@ const exportMmEventsBtn = document.getElementById('exportMmEvents');
 const enableRecoveryTemplateBtn = document.getElementById('enableRecoveryTemplate');
 const disableRecoveryTemplateBtn = document.getElementById('disableRecoveryTemplate');
 const recoveryTemplateHint = document.getElementById('recoveryTemplateHint');
+const recoveryTemplateResetHint = document.getElementById('recoveryTemplateResetHint');
 
 const logs = [];
 const MAX_LOGS = 800;
@@ -2129,6 +2130,29 @@ function applyEnvLines(lines, message) {
 function toggleRecoveryTemplate(enabled) {
   let text = envEditor.value || '';
   text = setEnvValue(text, 'MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED', enabled ? 'true' : 'false');
+  if (!enabled) {
+    const resetEnabled = /MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_RESET_ENABLED\s*=\s*true/i.test(text);
+    if (resetEnabled) {
+      const resetLines = [
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE=NONE',
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_MODE=REMOTE',
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_OFFSET_BPS=0',
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_OFFSET_MIN_BPS=0',
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MIN=1',
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MAX=3',
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYER_STEP=1',
+        'MM_WS_HEALTH_EMERGENCY_RECOVERY_CANCEL_INTERVAL_MULT_MAX=2',
+      ];
+      resetLines.forEach((line) => {
+        const idx = line.indexOf('=');
+        if (idx === -1) return;
+        text = setEnvValue(text, line.slice(0, idx), line.slice(idx + 1));
+      });
+      if (recoveryTemplateResetHint) {
+        recoveryTemplateResetHint.textContent = '已按模板恢复默认参数（请保存生效）。';
+      }
+    }
+  }
   envEditor.value = text;
   detectTradingMode(text);
   syncTogglesFromEnv(text);
@@ -3895,12 +3919,15 @@ async function loadMmMetrics() {
         const recoveryMinInterval = Number.isFinite(wsHealth.wsEmergencyRecoveryMinIntervalMs)
           ? wsHealth.wsEmergencyRecoveryMinIntervalMs
           : '--';
+        const recoveryOffsetVol = Number.isFinite(wsHealth.wsEmergencyRecoveryOffsetVolWeight)
+          ? wsHealth.wsEmergencyRecoveryOffsetVolWeight.toFixed(2)
+          : '--';
         const recoveryProgress = Number.isFinite(wsHealth.wsEmergencyRecoveryProgress)
           ? Math.round(wsHealth.wsEmergencyRecoveryProgress * 100)
           : '--';
         const recoverySingle = wsHealth.wsEmergencyRecoverySingleActive ? '单边' : '双边';
         const emergency = wsHealth.wsEmergencyCancel
-          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},far=${recoveryFarLayers}/${recoveryFarMax},fstep=${recoveryFarStep},cancelPace=${recoveryCancelInterval},offset=${recoveryOffset},${recoveryTemplate},${recoveryAuto},imb=${recoveryImb},minInt=${recoveryMinInterval},prog=${recoveryProgress}%,${recoverySingle})`
+          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},far=${recoveryFarLayers}/${recoveryFarMax},fstep=${recoveryFarStep},cancelPace=${recoveryCancelInterval},offset=${recoveryOffset},volW=${recoveryOffsetVol},${recoveryTemplate},${recoveryAuto},imb=${recoveryImb},minInt=${recoveryMinInterval},prog=${recoveryProgress}%,${recoverySingle})`
           : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
