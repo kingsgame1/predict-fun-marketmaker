@@ -98,6 +98,8 @@ export class MarketMaker {
   private layerRestoreAt: Map<string, number> = new Map();
   private layerRestoreStartAt: Map<string, number> = new Map();
   private layerRestoreExitPending: Map<string, boolean> = new Map();
+  private layerRestoreExitRampStartAt: Map<string, number> = new Map();
+  private layerRestoreExitRampUntil: Map<string, number> = new Map();
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -1579,6 +1581,15 @@ export class MarketMaker {
     if (until > 0) {
       this.layerRestoreAt.delete(tokenId);
       this.layerRestoreStartAt.delete(tokenId);
+      const exitRampMs = Math.max(0, this.config.mmRestoreExitRampMs ?? 0);
+      if (exitRampMs > 0) {
+        const now = Date.now();
+        this.layerRestoreExitRampStartAt.set(tokenId, now);
+        this.layerRestoreExitRampUntil.set(tokenId, now + exitRampMs);
+      } else {
+        this.layerRestoreExitRampStartAt.delete(tokenId);
+        this.layerRestoreExitRampUntil.delete(tokenId);
+      }
       if (this.config.mmLayerRestoreExitCleanup) {
         this.layerRestoreExitPending.set(tokenId, true);
       }
@@ -1692,6 +1703,30 @@ export class MarketMaker {
     const fraction = Math.min(1, elapsed / rampMs);
     const target = Math.max(restoreCount, Math.floor(restoreCount + (max - restoreCount) * fraction));
     return Math.min(max, target);
+  }
+
+  private getRestoreExitRampCap(tokenId: string, layerCount: number): number {
+    const until = this.layerRestoreExitRampUntil.get(tokenId) || 0;
+    if (!until || until <= Date.now()) {
+      this.layerRestoreExitRampStartAt.delete(tokenId);
+      this.layerRestoreExitRampUntil.delete(tokenId);
+      return layerCount;
+    }
+    const start = this.layerRestoreExitRampStartAt.get(tokenId) || 0;
+    if (!start) {
+      return layerCount;
+    }
+    const elapsed = Math.max(0, Date.now() - start);
+    const totalMs = Math.max(1, this.config.mmRestoreExitRampMs ?? 0);
+    const steps = Math.max(1, this.config.mmRestoreExitRampSteps ?? 0);
+    if (!steps) {
+      return layerCount;
+    }
+    const perStep = totalMs / steps;
+    const currentStep = Math.min(steps, Math.floor(elapsed / perStep));
+    const base = Math.max(1, Math.floor(this.config.mmLayerMinCount ?? 1));
+    const cap = Math.min(layerCount, base + currentStep);
+    return Math.max(base, cap);
   }
 
   private getEffectiveLayerStepBps(
@@ -2333,14 +2368,15 @@ export class MarketMaker {
       metrics.depthTrend,
       metrics.depthSpeedBps
     );
+    const rampedLayerCount = this.getRestoreExitRampCap(tokenId, layerCount);
     const layerStepBps = this.getEffectiveLayerStepBps(
       tokenId,
       profile,
       metrics.depthTrend,
       metrics.depthSpeedBps
     );
-    const bidTargets = this.buildLayerTargets(prices.bidPrice, 'BUY', layerCount, layerStepBps);
-    const askTargets = this.buildLayerTargets(prices.askPrice, 'SELL', layerCount, layerStepBps);
+    const bidTargets = this.buildLayerTargets(prices.bidPrice, 'BUY', rampedLayerCount, layerStepBps);
+    const askTargets = this.buildLayerTargets(prices.askPrice, 'SELL', rampedLayerCount, layerStepBps);
     const bidLayers = bidTargets.length;
     const askLayers = askTargets.length;
     const canceledOrders = new Set<string>();
