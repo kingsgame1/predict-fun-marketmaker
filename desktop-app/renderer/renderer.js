@@ -3784,7 +3784,8 @@ async function loadMmMetrics() {
         const readOnly = wsHealth.wsReadOnly ? '只读' : '执行';
         const ultraSafe = wsHealth.wsUltraSafe ? '极限' : '常规';
         const emergencyActive = wsHealth.wsEmergencyActive ? '已触发' : '待机';
-        const emergency = wsHealth.wsEmergencyCancel ? `急撤-${emergencyActive}` : '常规';
+        const recovery = wsHealth.wsEmergencyRecovery ? '恢复中' : '正常';
+        const emergency = wsHealth.wsEmergencyCancel ? `急撤-${emergencyActive}/${recovery}` : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
       }

@@ -143,6 +143,8 @@ export interface Config {
   mmWsHealthEmergencyCancelAll?: boolean;
   mmWsHealthEmergencyCooldownMs?: number;
   mmWsHealthEmergencyIntervalMs?: number;
+  mmWsHealthEmergencyRecoveryMs?: number;
+  mmWsHealthEmergencyRecoveryRatio?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

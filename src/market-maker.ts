@@ -109,11 +109,13 @@ export class MarketMaker {
   private wsEmergencyLast: Map<string, number> = new Map();
   private wsEmergencyGlobalUntil = 0;
   private wsEmergencyGlobalLast = 0;
+  private wsEmergencyRecoveryUntil = 0;
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
   > = new Map();
   private mmMetrics: Map<string, Record<string, unknown>> = new Map();
+  private mmEventLog: Array<{ ts: number; type: string; tokenId?: string; message: string }> = [];
   private mmLastFlushAt = 0;
   private valueDetector?: ValueMismatchDetector;
   private crossAggregator?: CrossPlatformAggregator;
@@ -258,6 +260,7 @@ export class MarketMaker {
     wsUltraSafe: boolean;
     wsEmergencyCancel: boolean;
     wsEmergencyActive: boolean;
+    wsEmergencyRecovery: boolean;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -287,6 +290,7 @@ export class MarketMaker {
       wsUltraSafe: this.isWsUltraSafeActive(),
       wsEmergencyCancel: this.config.mmWsHealthEmergencyCancelAll === true,
       wsEmergencyActive: this.wsEmergencyGlobalUntil > Date.now(),
+      wsEmergencyRecovery: this.isWsEmergencyRecoveryActive(),
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1231,6 +1235,23 @@ export class MarketMaker {
     return this.clamp(recovered, entry.value, 1);
   }
 
+  private recordMmEvent(type: string, message: string, tokenId?: string): void {
+    const event = { ts: Date.now(), type, tokenId, message };
+    this.mmEventLog.push(event);
+    if (this.mmEventLog.length > 200) {
+      this.mmEventLog = this.mmEventLog.slice(-200);
+    }
+  }
+
+  private isWsEmergencyRecoveryActive(): boolean {
+    return this.wsEmergencyRecoveryUntil > Date.now();
+  }
+
+  private getWsEmergencyRecoveryRatio(): number {
+    const raw = this.config.mmWsHealthEmergencyRecoveryRatio ?? 0.7;
+    return this.clamp(raw, 0, 1);
+  }
+
   private applyIcebergPenalty(tokenId: string): void {
     if (!this.config.mmIcebergEnabled) {
       return;
@@ -1395,7 +1416,10 @@ export class MarketMaker {
   }
 
   private getWsHealthRatio(): number {
-    const ratio = Math.max(0, Math.min(1, 1 - this.wsHealthScore / 100));
+    let ratio = Math.max(0, Math.min(1, 1 - this.wsHealthScore / 100));
+    if (this.isWsEmergencyRecoveryActive()) {
+      ratio = Math.max(ratio, this.getWsEmergencyRecoveryRatio());
+    }
     return ratio;
   }
 
@@ -1498,6 +1522,9 @@ export class MarketMaker {
   }
 
   private isWsUltraSafeActive(): boolean {
+    if (this.isWsEmergencyRecoveryActive()) {
+      return true;
+    }
     if (!this.config.mmWsHealthUltraSafeEnabled) {
       return false;
     }
@@ -1815,6 +1842,7 @@ export class MarketMaker {
         openOrders: this.openOrders.size,
         positions: this.positions.size,
         wsHealth,
+        events: this.mmEventLog.slice(-200),
         markets: Array.from(this.mmMetrics.values()),
       };
       const resolved = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
@@ -1894,6 +1922,7 @@ export class MarketMaker {
       wsUltraSafe: this.isWsUltraSafeActive(),
       wsEmergencyCancel: this.config.mmWsHealthEmergencyCancelAll === true,
       wsEmergencyActive: this.wsEmergencyGlobalUntil > Date.now(),
+      wsEmergencyRecovery: this.isWsEmergencyRecoveryActive(),
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2944,7 +2973,17 @@ export class MarketMaker {
       if (cooldown > 0) {
         this.wsEmergencyGlobalUntil = now + cooldown;
       }
-      console.log(`🧯 WS health low: emergency cancel-all${cooldown > 0 ? `, cooldown ${cooldown}ms` : ''}`);
+      const recoveryMs = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMs ?? 0);
+      if (recoveryMs > 0) {
+        this.wsEmergencyRecoveryUntil = now + recoveryMs;
+      }
+      const recoveryNote = recoveryMs > 0 ? `, recovery ${recoveryMs}ms` : '';
+      console.log(`🧯 WS health low: emergency cancel-all${cooldown > 0 ? `, cooldown ${cooldown}ms` : ''}${recoveryNote}`);
+      this.recordMmEvent(
+        'WS_EMERGENCY_CANCEL',
+        `Emergency cancel-all${cooldown > 0 ? `, cooldown ${cooldown}ms` : ''}${recoveryNote}`,
+        tokenId
+      );
       this.markAction(tokenId);
       return;
     }
