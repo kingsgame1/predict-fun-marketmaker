@@ -274,6 +274,8 @@ export class MarketMaker {
     wsEmergencyRecoveryVolatilityMult: number;
     wsEmergencyRecoverySpreadAdd: number;
     wsEmergencyRecoveryIcebergRatio: number;
+    wsEmergencyRecoveryCancelConfirmMult: number;
+    wsEmergencyRecoveryMaxOrdersMult: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -318,6 +320,8 @@ export class MarketMaker {
       wsEmergencyRecoveryVolatilityMult: recoveryVolMult,
       wsEmergencyRecoverySpreadAdd: Math.max(0, this.config.mmWsHealthEmergencyRecoverySpreadAdd ?? 0),
       wsEmergencyRecoveryIcebergRatio: Math.max(0, this.config.mmWsHealthEmergencyRecoveryIcebergRatio ?? 0),
+      wsEmergencyRecoveryCancelConfirmMult: this.getWsHealthCancelConfirmMult(),
+      wsEmergencyRecoveryMaxOrdersMult: this.getWsHealthMaxOrdersMult(),
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1531,11 +1535,18 @@ export class MarketMaker {
 
   private getWsHealthMaxOrdersMult(): number {
     const minMult = this.config.mmWsHealthMaxOrdersMultMin ?? 1;
-    if (minMult >= 1) {
-      return 1;
+    let mult = 1;
+    if (minMult < 1) {
+      const ratio = this.getWsHealthRatio();
+      mult = 1 - (1 - minMult) * ratio;
     }
-    const ratio = this.getWsHealthRatio();
-    return 1 - (1 - minMult) * ratio;
+    if (this.isWsEmergencyRecoveryActive()) {
+      const recoveryMin = this.config.mmWsHealthEmergencyRecoveryMaxOrdersMultMin ?? 1;
+      if (recoveryMin < 1) {
+        mult = Math.min(mult, recoveryMin);
+      }
+    }
+    return mult;
   }
 
   private getWsHealthSoftCancelMult(): number {
@@ -1576,11 +1587,18 @@ export class MarketMaker {
 
   private getWsHealthCancelConfirmMult(): number {
     const minMult = this.config.mmWsHealthCancelConfirmMultMin ?? 1;
-    if (minMult >= 1) {
-      return 1;
+    let mult = 1;
+    if (minMult < 1) {
+      const ratio = this.getWsHealthRatio();
+      mult = 1 - (1 - minMult) * ratio;
     }
-    const ratio = this.getWsHealthRatio();
-    return 1 - (1 - minMult) * ratio;
+    if (this.isWsEmergencyRecoveryActive()) {
+      const recoveryMin = this.config.mmWsHealthEmergencyRecoveryCancelConfirmMultMin ?? 1;
+      if (recoveryMin > 1) {
+        mult = Math.max(mult, recoveryMin);
+      }
+    }
+    return mult;
   }
 
   private getWsHealthRepriceConfirmMult(): number {
@@ -2071,6 +2089,8 @@ export class MarketMaker {
       wsEmergencyRecoveryVolatilityMult: wsHealth.wsEmergencyRecoveryVolatilityMult,
       wsEmergencyRecoverySpreadAdd: wsHealth.wsEmergencyRecoverySpreadAdd,
       wsEmergencyRecoveryIcebergRatio: wsHealth.wsEmergencyRecoveryIcebergRatio,
+      wsEmergencyRecoveryCancelConfirmMult: wsHealth.wsEmergencyRecoveryCancelConfirmMult,
+      wsEmergencyRecoveryMaxOrdersMult: wsHealth.wsEmergencyRecoveryMaxOrdersMult,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
