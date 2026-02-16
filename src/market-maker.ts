@@ -1689,8 +1689,10 @@ export class MarketMaker {
         effective = Math.min(effective, cap);
       }
       const hardCap = Math.max(0, Math.floor(this.config.mmRestoreLayerCountCap ?? 0));
-      if (hardCap > 0) {
-        effective = Math.min(effective, hardCap);
+      const panicCap = Math.max(0, Math.floor(this.config.mmPanicRestoreLayerCountCap ?? 0));
+      const appliedCap = this.isLayerPanicActive(tokenId) && panicCap > 0 ? panicCap : hardCap;
+      if (appliedCap > 0) {
+        effective = Math.min(effective, appliedCap);
       }
     }
     return Math.max(minCount, effective);
