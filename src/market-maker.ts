@@ -1561,15 +1561,20 @@ export class MarketMaker {
     return until > Date.now();
   }
 
-  private isSafeModeActive(tokenId: string, metrics: { volEma: number; depthTrend: number }): boolean {
+  private isSafeModeActive(
+    tokenId: string,
+    metrics: { volEma: number; depthTrend: number; depthSpeedBps: number }
+  ): boolean {
     if (!this.config.mmSafeModeEnabled) {
       return false;
     }
     const volThreshold = Math.max(0, this.config.mmSafeModeVolBps ?? 0);
     const depthThreshold = this.config.mmSafeModeDepthTrend ?? 0;
+    const depthSpeedThreshold = Math.max(0, this.config.mmSafeModeDepthSpeedBps ?? 0);
     const volTrigger = volThreshold > 0 && metrics.volEma >= volThreshold;
     const depthTrigger = depthThreshold > 0 && metrics.depthTrend <= depthThreshold;
-    return volTrigger || depthTrigger;
+    const depthSpeedTrigger = depthSpeedThreshold > 0 && metrics.depthSpeedBps >= depthSpeedThreshold;
+    return volTrigger || depthTrigger || depthSpeedTrigger;
   }
 
   private applyLayerRetreat(tokenId: string): void {
@@ -1979,7 +1984,11 @@ export class MarketMaker {
       adaptiveSpread = Math.min(adaptiveSpread, market.liquidity_activation.max_spread * 0.95);
     }
 
-    const safeModeActive = this.isSafeModeActive(market.token_id, { volEma, depthTrend: depthMetrics.depthTrend });
+    const safeModeActive = this.isSafeModeActive(market.token_id, {
+      volEma,
+      depthTrend: depthMetrics.depthTrend,
+      depthSpeedBps: depthMetrics.depthSpeedBps,
+    });
     if (safeModeActive) {
       const spreadMult = Math.max(1, this.config.mmSafeModeSpreadMult ?? 1);
       adaptiveSpread *= spreadMult;
@@ -2485,6 +2494,7 @@ export class MarketMaker {
     const safeModeActive = this.isSafeModeActive(tokenId, {
       volEma: metrics.volEma,
       depthTrend: metrics.depthTrend,
+      depthSpeedBps: metrics.depthSpeedBps,
     });
     if (safeModeActive) {
       const stepMult = Math.max(1, this.config.mmSafeModeStepMult ?? 1);
@@ -2590,7 +2600,7 @@ export class MarketMaker {
           const mult = Math.max(1, this.config.mmRestoreCooldownMult ?? 1);
           cooldown = Math.round(cooldown * mult);
         }
-        if (this.isSafeModeActive(tokenId, { volEma: metrics.volEma, depthTrend: metrics.depthTrend })) {
+        if (this.isSafeModeActive(tokenId, { volEma: metrics.volEma, depthTrend: metrics.depthTrend, depthSpeedBps: metrics.depthSpeedBps })) {
           const mult = Math.max(1, this.config.mmSafeModeCooldownMult ?? 1);
           cooldown = Math.round(cooldown * mult);
         }
@@ -2676,7 +2686,7 @@ export class MarketMaker {
           const mult = Math.max(1, this.config.mmRestoreCooldownMult ?? 1);
           cooldown = Math.round(cooldown * mult);
         }
-        if (this.isSafeModeActive(tokenId, { volEma: metrics.volEma, depthTrend: metrics.depthTrend })) {
+        if (this.isSafeModeActive(tokenId, { volEma: metrics.volEma, depthTrend: metrics.depthTrend, depthSpeedBps: metrics.depthSpeedBps })) {
           const mult = Math.max(1, this.config.mmSafeModeCooldownMult ?? 1);
           cooldown = Math.round(cooldown * mult);
         }
