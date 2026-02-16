@@ -142,7 +142,9 @@ const mmWsHealth = document.getElementById('mmWsHealth');
 const mmWsHealthHint = document.getElementById('mmWsHealthHint');
 const mmMarketsList = document.getElementById('mmMarketsList');
 const mmEventList = document.getElementById('mmEventList');
+const mmEventHint = document.getElementById('mmEventHint');
 const refreshMmMetrics = document.getElementById('refreshMmMetrics');
+const exportMmEventsBtn = document.getElementById('exportMmEvents');
 
 const logs = [];
 const MAX_LOGS = 800;
@@ -3110,6 +3112,23 @@ async function exportDiagnostics() {
   }
 }
 
+async function exportMmEvents() {
+  if (!window.predictBot.exportMmEvents) {
+    if (mmEventHint) mmEventHint.textContent = '当前版本不支持导出事件。';
+    return;
+  }
+  const result = await window.predictBot.exportMmEvents();
+  if (!result || !result.ok) {
+    if (mmEventHint) {
+      mmEventHint.textContent = result?.message || '事件导出失败，请稍后重试。';
+    }
+    return;
+  }
+  if (mmEventHint) {
+    mmEventHint.textContent = `事件已导出：${result.path}`;
+  }
+}
+
 function drawSparkline(canvas, values, color) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -3786,7 +3805,18 @@ async function loadMmMetrics() {
         const ultraSafe = wsHealth.wsUltraSafe ? '极限' : '常规';
         const emergencyActive = wsHealth.wsEmergencyActive ? '已触发' : '待机';
         const recovery = wsHealth.wsEmergencyRecovery ? '恢复中' : '正常';
-        const emergency = wsHealth.wsEmergencyCancel ? `急撤-${emergencyActive}/${recovery}` : '常规';
+        const recoverySteps = Number.isFinite(wsHealth.wsEmergencyRecoverySteps)
+          ? wsHealth.wsEmergencyRecoverySteps
+          : '--';
+        const recoveryStage = Number.isFinite(wsHealth.wsEmergencyRecoveryStage) && wsHealth.wsEmergencyRecoveryStage >= 0
+          ? `${wsHealth.wsEmergencyRecoveryStage + 1}/${recoverySteps}`
+          : '--';
+        const recoveryRatio = Number.isFinite(wsHealth.wsEmergencyRecoveryRatio)
+          ? wsHealth.wsEmergencyRecoveryRatio.toFixed(2)
+          : '--';
+        const emergency = wsHealth.wsEmergencyCancel
+          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio})`
+          : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
       }
@@ -3970,6 +4000,7 @@ tabButtons.forEach((btn) => {
 refreshMetrics.addEventListener('click', loadMetrics);
 runDiagnosticsBtn.addEventListener('click', runDiagnostics);
 exportDiagnosticsBtn.addEventListener('click', exportDiagnostics);
+exportMmEventsBtn?.addEventListener('click', exportMmEvents);
 copyFailuresBtn.addEventListener('click', copyFailures);
 if (copyFixTemplateBtn) {
   copyFixTemplateBtn.addEventListener('click', copyFixTemplate);

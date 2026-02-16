@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('predictBot', {
   triggerWsBoost: () => ipcRenderer.invoke('trigger-ws-boost'),
   runDiagnostics: () => ipcRenderer.invoke('run-diagnostics'),
   exportDiagnostics: () => ipcRenderer.invoke('export-diagnostics'),
+  exportMmEvents: () => ipcRenderer.invoke('export-mm-events'),
   startBot: (type) => ipcRenderer.invoke('start-bot', type),
   stopBot: (type) => ipcRenderer.invoke('stop-bot', type),
   getStatus: () => ipcRenderer.invoke('status'),

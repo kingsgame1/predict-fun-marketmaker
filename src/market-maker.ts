@@ -111,6 +111,8 @@ export class MarketMaker {
   private wsEmergencyGlobalLast = 0;
   private wsEmergencyRecoveryUntil = 0;
   private wsEmergencyRecoveryActive = false;
+  private wsEmergencyRecoveryStart = 0;
+  private wsEmergencyRecoveryStage = -1;
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -262,9 +264,13 @@ export class MarketMaker {
     wsEmergencyCancel: boolean;
     wsEmergencyActive: boolean;
     wsEmergencyRecovery: boolean;
+    wsEmergencyRecoveryStage: number;
+    wsEmergencyRecoverySteps: number;
+    wsEmergencyRecoveryRatio: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
+    const recoveryInfo = this.getWsEmergencyRecoveryInfo();
     return {
       score: this.wsHealthScore,
       spreadMult: this.getWsHealthSpreadMult(),
@@ -292,6 +298,9 @@ export class MarketMaker {
       wsEmergencyCancel: this.config.mmWsHealthEmergencyCancelAll === true,
       wsEmergencyActive: this.wsEmergencyGlobalUntil > Date.now(),
       wsEmergencyRecovery: this.isWsEmergencyRecoveryActive(),
+      wsEmergencyRecoveryStage: recoveryInfo.stage,
+      wsEmergencyRecoverySteps: recoveryInfo.steps,
+      wsEmergencyRecoveryRatio: recoveryInfo.ratio,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1248,6 +1257,7 @@ export class MarketMaker {
     const active = this.wsEmergencyRecoveryUntil > Date.now();
     if (this.wsEmergencyRecoveryActive && !active) {
       this.recordMmEvent('WS_EMERGENCY_RECOVERY_END', 'Emergency recovery window ended');
+      this.wsEmergencyRecoveryStage = -1;
     }
     this.wsEmergencyRecoveryActive = active;
   }
@@ -1257,9 +1267,27 @@ export class MarketMaker {
     return this.wsEmergencyRecoveryActive;
   }
 
-  private getWsEmergencyRecoveryRatio(): number {
-    const raw = this.config.mmWsHealthEmergencyRecoveryRatio ?? 0.7;
-    return this.clamp(raw, 0, 1);
+  private getWsEmergencyRecoveryInfo(): { ratio: number; stage: number; steps: number } {
+    const base = this.clamp(this.config.mmWsHealthEmergencyRecoveryRatio ?? 0.7, 0, 1);
+    const minRatio = this.clamp(this.config.mmWsHealthEmergencyRecoveryMinRatio ?? 0.2, 0, base);
+    const steps = Math.max(1, Math.floor(this.config.mmWsHealthEmergencyRecoverySteps ?? 3));
+    const duration = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMs ?? 0);
+    if (!this.isWsEmergencyRecoveryActive() || duration <= 0) {
+      return { ratio: base, stage: -1, steps };
+    }
+    const elapsed = Math.max(0, Date.now() - this.wsEmergencyRecoveryStart);
+    const progress = Math.min(1, duration > 0 ? elapsed / duration : 1);
+    const stage = Math.min(steps - 1, Math.floor(progress * steps));
+    const stepFactor = steps <= 1 ? 0 : 1 - stage / (steps - 1);
+    const ratio = Math.max(minRatio, base * stepFactor);
+    if (stage !== this.wsEmergencyRecoveryStage) {
+      this.wsEmergencyRecoveryStage = stage;
+      this.recordMmEvent(
+        'WS_EMERGENCY_RECOVERY_STAGE',
+        `Recovery stage ${stage + 1}/${steps}, ratioFloor=${ratio.toFixed(2)}`
+      );
+    }
+    return { ratio, stage, steps };
   }
 
   private applyIcebergPenalty(tokenId: string): void {
@@ -1428,7 +1456,7 @@ export class MarketMaker {
   private getWsHealthRatio(): number {
     let ratio = Math.max(0, Math.min(1, 1 - this.wsHealthScore / 100));
     if (this.isWsEmergencyRecoveryActive()) {
-      ratio = Math.max(ratio, this.getWsEmergencyRecoveryRatio());
+      ratio = Math.max(ratio, this.getWsEmergencyRecoveryInfo().ratio);
     }
     return ratio;
   }
@@ -2993,6 +3021,8 @@ export class MarketMaker {
       if (recoveryMs > 0) {
         this.wsEmergencyRecoveryUntil = now + recoveryMs;
         this.wsEmergencyRecoveryActive = true;
+        this.wsEmergencyRecoveryStart = now;
+        this.wsEmergencyRecoveryStage = -1;
       }
       const recoveryNote = recoveryMs > 0 ? `, recovery ${recoveryMs}ms` : '';
       console.log(`🧯 WS health low: emergency cancel-all${cooldown > 0 ? `, cooldown ${cooldown}ms` : ''}${recoveryNote}`);

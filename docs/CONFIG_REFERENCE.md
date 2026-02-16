@@ -213,6 +213,8 @@
 - `MM_WS_HEALTH_EMERGENCY_INTERVAL_MS`：紧急撤单最小触发间隔（毫秒）。
 - `MM_WS_HEALTH_EMERGENCY_RECOVERY_MS`：紧急撤单后进入渐进恢复的持续时间（毫秒）。
 - `MM_WS_HEALTH_EMERGENCY_RECOVERY_RATIO`：渐进恢复期间强制的 WS 健康度比例下限（0-1，越高越保守）。
+- `MM_WS_HEALTH_EMERGENCY_RECOVERY_MIN_RATIO`：渐进恢复阶段最低保守比例（0-1，越高越保守）。
+- `MM_WS_HEALTH_EMERGENCY_RECOVERY_STEPS`：渐进恢复的阶段数（步数越多越平滑）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

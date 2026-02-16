@@ -808,6 +808,29 @@ function exportDiagnosticsBundle() {
   return outputDir;
 }
 
+function exportMmEventsBundle() {
+  const timestamp = new Date();
+  const stamp = timestamp
+    .toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .replace('Z', '');
+  const outputDir = path.join(getUserDataRoot(), 'mm-events');
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const mmMetricsPath = resolveMmMetricsPath();
+  const metricsSnapshot = readJsonFile(mmMetricsPath) || {};
+  const payload = {
+    version: 1,
+    ts: Date.now(),
+    source: mmMetricsPath,
+    events: Array.isArray(metricsSnapshot.events) ? metricsSnapshot.events : [],
+  };
+  const target = path.join(outputDir, `mm-events_${stamp}.json`);
+  fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
+  return target;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -878,6 +901,14 @@ ipcMain.handle('export-diagnostics', () => {
   try {
     const outputDir = exportDiagnosticsBundle();
     return { ok: true, path: outputDir };
+  } catch (error) {
+    return { ok: false, message: error?.message || String(error) };
+  }
+});
+ipcMain.handle('export-mm-events', () => {
+  try {
+    const outputPath = exportMmEventsBundle();
+    return { ok: true, path: outputPath };
   } catch (error) {
     return { ok: false, message: error?.message || String(error) };
   }
