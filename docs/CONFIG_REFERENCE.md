@@ -144,6 +144,7 @@
 - `MM_SAFE_MODE_MAX_SPREAD`：安全档最高价差。
 - `MM_SAFE_MODE_DEPTH_SPEED_BPS`：安全档触发的深度消耗阈值（bps）。
 - `MM_SAFE_MODE_LAYER_COUNT_CAP`：安全档分层上限（0=不启用）。
+- `MM_SAFE_MODE_REJECT_THIN`：安全档下流动性过低则跳过挂单。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

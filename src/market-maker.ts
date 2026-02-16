@@ -1889,6 +1889,18 @@ export class MarketMaker {
     if (minDepth > 0 && depthMetrics.totalDepth < minDepth) {
       return null;
     }
+    const safeModeEarly = this.isSafeModeActive(market.token_id, {
+      volEma: this.volatilityEma.get(market.token_id) ?? 0,
+      depthTrend: depthMetrics.depthTrend,
+      depthSpeedBps: depthMetrics.depthSpeedBps,
+    });
+    if (safeModeEarly && this.config.mmSafeModeRejectThin) {
+      const topDepth = this.getTopDepth(orderbook);
+      if (this.isLiquidityThin({ topDepth: topDepth.shares, topDepthUsd: topDepth.usd })) {
+        return null;
+      }
+    }
+    
 
     const microPrice = this.calculateMicroPrice(orderbook);
     if (!microPrice || microPrice <= 0 || microPrice >= 1) {

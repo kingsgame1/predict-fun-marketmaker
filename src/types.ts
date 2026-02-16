@@ -217,6 +217,7 @@ export interface Config {
   mmSafeModeMaxSpread?: number;
   mmSafeModeDepthSpeedBps?: number;
   mmSafeModeLayerCountCap?: number;
+  mmSafeModeRejectThin?: boolean;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;
