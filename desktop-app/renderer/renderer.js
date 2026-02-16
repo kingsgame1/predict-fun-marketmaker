@@ -149,6 +149,9 @@ const enableRecoveryTemplateBtn = document.getElementById('enableRecoveryTemplat
 const disableRecoveryTemplateBtn = document.getElementById('disableRecoveryTemplate');
 const recoveryTemplateHint = document.getElementById('recoveryTemplateHint');
 const recoveryTemplateResetHint = document.getElementById('recoveryTemplateResetHint');
+const applyRecoveryTemplateSafeBtn = document.getElementById('applyRecoveryTemplateSafe');
+const applyRecoveryTemplateUltraBtn = document.getElementById('applyRecoveryTemplateUltra');
+const applyRecoveryTemplateExtremeBtn = document.getElementById('applyRecoveryTemplateExtreme');
 
 const logs = [];
 const MAX_LOGS = 800;
@@ -2178,6 +2181,73 @@ function toggleRecoveryTemplate(enabled) {
   }
 }
 
+function applyRecoveryTemplatePreset(level) {
+  let text = envEditor.value || '';
+  const presets = {
+    safe: {
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED: 'true',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_AUTO: 'true',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_IMBALANCE_THRESHOLD: '0.15',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_MODE: 'REMOTE',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MIN: '2',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MAX: '3',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYER_STEP: '1',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MIN_INTERVAL_MS: '4000',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_CANCEL_INTERVAL_MULT_MAX: '2',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SPREAD_ADD: '0.002',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_ICEBERG_RATIO: '0.2',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MAX_ORDERS_MULT_MIN: '0.6',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MAX_NOTIONAL_MULT_MIN: '0.6',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_LAYER_CONVERGE_ENABLED: 'true',
+    },
+    ultra: {
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED: 'true',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_AUTO: 'true',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_IMBALANCE_THRESHOLD: '0.12',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_MODE: 'REMOTE',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MIN: '3',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MAX: '4',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYER_STEP: '1',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MIN_INTERVAL_MS: '6000',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_CANCEL_INTERVAL_MULT_MAX: '2.5',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SPREAD_ADD: '0.003',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_ICEBERG_RATIO: '0.15',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MAX_ORDERS_MULT_MIN: '0.5',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MAX_NOTIONAL_MULT_MIN: '0.5',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_LAYER_CONVERGE_ENABLED: 'true',
+    },
+    extreme: {
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED: 'true',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_AUTO: 'true',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_IMBALANCE_THRESHOLD: '0.1',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_MODE: 'REMOTE',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MIN: '4',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MAX: '5',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYER_STEP: '1',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MIN_INTERVAL_MS: '8000',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_CANCEL_INTERVAL_MULT_MAX: '3',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_SPREAD_ADD: '0.004',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_ICEBERG_RATIO: '0.12',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MAX_ORDERS_MULT_MIN: '0.4',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_MAX_NOTIONAL_MULT_MIN: '0.4',
+      MM_WS_HEALTH_EMERGENCY_RECOVERY_LAYER_CONVERGE_ENABLED: 'true',
+    },
+  };
+  const updates = presets[level] || presets.safe;
+  Object.entries(updates).forEach(([key, value]) => {
+    text = setEnvValue(text, key, value);
+  });
+  envEditor.value = text;
+  detectTradingMode(text);
+  syncTogglesFromEnv(text);
+  updateMetricsPaths();
+  if (saveEnvButton) {
+    saveEnvButton.classList.add('attention');
+  }
+  const label = level === 'extreme' ? '极限' : level === 'ultra' ? '极保守' : '保守';
+  pushLog({ type: 'system', level: 'system', message: `已应用恢复模板${label}档（请保存生效）` });
+}
+
 function parseFixTemplate(template) {
   const entries = [];
   const lines = template.split('\n');
@@ -3922,12 +3992,15 @@ async function loadMmMetrics() {
         const recoveryOffsetVol = Number.isFinite(wsHealth.wsEmergencyRecoveryOffsetVolWeight)
           ? wsHealth.wsEmergencyRecoveryOffsetVolWeight.toFixed(2)
           : '--';
+        const recoveryLossW = Number.isFinite(wsHealth.wsEmergencyRecoverySingleSideLossWeight)
+          ? wsHealth.wsEmergencyRecoverySingleSideLossWeight.toFixed(2)
+          : '--';
         const recoveryProgress = Number.isFinite(wsHealth.wsEmergencyRecoveryProgress)
           ? Math.round(wsHealth.wsEmergencyRecoveryProgress * 100)
           : '--';
         const recoverySingle = wsHealth.wsEmergencyRecoverySingleActive ? '单边' : '双边';
         const emergency = wsHealth.wsEmergencyCancel
-          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},far=${recoveryFarLayers}/${recoveryFarMax},fstep=${recoveryFarStep},cancelPace=${recoveryCancelInterval},offset=${recoveryOffset},volW=${recoveryOffsetVol},${recoveryTemplate},${recoveryAuto},imb=${recoveryImb},minInt=${recoveryMinInterval},prog=${recoveryProgress}%,${recoverySingle})`
+          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},far=${recoveryFarLayers}/${recoveryFarMax},fstep=${recoveryFarStep},cancelPace=${recoveryCancelInterval},offset=${recoveryOffset},volW=${recoveryOffsetVol},lossW=${recoveryLossW},${recoveryTemplate},${recoveryAuto},imb=${recoveryImb},minInt=${recoveryMinInterval},prog=${recoveryProgress}%,${recoverySingle})`
           : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
@@ -4123,6 +4196,9 @@ exportDiagnosticsBtn.addEventListener('click', exportDiagnostics);
 exportMmEventsBtn?.addEventListener('click', exportMmEvents);
 enableRecoveryTemplateBtn?.addEventListener('click', () => toggleRecoveryTemplate(true));
 disableRecoveryTemplateBtn?.addEventListener('click', () => toggleRecoveryTemplate(false));
+applyRecoveryTemplateSafeBtn?.addEventListener('click', () => applyRecoveryTemplatePreset('safe'));
+applyRecoveryTemplateUltraBtn?.addEventListener('click', () => applyRecoveryTemplatePreset('ultra'));
+applyRecoveryTemplateExtremeBtn?.addEventListener('click', () => applyRecoveryTemplatePreset('extreme'));
 copyFailuresBtn.addEventListener('click', copyFailures);
 if (copyFixTemplateBtn) {
   copyFixTemplateBtn.addEventListener('click', copyFixTemplate);

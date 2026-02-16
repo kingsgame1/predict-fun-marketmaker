@@ -174,6 +174,7 @@ export interface Config {
   mmWsHealthEmergencyRecoveryMinIntervalMs?: number;
   mmWsHealthEmergencyRecoveryOffsetVolWeight?: number;
   mmWsHealthEmergencyRecoveryTemplateResetEnabled?: boolean;
+  mmWsHealthEmergencyRecoverySingleSideLossWeight?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

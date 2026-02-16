@@ -289,6 +289,7 @@ export class MarketMaker {
     wsEmergencyRecoveryMinIntervalMs: number;
     wsEmergencyRecoveryOffsetVolWeight: number;
     wsEmergencyRecoveryTemplateReset: boolean;
+    wsEmergencyRecoverySingleSideLossWeight: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -349,6 +350,7 @@ export class MarketMaker {
       wsEmergencyRecoveryMinIntervalMs: this.config.mmWsHealthEmergencyRecoveryMinIntervalMs ?? 0,
       wsEmergencyRecoveryOffsetVolWeight: this.config.mmWsHealthEmergencyRecoveryOffsetVolWeight ?? 0,
       wsEmergencyRecoveryTemplateReset: this.config.mmWsHealthEmergencyRecoveryTemplateResetEnabled === true,
+      wsEmergencyRecoverySingleSideLossWeight: this.config.mmWsHealthEmergencyRecoverySingleSideLossWeight ?? 0,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1876,7 +1878,15 @@ export class MarketMaker {
       if (this.config.mmWsHealthEmergencyRecoverySingleSideAuto) {
         const inventoryBias = this.getGlobalInventoryBias();
         const imbalance = this.getGlobalImbalance();
-        const threshold = Math.max(0, this.config.mmWsHealthEmergencyRecoverySingleSideImbalanceThreshold ?? 0.15);
+        let threshold = Math.max(0, this.config.mmWsHealthEmergencyRecoverySingleSideImbalanceThreshold ?? 0.15);
+        if (this.sessionPnL < 0) {
+          const equity = this.getAccountEquityUsd();
+          if (equity > 0) {
+            const lossRatio = Math.min(1, Math.abs(this.sessionPnL) / equity);
+            const lossWeight = this.clamp(this.config.mmWsHealthEmergencyRecoverySingleSideLossWeight ?? 0.5, 0, 1);
+            threshold = Math.max(0.02, threshold * (1 - lossRatio * lossWeight));
+          }
+        }
         const signal = inventoryBias - imbalance;
         if (Math.abs(signal) >= threshold) {
           resolvedSide = signal > 0 ? 'SELL' : 'BUY';
@@ -2214,6 +2224,7 @@ export class MarketMaker {
       wsEmergencyRecoveryMinIntervalMs: wsHealth.wsEmergencyRecoveryMinIntervalMs,
       wsEmergencyRecoveryOffsetVolWeight: wsHealth.wsEmergencyRecoveryOffsetVolWeight,
       wsEmergencyRecoveryTemplateReset: wsHealth.wsEmergencyRecoveryTemplateReset,
+      wsEmergencyRecoverySingleSideLossWeight: wsHealth.wsEmergencyRecoverySingleSideLossWeight,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
