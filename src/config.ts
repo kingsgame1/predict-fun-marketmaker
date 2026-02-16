@@ -233,6 +233,13 @@ export function loadConfig(): Config {
     mmWsHealthEmergencyRecoveryCancelIntervalMultMax: parseFloat(
       process.env.MM_WS_HEALTH_EMERGENCY_RECOVERY_CANCEL_INTERVAL_MULT_MAX || '2'
     ),
+    mmWsHealthEmergencyRecoveryFarLayersMax: parseInt(
+      process.env.MM_WS_HEALTH_EMERGENCY_RECOVERY_FAR_LAYERS_MAX || '3'
+    ),
+    mmWsHealthEmergencyRecoveryLayerConvergeEnabled:
+      process.env.MM_WS_HEALTH_EMERGENCY_RECOVERY_LAYER_CONVERGE_ENABLED === 'true',
+    mmWsHealthEmergencyRecoveryTemplateEnabled:
+      process.env.MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED === 'true',
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1703,6 +1710,9 @@ export function loadConfig(): Config {
       config.mmWsHealthEmergencyRecoveryCancelIntervalMultMax
     );
   }
+  if ((config.mmWsHealthEmergencyRecoveryFarLayersMax ?? 0) < 1) {
+    config.mmWsHealthEmergencyRecoveryFarLayersMax = 1;
+  }
 
   return config;
 }
@@ -1806,7 +1816,7 @@ export function printConfig(config: Config): void {
       config.mmWsHealthEmergencyCancelAll
     ) {
       console.log(
-        `MM WS Health Risk: sizeScaleMin=${config.mmWsHealthSizeScaleMin} singleSide=${config.mmWsHealthSingleSide} mode=${config.mmWsHealthSingleSideMode} offset=${config.mmWsHealthSingleSideOffsetBps} touchAdd=${config.mmWsHealthTouchBufferAddBps} sparse=${config.mmWsHealthSparseOdd ? '✅' : '❌'} layerCap=${config.mmWsHealthLayerCountCap} maxOrdersMin=${config.mmWsHealthMaxOrdersMultMin} softCancelMax=${config.mmWsHealthSoftCancelMultMax} hardCancelMax=${config.mmWsHealthHardCancelMultMax} repriceBufferAdd=${config.mmWsHealthRepriceBufferAddBps} cancelBufferAdd=${config.mmWsHealthCancelBufferAddBps} forceSafe=${config.mmWsHealthForceSafeMode ? '✅' : '❌'} cancelConfirmMin=${config.mmWsHealthCancelConfirmMultMin} repriceConfirmMin=${config.mmWsHealthRepriceConfirmMultMin} disableHedge=${config.mmWsHealthDisableHedge ? '✅' : '❌'} readOnly=${config.mmWsHealthReadOnly ? '✅' : '❌'} ultra=${config.mmWsHealthUltraSafeEnabled ? '✅' : '❌'} emergency=${config.mmWsHealthEmergencyCancelAll ? '✅' : '❌'} recoveryMs=${config.mmWsHealthEmergencyRecoveryMs} recoveryRatio=${config.mmWsHealthEmergencyRecoveryRatio} recoveryMin=${config.mmWsHealthEmergencyRecoveryMinRatio} recoverySteps=${config.mmWsHealthEmergencyRecoverySteps} recoverySizeMin=${config.mmWsHealthEmergencyRecoverySizeScaleMin} recoveryLayerCap=${config.mmWsHealthEmergencyRecoveryLayerCapMin} recoveryIntervalMax=${config.mmWsHealthEmergencyRecoveryIntervalMultMax} recoverySingle=${config.mmWsHealthEmergencyRecoverySingleSide} recoverySingleMode=${config.mmWsHealthEmergencyRecoverySingleSideMode} recoveryExit=${config.mmWsHealthEmergencyRecoverySingleSideExitProgress} recoveryDepthMult=${config.mmWsHealthEmergencyRecoveryDepthMult} recoveryVolMin=${config.mmWsHealthEmergencyRecoveryVolatilityMultMin} recoverySpreadAdd=${config.mmWsHealthEmergencyRecoverySpreadAdd} recoveryIceberg=${config.mmWsHealthEmergencyRecoveryIcebergRatio} recoveryCancelConfirm=${config.mmWsHealthEmergencyRecoveryCancelConfirmMultMin} recoveryMaxOrders=${config.mmWsHealthEmergencyRecoveryMaxOrdersMultMin} recoveryRepriceConfirm=${config.mmWsHealthEmergencyRecoveryRepriceConfirmMultMin} recoveryMaxNotional=${config.mmWsHealthEmergencyRecoveryMaxNotionalMultMin} recoveryFarLayersMin=${config.mmWsHealthEmergencyRecoveryFarLayersMin} recoveryCancelIntervalMax=${config.mmWsHealthEmergencyRecoveryCancelIntervalMultMax}`
+        `MM WS Health Risk: sizeScaleMin=${config.mmWsHealthSizeScaleMin} singleSide=${config.mmWsHealthSingleSide} mode=${config.mmWsHealthSingleSideMode} offset=${config.mmWsHealthSingleSideOffsetBps} touchAdd=${config.mmWsHealthTouchBufferAddBps} sparse=${config.mmWsHealthSparseOdd ? '✅' : '❌'} layerCap=${config.mmWsHealthLayerCountCap} maxOrdersMin=${config.mmWsHealthMaxOrdersMultMin} softCancelMax=${config.mmWsHealthSoftCancelMultMax} hardCancelMax=${config.mmWsHealthHardCancelMultMax} repriceBufferAdd=${config.mmWsHealthRepriceBufferAddBps} cancelBufferAdd=${config.mmWsHealthCancelBufferAddBps} forceSafe=${config.mmWsHealthForceSafeMode ? '✅' : '❌'} cancelConfirmMin=${config.mmWsHealthCancelConfirmMultMin} repriceConfirmMin=${config.mmWsHealthRepriceConfirmMultMin} disableHedge=${config.mmWsHealthDisableHedge ? '✅' : '❌'} readOnly=${config.mmWsHealthReadOnly ? '✅' : '❌'} ultra=${config.mmWsHealthUltraSafeEnabled ? '✅' : '❌'} emergency=${config.mmWsHealthEmergencyCancelAll ? '✅' : '❌'} recoveryMs=${config.mmWsHealthEmergencyRecoveryMs} recoveryRatio=${config.mmWsHealthEmergencyRecoveryRatio} recoveryMin=${config.mmWsHealthEmergencyRecoveryMinRatio} recoverySteps=${config.mmWsHealthEmergencyRecoverySteps} recoverySizeMin=${config.mmWsHealthEmergencyRecoverySizeScaleMin} recoveryLayerCap=${config.mmWsHealthEmergencyRecoveryLayerCapMin} recoveryIntervalMax=${config.mmWsHealthEmergencyRecoveryIntervalMultMax} recoverySingle=${config.mmWsHealthEmergencyRecoverySingleSide} recoverySingleMode=${config.mmWsHealthEmergencyRecoverySingleSideMode} recoveryExit=${config.mmWsHealthEmergencyRecoverySingleSideExitProgress} recoveryDepthMult=${config.mmWsHealthEmergencyRecoveryDepthMult} recoveryVolMin=${config.mmWsHealthEmergencyRecoveryVolatilityMultMin} recoverySpreadAdd=${config.mmWsHealthEmergencyRecoverySpreadAdd} recoveryIceberg=${config.mmWsHealthEmergencyRecoveryIcebergRatio} recoveryCancelConfirm=${config.mmWsHealthEmergencyRecoveryCancelConfirmMultMin} recoveryMaxOrders=${config.mmWsHealthEmergencyRecoveryMaxOrdersMultMin} recoveryRepriceConfirm=${config.mmWsHealthEmergencyRecoveryRepriceConfirmMultMin} recoveryMaxNotional=${config.mmWsHealthEmergencyRecoveryMaxNotionalMultMin} recoveryFarLayersMin=${config.mmWsHealthEmergencyRecoveryFarLayersMin} recoveryFarLayersMax=${config.mmWsHealthEmergencyRecoveryFarLayersMax} recoveryCancelIntervalMax=${config.mmWsHealthEmergencyRecoveryCancelIntervalMultMax} recoveryConverge=${config.mmWsHealthEmergencyRecoveryLayerConvergeEnabled ? '✅' : '❌'} recoveryTemplate=${config.mmWsHealthEmergencyRecoveryTemplateEnabled ? '✅' : '❌'}`
       );
     }
   } else {

@@ -328,7 +328,7 @@ export class MarketMaker {
       wsEmergencyRecoveryMaxOrdersMult: this.getWsHealthMaxOrdersMult(),
       wsEmergencyRecoveryRepriceConfirmMult: this.getWsHealthRepriceConfirmMult(),
       wsEmergencyRecoveryMaxNotionalMult: this.config.mmWsHealthEmergencyRecoveryMaxNotionalMultMin ?? 1,
-      wsEmergencyRecoveryFarLayersMin: this.config.mmWsHealthEmergencyRecoveryFarLayersMin ?? 1,
+      wsEmergencyRecoveryFarLayersMin: this.getWsEmergencyRecoveryInfo().farLayers,
       wsEmergencyRecoveryCancelIntervalMult: this.getWsEmergencyRecoveryCancelIntervalMult(),
       updatedAt: this.wsHealthUpdatedAt,
     };
@@ -1321,13 +1321,20 @@ export class MarketMaker {
     return this.wsEmergencyRecoveryActive;
   }
 
-  private getWsEmergencyRecoveryInfo(): { ratio: number; stage: number; steps: number; progress: number; singleActive: boolean } {
+  private getWsEmergencyRecoveryInfo(): {
+    ratio: number;
+    stage: number;
+    steps: number;
+    progress: number;
+    singleActive: boolean;
+    farLayers: number;
+  } {
     const base = this.clamp(this.config.mmWsHealthEmergencyRecoveryRatio ?? 0.7, 0, 1);
     const minRatio = this.clamp(this.config.mmWsHealthEmergencyRecoveryMinRatio ?? 0.2, 0, base);
     const steps = Math.max(1, Math.floor(this.config.mmWsHealthEmergencyRecoverySteps ?? 3));
     const duration = Math.max(0, this.config.mmWsHealthEmergencyRecoveryMs ?? 0);
     if (!this.isWsEmergencyRecoveryActive() || duration <= 0) {
-      return { ratio: base, stage: -1, steps, progress: 1, singleActive: false };
+      return { ratio: base, stage: -1, steps, progress: 1, singleActive: false, farLayers: 0 };
     }
     const elapsed = Math.max(0, Date.now() - this.wsEmergencyRecoveryStart);
     const progress = Math.min(1, duration > 0 ? elapsed / duration : 1);
@@ -1336,6 +1343,14 @@ export class MarketMaker {
     const ratio = Math.max(minRatio, base * stepFactor);
     const exitProgress = this.clamp(this.config.mmWsHealthEmergencyRecoverySingleSideExitProgress ?? 0.7, 0, 1);
     const singleActive = progress <= exitProgress;
+    const farMin = Math.max(1, this.config.mmWsHealthEmergencyRecoveryFarLayersMin ?? 1);
+    const farMax = Math.max(farMin, this.config.mmWsHealthEmergencyRecoveryFarLayersMax ?? farMin);
+    let farLayers = farMin;
+    if (this.config.mmWsHealthEmergencyRecoveryLayerConvergeEnabled) {
+      farLayers = Math.round(farMax - (farMax - farMin) * progress);
+    } else {
+      farLayers = farMax;
+    }
     if (stage !== this.wsEmergencyRecoveryStage) {
       this.wsEmergencyRecoveryStage = stage;
       this.recordMmEvent(
@@ -1343,7 +1358,7 @@ export class MarketMaker {
         `Recovery stage ${stage + 1}/${steps}, ratioFloor=${ratio.toFixed(2)}`
       );
     }
-    return { ratio, stage, steps, progress, singleActive };
+    return { ratio, stage, steps, progress, singleActive, farLayers };
   }
 
   private applyIcebergPenalty(tokenId: string): void {
@@ -3734,8 +3749,12 @@ export class MarketMaker {
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
     const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
     const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';
-    const wsSingleSideMode = (wsSingle.mode || 'NORMAL').toUpperCase();
-    const wsRemoteOnly = wsSingle.side !== 'NONE' && wsSingleSideMode === 'REMOTE';
+    let wsSingleSideMode = (wsSingle.mode || 'NORMAL').toUpperCase();
+    let wsRemoteOnly = wsSingle.side !== 'NONE' && wsSingleSideMode === 'REMOTE';
+    if (this.isWsEmergencyRecoveryActive() && this.config.mmWsHealthEmergencyRecoveryTemplateEnabled) {
+      wsSingleSideMode = 'REMOTE';
+      wsRemoteOnly = wsSingle.side !== 'NONE';
+    }
     const forceSingle = this.shouldForceSingleLayer(tokenId);
     const wsOnlyFar = this.shouldForceOnlyFarWs();
     const safeModeOnlyFar = safeModeActive && this.config.mmSafeModeOnlyFar === true;
@@ -3765,7 +3784,7 @@ export class MarketMaker {
         farLayers = Math.max(farLayers, ultraLayers);
       }
       if (this.isWsEmergencyRecoveryActive()) {
-        const recoveryFar = Math.max(1, this.config.mmWsHealthEmergencyRecoveryFarLayersMin ?? 1);
+        const recoveryFar = Math.max(1, this.getWsEmergencyRecoveryInfo().farLayers);
         farLayers = Math.max(farLayers, recoveryFar);
       }
       if (farLayers > 0) {
