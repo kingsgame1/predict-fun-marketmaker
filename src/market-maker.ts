@@ -2944,6 +2944,7 @@ export class MarketMaker {
       if (cooldown > 0) {
         this.wsEmergencyGlobalUntil = now + cooldown;
       }
+      console.log(`🧯 WS health low: emergency cancel-all${cooldown > 0 ? `, cooldown ${cooldown}ms` : ''}`);
       this.markAction(tokenId);
       return;
     }

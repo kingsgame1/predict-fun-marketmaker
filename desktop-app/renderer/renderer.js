@@ -3750,13 +3750,14 @@ async function loadMmMetrics() {
     }
     const data = JSON.parse(raw);
     setMmStatus('已更新', true);
-    const halted = data.tradingHalted ? '已熔断' : '运行中';
+    const wsHealth = data.wsHealth || {};
+    const emergencyActive = wsHealth.wsEmergencyActive === true;
+    const halted = data.tradingHalted ? '已熔断' : emergencyActive ? '急撤冷却中' : '运行中';
     setMetricText(mmTradingStatus, halted);
     setMetricText(mmPnL, data.sessionPnL !== undefined ? data.sessionPnL.toFixed(2) : '--');
     setMetricText(mmOpenOrders, `${data.openOrders ?? '--'}`);
     setMetricText(mmPositions, `${data.positions ?? '--'}`);
     if (mmWsHealth) {
-      const wsHealth = data.wsHealth || {};
       const score = Number.isFinite(wsHealth.score) ? Math.round(wsHealth.score) : '--';
       setMetricText(mmWsHealth, score === '--' ? '--' : `${score}`);
       if (mmWsHealthHint) {
@@ -3815,7 +3816,8 @@ async function loadMmMetrics() {
           const wsSingle = m.wsSingleSide ? String(m.wsSingleSide) : 'NONE';
           const wsSparse = m.wsSparseOdd ? '稀疏' : '常规';
           const wsCap = Number.isFinite(m.wsLayerCap) ? `cap=${m.wsLayerCap}` : '';
-          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle} ${wsCap}`.trim();
+          const wsEmergency = m.wsEmergencyActive ? 'emg=on' : '';
+          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle} ${wsCap} ${wsEmergency}`.trim();
           row.appendChild(label);
           row.appendChild(hint);
           mmMarketsList.appendChild(row);
