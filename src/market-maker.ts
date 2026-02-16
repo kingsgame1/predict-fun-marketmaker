@@ -1991,8 +1991,12 @@ export class MarketMaker {
 
     if (safeModeActive) {
       const safeMin = Math.max(0, this.config.mmSafeModeMinSpread ?? 0);
+      const safeMax = Math.max(0, this.config.mmSafeModeMaxSpread ?? 0);
       if (safeMin > minSpread) {
         minSpread = safeMin;
+      }
+      if (safeMax > 0 && (maxSpread === 0 || safeMax < maxSpread)) {
+        maxSpread = safeMax;
       }
     }
 
