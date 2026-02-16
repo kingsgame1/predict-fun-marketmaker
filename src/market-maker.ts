@@ -276,10 +276,12 @@ export class MarketMaker {
       wsEmergencyRecoveryIcebergRatio: number;
       wsEmergencyRecoveryCancelConfirmMult: number;
       wsEmergencyRecoveryMaxOrdersMult: number;
-      wsEmergencyRecoveryRepriceConfirmMult: number;
-      wsEmergencyRecoveryMaxNotionalMult: number;
-      updatedAt: number;
-    } {
+    wsEmergencyRecoveryRepriceConfirmMult: number;
+    wsEmergencyRecoveryMaxNotionalMult: number;
+    wsEmergencyRecoveryFarLayersMin: number;
+    wsEmergencyRecoveryCancelIntervalMult: number;
+    updatedAt: number;
+  } {
     const wsSingle = this.getWsHealthSingleSide();
     const recoveryInfo = this.getWsEmergencyRecoveryInfo();
     const recoveryIntervalMult = this.getWsEmergencyRecoveryIntervalMult();
@@ -326,6 +328,8 @@ export class MarketMaker {
       wsEmergencyRecoveryMaxOrdersMult: this.getWsHealthMaxOrdersMult(),
       wsEmergencyRecoveryRepriceConfirmMult: this.getWsHealthRepriceConfirmMult(),
       wsEmergencyRecoveryMaxNotionalMult: this.config.mmWsHealthEmergencyRecoveryMaxNotionalMultMin ?? 1,
+      wsEmergencyRecoveryFarLayersMin: this.config.mmWsHealthEmergencyRecoveryFarLayersMin ?? 1,
+      wsEmergencyRecoveryCancelIntervalMult: this.getWsEmergencyRecoveryCancelIntervalMult(),
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -376,6 +380,7 @@ export class MarketMaker {
       if (wsConfirmMult > 0 && wsConfirmMult !== 1) {
         confirmMs = Math.round(confirmMs * wsConfirmMult);
       }
+      confirmMs = this.getEffectiveCancelConfirmMs(confirmMs);
       if (confirmMs <= 0) {
         return true;
       }
@@ -438,6 +443,17 @@ export class MarketMaker {
     }
     multiplier *= this.getFillSlowdownMultiplier(tokenId);
     return Math.max(500, Math.round(base * multiplier));
+  }
+
+  private getEffectiveCancelConfirmMs(baseMs: number): number {
+    let confirmMs = baseMs;
+    if (this.isWsEmergencyRecoveryActive()) {
+      const mult = this.getWsEmergencyRecoveryCancelIntervalMult();
+      if (mult > 1) {
+        confirmMs = Math.round(confirmMs * mult);
+      }
+    }
+    return confirmMs;
   }
 
   private canSendAction(tokenId: string): boolean {
@@ -1716,6 +1732,19 @@ export class MarketMaker {
     return 1 + (maxMult - 1) * (1 - progress);
   }
 
+  private getWsEmergencyRecoveryCancelIntervalMult(): number {
+    if (!this.isWsEmergencyRecoveryActive()) {
+      return 1;
+    }
+    const maxMult = Math.max(1, this.config.mmWsHealthEmergencyRecoveryCancelIntervalMultMax ?? 1);
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const info = this.getWsEmergencyRecoveryInfo();
+    const progress = Math.max(0, Math.min(1, info.progress));
+    return 1 + (maxMult - 1) * (1 - progress);
+  }
+
   private getWsEmergencyRecoveryDepthMult(): number {
     if (!this.isWsEmergencyRecoveryActive()) {
       return 1;
@@ -2111,6 +2140,8 @@ export class MarketMaker {
       wsEmergencyRecoveryMaxOrdersMult: wsHealth.wsEmergencyRecoveryMaxOrdersMult,
       wsEmergencyRecoveryRepriceConfirmMult: wsHealth.wsEmergencyRecoveryRepriceConfirmMult,
       wsEmergencyRecoveryMaxNotionalMult: wsHealth.wsEmergencyRecoveryMaxNotionalMult,
+      wsEmergencyRecoveryFarLayersMin: wsHealth.wsEmergencyRecoveryFarLayersMin,
+      wsEmergencyRecoveryCancelIntervalMult: wsHealth.wsEmergencyRecoveryCancelIntervalMult,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -3727,11 +3758,15 @@ export class MarketMaker {
       : safeOnlyFarLayers > 0
         ? Math.max(0, askLayers - safeOnlyFarLayers)
         : 0;
-    if (wsOnlyFar) {
+    if (wsOnlyFar || this.isWsEmergencyRecoveryActive()) {
       let farLayers = Math.max(0, this.config.mmWsHealthOnlyFarLayers ?? 0);
       if (this.isWsUltraSafeActive()) {
         const ultraLayers = Math.max(0, this.config.mmWsHealthUltraSafeFarLayers ?? 1);
         farLayers = Math.max(farLayers, ultraLayers);
+      }
+      if (this.isWsEmergencyRecoveryActive()) {
+        const recoveryFar = Math.max(1, this.config.mmWsHealthEmergencyRecoveryFarLayersMin ?? 1);
+        farLayers = Math.max(farLayers, recoveryFar);
       }
       if (farLayers > 0) {
         bidStart = Math.max(bidStart, Math.max(0, bidLayers - farLayers));
