@@ -186,6 +186,7 @@ export interface Config {
   mmRestoreExitForceReprice?: boolean;
   mmPanicPauseMs?: number;
   mmPanicCleanupOnRestore?: boolean;
+  mmPanicSingleSide?: 'BUY' | 'SELL' | 'NONE';
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

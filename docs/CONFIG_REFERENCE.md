@@ -113,6 +113,7 @@
 - `MM_RESTORE_EXIT_FORCE_REPRICE`：恢复期结束后强制刷新报价。
 - `MM_PANIC_PAUSE_MS`：强撤单触发后的短暂停挂时间（毫秒）。
 - `MM_PANIC_CLEANUP_ON_RESTORE`：强撤单后进入恢复期时强制清理旧挂单。
+- `MM_PANIC_SINGLE_SIDE`：强撤单期间只挂单侧（BUY/SELL/NONE）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

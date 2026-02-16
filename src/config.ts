@@ -234,6 +234,7 @@ export function loadConfig(): Config {
     mmRestoreExitForceReprice: process.env.MM_RESTORE_EXIT_FORCE_REPRICE === 'true',
     mmPanicPauseMs: parseInt(process.env.MM_PANIC_PAUSE_MS || '0'),
     mmPanicCleanupOnRestore: process.env.MM_PANIC_CLEANUP_ON_RESTORE === 'true',
+    mmPanicSingleSide: (process.env.MM_PANIC_SINGLE_SIDE || 'NONE') as Config['mmPanicSingleSide'],
     mmLayerSizeDecay: parseFloat(process.env.MM_LAYER_SIZE_DECAY || '0.6'),
     mmLayerAllowBelowMinShares: process.env.MM_LAYER_ALLOW_BELOW_MIN_SHARES === 'true',
     mmDepthSpeedWindowMs: parseInt(process.env.MM_DEPTH_SPEED_WINDOW_MS || '0'),

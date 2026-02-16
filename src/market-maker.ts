@@ -2675,6 +2675,15 @@ export class MarketMaker {
       targetBidShares = Math.max(1, Math.floor(targetBidShares * exitSizeFactor));
       targetAskShares = Math.max(1, Math.floor(targetAskShares * exitSizeFactor));
     }
+
+    if (this.isLayerPanicActive(tokenId)) {
+      const side = (this.config.mmPanicSingleSide || 'NONE').toUpperCase();
+      if (side === 'BUY') {
+        targetAskShares = 0;
+      } else if (side === 'SELL') {
+        targetBidShares = 0;
+      }
+    }
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
         ? Math.max(1, this.config.mmLayerRestoreMaxShares)
