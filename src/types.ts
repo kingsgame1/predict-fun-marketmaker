@@ -133,6 +133,7 @@ export interface Config {
   mmWsHealthCancelConfirmMultMin?: number;
   mmWsHealthRepriceConfirmMultMin?: number;
   mmWsHealthDisableHedge?: boolean;
+  mmWsHealthReadOnly?: boolean;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

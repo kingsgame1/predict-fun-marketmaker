@@ -1791,6 +1791,7 @@ export class MarketMaker {
       wsCancelConfirmMult: this.getWsHealthCancelConfirmMult(),
       wsRepriceConfirmMult: this.getWsHealthRepriceConfirmMult(),
       wsDisableHedge: this.config.mmWsHealthDisableHedge === true,
+      wsReadOnly: this.config.mmWsHealthReadOnly === true,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2867,6 +2868,9 @@ export class MarketMaker {
       if (this.config.mmWsHealthCancelOnPause) {
         await this.cancelOrdersForMarket(tokenId);
       }
+      return;
+    }
+    if (this.config.mmWsHealthReadOnly && this.getWsHealthRatio() > 0) {
       return;
     }
     if (this.layerRestoreExitRepricePending.has(tokenId)) {

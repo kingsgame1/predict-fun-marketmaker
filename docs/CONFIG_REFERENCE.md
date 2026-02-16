@@ -201,6 +201,7 @@
 - `MM_WS_HEALTH_CANCEL_CONFIRM_MULT_MIN`：WS 健康度较差时撤单确认时间缩放下限（0-1）。
 - `MM_WS_HEALTH_REPRICE_CONFIRM_MULT_MIN`：WS 健康度较差时重报价确认时间缩放下限（0-1）。
 - `MM_WS_HEALTH_DISABLE_HEDGE`：WS 健康度较差时禁用对冲执行。
+- `MM_WS_HEALTH_READ_ONLY`：WS 健康度较差时进入只读模式（不下单）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。
