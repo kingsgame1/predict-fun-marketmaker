@@ -2019,6 +2019,10 @@ export class MarketMaker {
       if (spreadAdd > 0) {
         adaptiveSpread += spreadAdd;
       }
+      const cancelBufferAdd = Math.max(0, this.config.mmSafeModeCancelBufferAddBps ?? 0);
+      if (cancelBufferAdd > 0) {
+        adaptiveSpread += cancelBufferAdd / 10000;
+      }
     }
 
     if (safeModeActive) {
