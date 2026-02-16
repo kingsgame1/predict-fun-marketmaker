@@ -129,6 +129,7 @@ export class MarketMaker {
   private sessionPnL = 0;
   private warnedNoExecution = false;
   private cancelBatchNonce = 0;
+  private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
 
   constructor(api: PredictAPI, config: Config) {
     this.api = api;
@@ -1105,6 +1106,39 @@ export class MarketMaker {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
+  }
+
+  private allowCancel(tokenId: string, isPanic: boolean): boolean {
+    const bypass = this.config.mmCancelBudgetPanicBypass !== false;
+    if (isPanic && bypass) {
+      return true;
+    }
+    const max = Math.max(0, this.config.mmCancelBudgetMax ?? 0);
+    const windowMs = Math.max(0, this.config.mmCancelBudgetWindowMs ?? 0);
+    if (!max || !windowMs) {
+      return true;
+    }
+    const now = Date.now();
+    const entry = this.cancelBudget.get(tokenId) || { count: 0, windowStart: now, cooldownUntil: 0 };
+    if (entry.cooldownUntil && now < entry.cooldownUntil) {
+      return false;
+    }
+    if (now - entry.windowStart > windowMs) {
+      entry.count = 0;
+      entry.windowStart = now;
+      entry.cooldownUntil = 0;
+    }
+    if (entry.count >= max) {
+      const cooldown = Math.max(0, this.config.mmCancelBudgetCooldownMs ?? 0);
+      if (cooldown > 0) {
+        entry.cooldownUntil = now + cooldown;
+      }
+      this.cancelBudget.set(tokenId, entry);
+      return false;
+    }
+    entry.count += 1;
+    this.cancelBudget.set(tokenId, entry);
+    return true;
   }
 
   private hashToUnit(input: string): number {
@@ -3579,6 +3613,14 @@ export class MarketMaker {
       }
       let risk = this.evaluateOrderRisk(existingBid, orderbook);
       let shouldReprice = this.shouldRepriceOrder(existingBid, targetPrice);
+      const minLifetimeMs = Math.max(0, this.config.mmMinOrderLifetimeMs ?? 0);
+      if (minLifetimeMs > 0) {
+        const age = Date.now() - existingBid.timestamp;
+        const bypass = this.config.mmMinOrderLifetimePanicBypass !== false;
+        if (age < minLifetimeMs && !(risk.panic && bypass)) {
+          continue;
+        }
+      }
       if (this.layerRestoreExitRepricePending.has(tokenId)) {
         shouldReprice = true;
       }
@@ -3605,6 +3647,10 @@ export class MarketMaker {
         }
       }
       if (risk.cancel || shouldReprice) {
+        if (!this.allowCancel(tokenId, risk.panic)) {
+          this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
+          continue;
+        }
         if (
           risk.cancel &&
           (risk.reason.startsWith('near-touch') ||
@@ -3663,6 +3709,14 @@ export class MarketMaker {
       }
       let risk = this.evaluateOrderRisk(existingAsk, orderbook);
       let shouldReprice = this.shouldRepriceOrder(existingAsk, targetPrice);
+      const minLifetimeMs = Math.max(0, this.config.mmMinOrderLifetimeMs ?? 0);
+      if (minLifetimeMs > 0) {
+        const age = Date.now() - existingAsk.timestamp;
+        const bypass = this.config.mmMinOrderLifetimePanicBypass !== false;
+        if (age < minLifetimeMs && !(risk.panic && bypass)) {
+          continue;
+        }
+      }
       if (this.layerRestoreExitRepricePending.has(tokenId)) {
         shouldReprice = true;
       }
@@ -3689,6 +3743,10 @@ export class MarketMaker {
         }
       }
       if (risk.cancel || shouldReprice) {
+        if (!this.allowCancel(tokenId, risk.panic)) {
+          this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
+          continue;
+        }
         if (
           risk.cancel &&
           (risk.reason.startsWith('near-touch') ||

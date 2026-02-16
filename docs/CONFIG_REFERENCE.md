@@ -397,6 +397,12 @@
 - `MM_BATCH_CANCEL_ENABLED`：启用批量撤单（降低 API 压力）。
 - `MM_BATCH_CANCEL_MAX`：批量撤单每次最大数量。
 - `MM_BATCH_CANCEL_DELAY_MS`：批量撤单前等待时间（毫秒，用于聚合）。
+- `MM_MIN_ORDER_LIFETIME_MS`：订单最小存活时间（毫秒，避免过快撤单）。
+- `MM_MIN_ORDER_LIFETIME_PANIC_BYPASS`：紧急风控触发时允许绕过最小存活时间。
+- `MM_CANCEL_BUDGET_WINDOW_MS`：撤单预算统计窗口（毫秒，0=关闭）。
+- `MM_CANCEL_BUDGET_MAX`：撤单预算最大次数（0=关闭）。
+- `MM_CANCEL_BUDGET_COOLDOWN_MS`：预算触发后冷却时长（毫秒）。
+- `MM_CANCEL_BUDGET_PANIC_BYPASS`：紧急风控允许绕过撤单预算。
 - `MM_METRICS_PATH`：做市指标输出路径（JSON）。
 - `MM_METRICS_FLUSH_MS`：做市指标刷新间隔（毫秒）。
 

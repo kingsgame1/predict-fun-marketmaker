@@ -97,6 +97,12 @@ export interface Config {
   mmBatchCancelEnabled?: boolean;
   mmBatchCancelMax?: number;
   mmBatchCancelDelayMs?: number;
+  mmMinOrderLifetimeMs?: number;
+  mmMinOrderLifetimePanicBypass?: boolean;
+  mmCancelBudgetWindowMs?: number;
+  mmCancelBudgetMax?: number;
+  mmCancelBudgetCooldownMs?: number;
+  mmCancelBudgetPanicBypass?: boolean;
   mmMetricsPath?: string;
   mmMetricsFlushMs?: number;
   mmWsEnabled?: boolean;

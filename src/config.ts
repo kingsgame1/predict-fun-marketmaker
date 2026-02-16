@@ -143,6 +143,12 @@ export function loadConfig(): Config {
     mmBatchCancelEnabled: process.env.MM_BATCH_CANCEL_ENABLED === 'true',
     mmBatchCancelMax: parseInt(process.env.MM_BATCH_CANCEL_MAX || '8'),
     mmBatchCancelDelayMs: parseInt(process.env.MM_BATCH_CANCEL_DELAY_MS || '0'),
+    mmMinOrderLifetimeMs: parseInt(process.env.MM_MIN_ORDER_LIFETIME_MS || '0'),
+    mmMinOrderLifetimePanicBypass: process.env.MM_MIN_ORDER_LIFETIME_PANIC_BYPASS !== 'false',
+    mmCancelBudgetWindowMs: parseInt(process.env.MM_CANCEL_BUDGET_WINDOW_MS || '0'),
+    mmCancelBudgetMax: parseInt(process.env.MM_CANCEL_BUDGET_MAX || '0'),
+    mmCancelBudgetCooldownMs: parseInt(process.env.MM_CANCEL_BUDGET_COOLDOWN_MS || '0'),
+    mmCancelBudgetPanicBypass: process.env.MM_CANCEL_BUDGET_PANIC_BYPASS !== 'false',
     mmMetricsPath: process.env.MM_METRICS_PATH || 'data/mm-metrics.json',
     mmMetricsFlushMs: parseInt(process.env.MM_METRICS_FLUSH_MS || '5000'),
     mmWsEnabled: process.env.MM_WS_ENABLED === 'true',
@@ -1098,6 +1104,18 @@ export function loadConfig(): Config {
   if ((config.mmBatchCancelDelayMs ?? 0) < 0) {
     config.mmBatchCancelDelayMs = 0;
   }
+  if ((config.mmMinOrderLifetimeMs ?? 0) < 0) {
+    config.mmMinOrderLifetimeMs = 0;
+  }
+  if ((config.mmCancelBudgetWindowMs ?? 0) < 0) {
+    config.mmCancelBudgetWindowMs = 0;
+  }
+  if ((config.mmCancelBudgetMax ?? 0) < 0) {
+    config.mmCancelBudgetMax = 0;
+  }
+  if ((config.mmCancelBudgetCooldownMs ?? 0) < 0) {
+    config.mmCancelBudgetCooldownMs = 0;
+  }
 
   if ((config.crossPlatformMinSimilarity ?? 0) < 0 || (config.crossPlatformMinSimilarity ?? 0) > 1) {
     throw new Error('CROSS_PLATFORM_MIN_SIMILARITY must be between 0 and 1');
@@ -1865,6 +1883,12 @@ export function printConfig(config: Config): void {
   );
   console.log(
     `MM Order Refresh: ttl=${config.mmOrderRefreshMs ?? 0}ms jitter=${config.mmOrderRefreshJitterPct ?? 0} batch=${config.mmBatchCancelEnabled ? '✅' : '❌'} max=${config.mmBatchCancelMax ?? 0} delay=${config.mmBatchCancelDelayMs ?? 0}ms`
+  );
+  console.log(
+    `MM Cancel Budget: window=${config.mmCancelBudgetWindowMs ?? 0}ms max=${config.mmCancelBudgetMax ?? 0} cooldown=${config.mmCancelBudgetCooldownMs ?? 0}ms panicBypass=${config.mmCancelBudgetPanicBypass !== false ? '✅' : '❌'}`
+  );
+  console.log(
+    `MM Min Order Lifetime: ${config.mmMinOrderLifetimeMs ?? 0}ms panicBypass=${config.mmMinOrderLifetimePanicBypass !== false ? '✅' : '❌'}`
   );
   console.log(
     `MM Recheck: cancel=${config.mmCancelRecheckMs}ms reprice=${config.mmRepriceRecheckMs}ms cooldown=${config.mmRecheckCooldownMs}ms`
