@@ -130,6 +130,7 @@ export class MarketMaker {
   private warnedNoExecution = false;
   private cancelBatchNonce = 0;
   private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
+  private cancelBurst: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
 
   constructor(api: PredictAPI, config: Config) {
@@ -1124,32 +1125,86 @@ export class MarketMaker {
     if (isPanic && bypass) {
       return true;
     }
+    const now = Date.now();
     const max = Math.max(0, this.config.mmCancelBudgetMax ?? 0);
     const windowMs = Math.max(0, this.config.mmCancelBudgetWindowMs ?? 0);
-    if (!max || !windowMs) {
-      return true;
+    if (max && windowMs) {
+      const entry = this.cancelBudget.get(tokenId) || { count: 0, windowStart: now, cooldownUntil: 0 };
+      if (entry.cooldownUntil && now < entry.cooldownUntil) {
+        return false;
+      }
+      if (now - entry.windowStart > windowMs) {
+        entry.count = 0;
+        entry.windowStart = now;
+        entry.cooldownUntil = 0;
+      }
+      if (entry.count >= max) {
+        const cooldown = Math.max(0, this.config.mmCancelBudgetCooldownMs ?? 0);
+        if (cooldown > 0) {
+          entry.cooldownUntil = now + cooldown;
+        }
+        this.cancelBudget.set(tokenId, entry);
+        return false;
+      }
+      entry.count += 1;
+      this.cancelBudget.set(tokenId, entry);
+    }
+    const burstBypass = this.config.mmCancelBurstPanicBypass !== false;
+    if (!isPanic || !burstBypass) {
+      const burstLimit = Math.max(0, this.config.mmCancelBurstLimit ?? 0);
+      const burstWindowMs = Math.max(0, this.config.mmCancelBurstWindowMs ?? 0);
+      if (burstLimit > 0 && burstWindowMs > 0) {
+        const entry = this.cancelBurst.get(tokenId) || { count: 0, windowStart: now, cooldownUntil: 0 };
+        if (entry.cooldownUntil && now < entry.cooldownUntil) {
+          return false;
+        }
+        if (now - entry.windowStart > burstWindowMs) {
+          entry.count = 0;
+          entry.windowStart = now;
+          entry.cooldownUntil = 0;
+        }
+        if (entry.count >= burstLimit) {
+          const cooldown = Math.max(0, this.config.mmCancelBurstCooldownMs ?? 0);
+          if (cooldown > 0) {
+            entry.cooldownUntil = now + cooldown;
+            this.markCooldown(tokenId, cooldown);
+          }
+          const retreatMs = Math.max(0, this.config.mmCancelBurstRetreatMs ?? 0);
+          if (retreatMs > 0) {
+            this.applyLayerRetreatFor(tokenId, retreatMs);
+          } else {
+            this.applyLayerRetreat(tokenId);
+          }
+          this.cancelBurst.set(tokenId, entry);
+          this.recordMmEvent(
+            'CANCEL_BURST',
+            `limit=${burstLimit} window=${burstWindowMs}ms cooldown=${cooldown}ms`,
+            tokenId
+          );
+          return false;
+        }
+        entry.count += 1;
+        this.cancelBurst.set(tokenId, entry);
+      }
+    }
+    return true;
+  }
+
+  private isCancelBurstActive(tokenId: string): boolean {
+    const burstLimit = Math.max(0, this.config.mmCancelBurstLimit ?? 0);
+    const burstWindowMs = Math.max(0, this.config.mmCancelBurstWindowMs ?? 0);
+    if (!burstLimit || !burstWindowMs) {
+      return false;
     }
     const now = Date.now();
-    const entry = this.cancelBudget.get(tokenId) || { count: 0, windowStart: now, cooldownUntil: 0 };
-    if (entry.cooldownUntil && now < entry.cooldownUntil) {
+    const entry = this.cancelBurst.get(tokenId);
+    if (!entry) {
       return false;
     }
-    if (now - entry.windowStart > windowMs) {
-      entry.count = 0;
-      entry.windowStart = now;
-      entry.cooldownUntil = 0;
+    if (entry.cooldownUntil && entry.cooldownUntil > now) {
+      return true;
     }
-    if (entry.count >= max) {
-      const cooldown = Math.max(0, this.config.mmCancelBudgetCooldownMs ?? 0);
-      if (cooldown > 0) {
-        entry.cooldownUntil = now + cooldown;
-      }
-      this.cancelBudget.set(tokenId, entry);
-      return false;
-    }
-    entry.count += 1;
-    this.cancelBudget.set(tokenId, entry);
-    return true;
+    return entry.count >= burstLimit && now - entry.windowStart <= burstWindowMs;
   }
 
   private getRiskThrottleState(tokenId: string): { score: number; lastUpdate: number; coolOffUntil: number } {
@@ -2465,17 +2520,22 @@ export class MarketMaker {
     return active;
   }
 
-  private applyLayerRetreat(tokenId: string): void {
-    const holdMs = Math.max(0, this.config.mmLayerRetreatHoldMs ?? 0);
-    if (!holdMs) {
+  private applyLayerRetreatFor(tokenId: string, holdMs: number): void {
+    const duration = Math.max(0, holdMs);
+    if (!duration) {
       return;
     }
     const now = Date.now();
-    const until = now + holdMs;
+    const until = now + duration;
     const current = this.layerRetreatUntil.get(tokenId) || 0;
     this.layerRetreatUntil.set(tokenId, Math.max(current, until));
     this.layerRestoreAt.delete(tokenId);
     this.layerRestoreStartAt.delete(tokenId);
+  }
+
+  private applyLayerRetreat(tokenId: string): void {
+    const holdMs = Math.max(0, this.config.mmLayerRetreatHoldMs ?? 0);
+    this.applyLayerRetreatFor(tokenId, holdMs);
   }
 
   private isLayerRetreatActive(tokenId: string): boolean {
@@ -2617,6 +2677,20 @@ export class MarketMaker {
     const wsLayerMult = this.getWsHealthLayerMult();
     if (wsLayerMult > 0 && wsLayerMult !== 1) {
       effective = Math.max(1, Math.floor(effective * wsLayerMult));
+    }
+    const riskLayerCap = Math.max(0, Math.floor(this.config.mmRiskThrottleLayerCap ?? 0));
+    if (riskLayerCap > 0) {
+      const local = this.getRiskThrottleFactor(tokenId);
+      const global = this.getRiskThrottleFactor('__global__');
+      const factor = Math.min(local, global);
+      if (factor < 1) {
+        const scaledCap = Math.max(1, Math.floor(riskLayerCap * factor));
+        effective = Math.min(effective, scaledCap);
+      }
+    }
+    const cancelBurstCap = Math.max(0, Math.floor(this.config.mmCancelBurstLayerCap ?? 0));
+    if (cancelBurstCap > 0 && this.isCancelBurstActive(tokenId)) {
+      effective = Math.min(effective, cancelBurstCap);
     }
     return Math.max(minCount, effective);
   }
@@ -3610,6 +3684,12 @@ export class MarketMaker {
       metrics.depthTrend,
       metrics.depthSpeedBps
     );
+    const riskThrottleLocal = this.getRiskThrottleFactor(tokenId);
+    const riskThrottleGlobal = this.getRiskThrottleFactor('__global__');
+    const riskThrottle = Math.min(riskThrottleLocal, riskThrottleGlobal);
+    const riskOnlyFarThreshold = Math.max(0, this.config.mmRiskThrottleOnlyFarThreshold ?? 0);
+    const riskOnlyFarActive = riskOnlyFarThreshold > 0 && riskThrottle <= riskOnlyFarThreshold;
+    const cancelBurstActive = this.isCancelBurstActive(tokenId);
     const rampedLayerCount = this.getRestoreExitRampCap(tokenId, layerCount);
     let layerStepBps = this.getEffectiveLayerStepBps(
       tokenId,
@@ -3901,9 +3981,6 @@ export class MarketMaker {
     const askOrderSize = this.calculateOrderSize(market, orderbook, 'SELL', prices.askPrice);
 
     const profileScale = profile === 'CALM' ? 1.0 : profile === 'VOLATILE' ? 0.6 : 0.85;
-    const riskThrottleLocal = this.getRiskThrottleFactor(tokenId);
-    const riskThrottleGlobal = this.getRiskThrottleFactor('__global__');
-    const riskThrottle = Math.min(riskThrottleLocal, riskThrottleGlobal);
     if (riskThrottle < 1) {
       const multiplier = Math.min(1, riskThrottle);
       layerStepBps = layerStepBps * (1 + (1 - multiplier));
@@ -4047,6 +4124,11 @@ export class MarketMaker {
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
     const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
     const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';
+    const riskOnlyFarLayers = riskOnlyFarActive ? Math.max(0, this.config.mmRiskThrottleOnlyFarLayers ?? 0) : 0;
+    const riskOnlyFar = riskOnlyFarActive && riskOnlyFarLayers <= 0;
+    const cancelBurstOnlyFarLayers = cancelBurstActive ? Math.max(0, this.config.mmCancelBurstOnlyFarLayers ?? 0) : 0;
+    const cancelBurstForceFar = cancelBurstActive && this.config.mmCancelBurstOnlyFar === true;
+    const cancelBurstOnlyFar = cancelBurstForceFar && cancelBurstOnlyFarLayers <= 0;
     let wsSingleSideMode = (wsSingle.mode || 'NORMAL').toUpperCase();
     let wsRemoteOnly = wsSingle.side !== 'NONE' && wsSingleSideMode === 'REMOTE';
     if (this.isWsEmergencyRecoveryActive() && this.config.mmWsHealthEmergencyRecoveryTemplateEnabled) {
@@ -4063,17 +4145,20 @@ export class MarketMaker {
       panicRemoteOnly ||
       safeRemoteOnly ||
       safeModeOnlyFar ||
-      wsRemoteOnly;
+      wsRemoteOnly ||
+      riskOnlyFar ||
+      cancelBurstOnlyFar;
     const safeOnlyFarLayers = safeModeActive ? Math.max(0, this.config.mmSafeModeOnlyFarLayers ?? 0) : 0;
+    const extraOnlyFarLayers = Math.max(safeOnlyFarLayers, riskOnlyFarLayers, cancelBurstOnlyFarLayers);
     let bidStart = farOnly
       ? bidLayers - 1
-      : safeOnlyFarLayers > 0
-        ? Math.max(0, bidLayers - safeOnlyFarLayers)
+      : extraOnlyFarLayers > 0
+        ? Math.max(0, bidLayers - extraOnlyFarLayers)
         : 0;
     let askStart = farOnly
       ? askLayers - 1
-      : safeOnlyFarLayers > 0
-        ? Math.max(0, askLayers - safeOnlyFarLayers)
+      : extraOnlyFarLayers > 0
+        ? Math.max(0, askLayers - extraOnlyFarLayers)
         : 0;
     if (wsOnlyFar || this.isWsEmergencyRecoveryActive()) {
       let farLayers = Math.max(0, this.config.mmWsHealthOnlyFarLayers ?? 0);

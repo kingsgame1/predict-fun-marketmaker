@@ -149,6 +149,14 @@ export function loadConfig(): Config {
     mmCancelBudgetMax: parseInt(process.env.MM_CANCEL_BUDGET_MAX || '0'),
     mmCancelBudgetCooldownMs: parseInt(process.env.MM_CANCEL_BUDGET_COOLDOWN_MS || '0'),
     mmCancelBudgetPanicBypass: process.env.MM_CANCEL_BUDGET_PANIC_BYPASS !== 'false',
+    mmCancelBurstLimit: parseInt(process.env.MM_CANCEL_BURST_LIMIT || '0'),
+    mmCancelBurstWindowMs: parseInt(process.env.MM_CANCEL_BURST_WINDOW_MS || '0'),
+    mmCancelBurstCooldownMs: parseInt(process.env.MM_CANCEL_BURST_COOLDOWN_MS || '0'),
+    mmCancelBurstPanicBypass: process.env.MM_CANCEL_BURST_PANIC_BYPASS !== 'false',
+    mmCancelBurstRetreatMs: parseInt(process.env.MM_CANCEL_BURST_RETREAT_MS || '0'),
+    mmCancelBurstOnlyFar: process.env.MM_CANCEL_BURST_ONLY_FAR === 'true',
+    mmCancelBurstOnlyFarLayers: parseInt(process.env.MM_CANCEL_BURST_ONLY_FAR_LAYERS || '0'),
+    mmCancelBurstLayerCap: parseInt(process.env.MM_CANCEL_BURST_LAYER_CAP || '0'),
     mmRiskThrottleEnabled: process.env.MM_RISK_THROTTLE_ENABLED === 'true',
     mmRiskThrottleFillPenalty: parseFloat(process.env.MM_RISK_THROTTLE_FILL_PENALTY || '0'),
     mmRiskThrottleCancelPenalty: parseFloat(process.env.MM_RISK_THROTTLE_CANCEL_PENALTY || '0'),
@@ -158,6 +166,9 @@ export function loadConfig(): Config {
     mmRiskThrottleMinFactor: parseFloat(process.env.MM_RISK_THROTTLE_MIN_FACTOR || '0.6'),
     mmRiskThrottleMaxFactor: parseFloat(process.env.MM_RISK_THROTTLE_MAX_FACTOR || '2.5'),
     mmRiskThrottleCoolOffMs: parseInt(process.env.MM_RISK_THROTTLE_COOL_OFF_MS || '0'),
+    mmRiskThrottleOnlyFarThreshold: parseFloat(process.env.MM_RISK_THROTTLE_ONLY_FAR_THRESHOLD || '0'),
+    mmRiskThrottleOnlyFarLayers: parseInt(process.env.MM_RISK_THROTTLE_ONLY_FAR_LAYERS || '0'),
+    mmRiskThrottleLayerCap: parseInt(process.env.MM_RISK_THROTTLE_LAYER_CAP || '0'),
     mmMetricsPath: process.env.MM_METRICS_PATH || 'data/mm-metrics.json',
     mmMetricsFlushMs: parseInt(process.env.MM_METRICS_FLUSH_MS || '5000'),
     mmWsEnabled: process.env.MM_WS_ENABLED === 'true',
@@ -1125,6 +1136,24 @@ export function loadConfig(): Config {
   if ((config.mmCancelBudgetCooldownMs ?? 0) < 0) {
     config.mmCancelBudgetCooldownMs = 0;
   }
+  if ((config.mmCancelBurstLimit ?? 0) < 0) {
+    config.mmCancelBurstLimit = 0;
+  }
+  if ((config.mmCancelBurstWindowMs ?? 0) < 0) {
+    config.mmCancelBurstWindowMs = 0;
+  }
+  if ((config.mmCancelBurstCooldownMs ?? 0) < 0) {
+    config.mmCancelBurstCooldownMs = 0;
+  }
+  if ((config.mmCancelBurstRetreatMs ?? 0) < 0) {
+    config.mmCancelBurstRetreatMs = 0;
+  }
+  if ((config.mmCancelBurstOnlyFarLayers ?? 0) < 0) {
+    config.mmCancelBurstOnlyFarLayers = 0;
+  }
+  if ((config.mmCancelBurstLayerCap ?? 0) < 0) {
+    config.mmCancelBurstLayerCap = 0;
+  }
   if ((config.mmRiskThrottleWindowMs ?? 0) < 0) {
     config.mmRiskThrottleWindowMs = 0;
   }
@@ -1136,6 +1165,18 @@ export function loadConfig(): Config {
   }
   if ((config.mmRiskThrottleMaxFactor ?? 0) <= 0) {
     config.mmRiskThrottleMaxFactor = 2.5;
+  }
+  if ((config.mmRiskThrottleOnlyFarThreshold ?? 0) < 0) {
+    config.mmRiskThrottleOnlyFarThreshold = 0;
+  }
+  if ((config.mmRiskThrottleOnlyFarThreshold ?? 0) > 1) {
+    config.mmRiskThrottleOnlyFarThreshold = 1;
+  }
+  if ((config.mmRiskThrottleOnlyFarLayers ?? 0) < 0) {
+    config.mmRiskThrottleOnlyFarLayers = 0;
+  }
+  if ((config.mmRiskThrottleLayerCap ?? 0) < 0) {
+    config.mmRiskThrottleLayerCap = 0;
   }
   if ((config.mmRiskThrottleCoolOffMs ?? 0) < 0) {
     config.mmRiskThrottleCoolOffMs = 0;
@@ -1912,10 +1953,13 @@ export function printConfig(config: Config): void {
     `MM Cancel Budget: window=${config.mmCancelBudgetWindowMs ?? 0}ms max=${config.mmCancelBudgetMax ?? 0} cooldown=${config.mmCancelBudgetCooldownMs ?? 0}ms panicBypass=${config.mmCancelBudgetPanicBypass !== false ? '✅' : '❌'}`
   );
   console.log(
+    `MM Cancel Burst: limit=${config.mmCancelBurstLimit ?? 0} window=${config.mmCancelBurstWindowMs ?? 0}ms cooldown=${config.mmCancelBurstCooldownMs ?? 0}ms panicBypass=${config.mmCancelBurstPanicBypass !== false ? '✅' : '❌'} retreat=${config.mmCancelBurstRetreatMs ?? 0}ms onlyFar=${config.mmCancelBurstOnlyFar ? '✅' : '❌'} farLayers=${config.mmCancelBurstOnlyFarLayers ?? 0} layerCap=${config.mmCancelBurstLayerCap ?? 0}`
+  );
+  console.log(
     `MM Min Order Lifetime: ${config.mmMinOrderLifetimeMs ?? 0}ms panicBypass=${config.mmMinOrderLifetimePanicBypass !== false ? '✅' : '❌'}`
   );
   console.log(
-    `MM Risk Throttle: ${config.mmRiskThrottleEnabled ? '✅' : '❌'} window=${config.mmRiskThrottleWindowMs ?? 0}ms decay=${config.mmRiskThrottleDecayMs ?? 0}ms min=${config.mmRiskThrottleMinFactor ?? 0} max=${config.mmRiskThrottleMaxFactor ?? 0} coolOff=${config.mmRiskThrottleCoolOffMs ?? 0}ms`
+    `MM Risk Throttle: ${config.mmRiskThrottleEnabled ? '✅' : '❌'} window=${config.mmRiskThrottleWindowMs ?? 0}ms decay=${config.mmRiskThrottleDecayMs ?? 0}ms min=${config.mmRiskThrottleMinFactor ?? 0} max=${config.mmRiskThrottleMaxFactor ?? 0} coolOff=${config.mmRiskThrottleCoolOffMs ?? 0}ms onlyFar<=${config.mmRiskThrottleOnlyFarThreshold ?? 0} farLayers=${config.mmRiskThrottleOnlyFarLayers ?? 0} layerCap=${config.mmRiskThrottleLayerCap ?? 0}`
   );
   console.log(
     `MM Recheck: cancel=${config.mmCancelRecheckMs}ms reprice=${config.mmRepriceRecheckMs}ms cooldown=${config.mmRecheckCooldownMs}ms`

@@ -403,6 +403,14 @@
 - `MM_CANCEL_BUDGET_MAX`：撤单预算最大次数（0=关闭）。
 - `MM_CANCEL_BUDGET_COOLDOWN_MS`：预算触发后冷却时长（毫秒）。
 - `MM_CANCEL_BUDGET_PANIC_BYPASS`：紧急风控允许绕过撤单预算。
+- `MM_CANCEL_BURST_LIMIT`：撤单爆发阈值（窗口内最大撤单数）。
+- `MM_CANCEL_BURST_WINDOW_MS`：撤单爆发统计窗口（毫秒）。
+- `MM_CANCEL_BURST_COOLDOWN_MS`：触发撤单爆发后的冷却时间（毫秒）。
+- `MM_CANCEL_BURST_PANIC_BYPASS`：紧急风控时允许绕过撤单爆发限制。
+- `MM_CANCEL_BURST_RETREAT_MS`：撤单爆发后强制进入撤退模式的时长（毫秒）。
+- `MM_CANCEL_BURST_ONLY_FAR`：撤单爆发期间仅挂远层（true/false）。
+- `MM_CANCEL_BURST_ONLY_FAR_LAYERS`：撤单爆发期间仅挂的远层数量（0=仅挂最远一层）。
+- `MM_CANCEL_BURST_LAYER_CAP`：撤单爆发期间分层数量上限（0=不限制）。
 - `MM_RISK_THROTTLE_ENABLED`：启用做市风险节流（异常时自动降速/降量/拉宽）。
 - `MM_RISK_THROTTLE_FILL_PENALTY`：成交触发的节流惩罚（0-1）。
 - `MM_RISK_THROTTLE_CANCEL_PENALTY`：撤单触发的节流惩罚（0-1）。
@@ -412,6 +420,9 @@
 - `MM_RISK_THROTTLE_MIN_FACTOR`：节流缩量/降速下限系数。
 - `MM_RISK_THROTTLE_MAX_FACTOR`：节流放大上限系数。
 - `MM_RISK_THROTTLE_COOL_OFF_MS`：进入节流后强制冷静期（毫秒）。
+- `MM_RISK_THROTTLE_ONLY_FAR_THRESHOLD`：节流系数低于该值时仅挂远层（0-1）。
+- `MM_RISK_THROTTLE_ONLY_FAR_LAYERS`：节流远层挂单数量（0=仅挂最远一层）。
+- `MM_RISK_THROTTLE_LAYER_CAP`：节流期间分层数量上限（0=不限制）。
 - `MM_METRICS_PATH`：做市指标输出路径（JSON）。
 - `MM_METRICS_FLUSH_MS`：做市指标刷新间隔（毫秒）。
 

@@ -103,6 +103,14 @@ export interface Config {
   mmCancelBudgetMax?: number;
   mmCancelBudgetCooldownMs?: number;
   mmCancelBudgetPanicBypass?: boolean;
+  mmCancelBurstLimit?: number;
+  mmCancelBurstWindowMs?: number;
+  mmCancelBurstCooldownMs?: number;
+  mmCancelBurstPanicBypass?: boolean;
+  mmCancelBurstRetreatMs?: number;
+  mmCancelBurstOnlyFar?: boolean;
+  mmCancelBurstOnlyFarLayers?: number;
+  mmCancelBurstLayerCap?: number;
   mmRiskThrottleEnabled?: boolean;
   mmRiskThrottleFillPenalty?: number;
   mmRiskThrottleCancelPenalty?: number;
@@ -112,6 +120,9 @@ export interface Config {
   mmRiskThrottleMinFactor?: number;
   mmRiskThrottleMaxFactor?: number;
   mmRiskThrottleCoolOffMs?: number;
+  mmRiskThrottleOnlyFarThreshold?: number;
+  mmRiskThrottleOnlyFarLayers?: number;
+  mmRiskThrottleLayerCap?: number;
   mmMetricsPath?: string;
   mmMetricsFlushMs?: number;
   mmWsEnabled?: boolean;
