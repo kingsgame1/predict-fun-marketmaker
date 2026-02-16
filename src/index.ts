@@ -9,6 +9,7 @@ import { PredictAPI } from './api/client.js';
 import { MarketSelector } from './market-selector.js';
 import { MarketMaker } from './market-maker.js';
 import { applyLiquidityRules } from './markets-config.js';
+import { PredictWebSocketFeed } from './external/predict-ws.js';
 import type { Market, Orderbook } from './types.js';
 
 class PredictMarketMakerBot {
@@ -19,6 +20,11 @@ class PredictMarketMakerBot {
   private wallet: Wallet;
   private running = false;
   private selectedMarkets: Market[] = [];
+  private marketByToken: Map<string, Market> = new Map();
+  private wsFeed?: PredictWebSocketFeed;
+  private wsDirtyTokens: Set<string> = new Set();
+  private wsDirtyUnsub?: () => void;
+  private wsFallbackAt: Map<string, number> = new Map();
   private warnedMissingJwt = false;
 
   private getAccountAddressForQueries(): string {
@@ -68,6 +74,7 @@ class PredictMarketMakerBot {
     await this.selectMarkets();
 
     await this.marketMaker.initialize();
+    this.setupMarketWs();
 
     // Update initial state (private endpoint requires JWT)
     if (this.config.jwtToken) {
@@ -130,8 +137,93 @@ class PredictMarketMakerBot {
 
     // Select top markets
     this.selectedMarkets = this.marketSelector.getTopMarkets(scoredMarkets, 10);
+    this.marketByToken.clear();
+    for (const market of this.selectedMarkets) {
+      this.marketByToken.set(market.token_id, market);
+    }
 
     console.log(`\n✅ Selected ${this.selectedMarkets.length} markets for market making\n`);
+  }
+
+  private setupMarketWs(): void {
+    if (!this.config.mmWsEnabled) {
+      return;
+    }
+    const wsUrl = this.config.predictWsUrl || 'wss://ws.predict.fun/ws';
+    this.wsFeed = new PredictWebSocketFeed({
+      url: wsUrl,
+      apiKey: this.config.predictWsApiKey || this.config.apiKey,
+      topicKey: this.config.predictWsTopicKey || 'token_id',
+      staleTimeoutMs: this.config.predictWsStaleMs || 0,
+      resetOnReconnect: this.config.predictWsResetOnReconnect !== false,
+    });
+    this.wsFeed.subscribeMarkets(this.selectedMarkets);
+    this.wsDirtyUnsub = this.wsFeed.onOrderbook((tokenId) => {
+      if (this.marketByToken.has(tokenId)) {
+        this.wsDirtyTokens.add(tokenId);
+      }
+    });
+    this.wsFeed.start();
+    console.log(`📡 Market Maker WS enabled (${wsUrl})`);
+  }
+
+  private resolveMmWsMaxAgeMs(): number {
+    const explicit = Number(this.config.mmWsMaxAgeMs || 0);
+    if (explicit > 0) {
+      return explicit;
+    }
+    const fallback = Number(this.config.predictWsStaleMs || 0);
+    if (fallback > 0) {
+      return fallback;
+    }
+    return 5000;
+  }
+
+  private async getOrderbookForMarket(market: Market): Promise<Orderbook | null> {
+    if (this.wsFeed && this.config.mmWsEnabled) {
+      const maxAge = this.resolveMmWsMaxAgeMs();
+      const cached = this.wsFeed.getOrderbook(market.token_id, maxAge);
+      if (cached) {
+        return cached;
+      }
+      if (this.config.mmWsFallbackRest !== false) {
+        const minInterval = Math.max(0, Number(this.config.mmWsFallbackMinIntervalMs || 0));
+        const last = this.wsFallbackAt.get(market.token_id) || 0;
+        if (minInterval > 0 && Date.now() - last < minInterval) {
+          return null;
+        }
+        this.wsFallbackAt.set(market.token_id, Date.now());
+        return await this.api.getOrderbook(market.token_id);
+      }
+      return null;
+    }
+    return await this.api.getOrderbook(market.token_id);
+  }
+
+  private drainDirtyMarkets(): Market[] {
+    if (!this.config.mmWsOnlyDirty || !this.config.mmWsEnabled) {
+      return this.selectedMarkets;
+    }
+    if (this.wsDirtyTokens.size === 0) {
+      return [];
+    }
+    const maxBatch = Math.max(0, Number(this.config.mmWsDirtyMaxBatch || 0));
+    const tokens = Array.from(this.wsDirtyTokens);
+    const batch = maxBatch > 0 ? tokens.slice(0, maxBatch) : tokens;
+    for (const token of batch) {
+      this.wsDirtyTokens.delete(token);
+    }
+    return batch
+      .map((tokenId) => this.marketByToken.get(tokenId))
+      .filter((market): market is Market => Boolean(market));
+  }
+
+  private getLoopSleepMs(): number {
+    if (!this.config.mmWsOnlyDirty) {
+      return this.config.refreshInterval;
+    }
+    const idle = Math.max(50, Number(this.config.mmWsIdleSleepMs || 0));
+    return idle > 0 ? idle : Math.min(200, this.config.refreshInterval);
   }
 
   /**
@@ -149,11 +241,20 @@ class PredictMarketMakerBot {
           await this.marketMaker.updateState(this.getAccountAddressForQueries());
         }
 
+        const marketsToProcess = this.drainDirtyMarkets();
+        if (marketsToProcess.length === 0) {
+          await this.sleep(this.getLoopSleepMs());
+          continue;
+        }
+
         // Process each market
-        for (const market of this.selectedMarkets) {
+        for (const market of marketsToProcess) {
           try {
-            // Fetch latest orderbook
-            const orderbook = await this.api.getOrderbook(market.token_id);
+            // Fetch latest orderbook (WS preferred when enabled)
+            const orderbook = await this.getOrderbookForMarket(market);
+            if (!orderbook) {
+              continue;
+            }
 
             // Place/cancel orders as needed
             await this.marketMaker.placeMMOrders(market, orderbook);
@@ -166,10 +267,10 @@ class PredictMarketMakerBot {
         this.marketMaker.printStatus();
 
         // Wait for next iteration
-        await this.sleep(this.config.refreshInterval);
+        await this.sleep(this.getLoopSleepMs());
       } catch (error) {
         console.error('Error in main loop:', error);
-        await this.sleep(this.config.refreshInterval);
+        await this.sleep(this.getLoopSleepMs());
       }
     }
   }
@@ -180,6 +281,14 @@ class PredictMarketMakerBot {
   stop(): void {
     console.log('\n🛑 Stopping bot...');
     this.running = false;
+    if (this.wsDirtyUnsub) {
+      this.wsDirtyUnsub();
+      this.wsDirtyUnsub = undefined;
+    }
+    if (this.wsFeed) {
+      this.wsFeed.stop();
+      this.wsFeed = undefined;
+    }
   }
 
   /**
@@ -190,9 +299,12 @@ class PredictMarketMakerBot {
   }
 }
 
+let activeBot: PredictMarketMakerBot | null = null;
+
 // Main execution
 async function main() {
   const bot = new PredictMarketMakerBot();
+  activeBot = bot;
 
   try {
     await bot.initialize();
@@ -206,11 +318,17 @@ async function main() {
 // Handle shutdown
 process.on('SIGINT', () => {
   console.log('\n\nReceived SIGINT, shutting down gracefully...');
+  if (activeBot) {
+    activeBot.stop();
+  }
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n\nReceived SIGTERM, shutting down gracefully...');
+  if (activeBot) {
+    activeBot.stop();
+  }
   process.exit(0);
 });
 

@@ -95,6 +95,13 @@ export interface Config {
   mmIcebergPenaltyDecayMs?: number;
   mmMetricsPath?: string;
   mmMetricsFlushMs?: number;
+  mmWsEnabled?: boolean;
+  mmWsMaxAgeMs?: number;
+  mmWsFallbackRest?: boolean;
+  mmWsFallbackMinIntervalMs?: number;
+  mmWsOnlyDirty?: boolean;
+  mmWsDirtyMaxBatch?: number;
+  mmWsIdleSleepMs?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
@@ -235,6 +242,7 @@ export interface Config {
   mmSafeModeRepriceMult?: number;
   mmSafeModeRepriceBufferAddBps?: number;
   mmSafeModeRepriceConfirmMult?: number;
+  mmSafeModeRecheckMult?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

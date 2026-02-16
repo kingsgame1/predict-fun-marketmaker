@@ -162,6 +162,14 @@
 - `MM_SAFE_MODE_REPRICE_MULT`：安全档重报价阈值倍数。
 - `MM_SAFE_MODE_REPRICE_BUFFER_ADD_BPS`：安全档重报价缓冲额外增加（bps）。
 - `MM_SAFE_MODE_REPRICE_CONFIRM_MULT`：安全档重报价确认时间倍数。
+- `MM_SAFE_MODE_RECHECK_MULT`：安全档重检查冷却倍数（放慢重检查节奏）。
+- `MM_WS_ENABLED`：做市商使用 Predict WebSocket 行情。
+- `MM_WS_MAX_AGE_MS`：做市商 WebSocket 行情最大可用年龄（毫秒，0=沿用 PREDICT_WS_STALE_MS）。
+- `MM_WS_FALLBACK_REST`：WS 缺失时是否回退 REST 拉取。
+- `MM_WS_FALLBACK_MIN_INTERVAL_MS`：WS 回退 REST 最小间隔（毫秒）。
+- `MM_WS_ONLY_DIRTY`：仅处理 WS 有更新的市场（减少轮询）。
+- `MM_WS_DIRTY_MAX_BATCH`：每轮最多处理的更新市场数量（0=不限）。
+- `MM_WS_IDLE_SLEEP_MS`：仅处理更新市场时的空闲休眠（毫秒）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

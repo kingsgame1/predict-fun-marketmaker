@@ -141,6 +141,13 @@ export function loadConfig(): Config {
     mmIcebergPenaltyDecayMs: parseInt(process.env.MM_ICEBERG_PENALTY_DECAY_MS || '60000'),
     mmMetricsPath: process.env.MM_METRICS_PATH || 'data/mm-metrics.json',
     mmMetricsFlushMs: parseInt(process.env.MM_METRICS_FLUSH_MS || '5000'),
+    mmWsEnabled: process.env.MM_WS_ENABLED === 'true',
+    mmWsMaxAgeMs: parseInt(process.env.MM_WS_MAX_AGE_MS || '0'),
+    mmWsFallbackRest: process.env.MM_WS_FALLBACK_REST !== 'false',
+    mmWsFallbackMinIntervalMs: parseInt(process.env.MM_WS_FALLBACK_MIN_INTERVAL_MS || '0'),
+    mmWsOnlyDirty: process.env.MM_WS_ONLY_DIRTY === 'true',
+    mmWsDirtyMaxBatch: parseInt(process.env.MM_WS_DIRTY_MAX_BATCH || '0'),
+    mmWsIdleSleepMs: parseInt(process.env.MM_WS_IDLE_SLEEP_MS || '0'),
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -283,6 +290,7 @@ export function loadConfig(): Config {
     mmSafeModeRepriceMult: parseFloat(process.env.MM_SAFE_MODE_REPRICE_MULT || '1'),
     mmSafeModeRepriceBufferAddBps: parseFloat(process.env.MM_SAFE_MODE_REPRICE_BUFFER_ADD_BPS || '0'),
     mmSafeModeRepriceConfirmMult: parseFloat(process.env.MM_SAFE_MODE_REPRICE_CONFIRM_MULT || '1'),
+    mmSafeModeRecheckMult: parseFloat(process.env.MM_SAFE_MODE_RECHECK_MULT || '1'),
     mmLayerSizeDecay: parseFloat(process.env.MM_LAYER_SIZE_DECAY || '0.6'),
     mmLayerAllowBelowMinShares: process.env.MM_LAYER_ALLOW_BELOW_MIN_SHARES === 'true',
     mmDepthSpeedWindowMs: parseInt(process.env.MM_DEPTH_SPEED_WINDOW_MS || '0'),
@@ -1406,6 +1414,21 @@ export function loadConfig(): Config {
   if ((config.mmNoFillCancelMaxBps ?? 0) > 0 && (config.mmNoFillCancelMaxBps ?? 0) < (config.mmNoFillCancelBps ?? 0)) {
     config.mmNoFillCancelMaxBps = config.mmNoFillCancelBps;
   }
+  if ((config.mmSafeModeRecheckMult ?? 0) <= 0) {
+    config.mmSafeModeRecheckMult = 1;
+  }
+  if ((config.mmWsMaxAgeMs ?? 0) < 0) {
+    config.mmWsMaxAgeMs = 0;
+  }
+  if ((config.mmWsFallbackMinIntervalMs ?? 0) < 0) {
+    config.mmWsFallbackMinIntervalMs = 0;
+  }
+  if ((config.mmWsDirtyMaxBatch ?? 0) < 0) {
+    config.mmWsDirtyMaxBatch = 0;
+  }
+  if ((config.mmWsIdleSleepMs ?? 0) < 0) {
+    config.mmWsIdleSleepMs = 0;
+  }
 
   return config;
 }
@@ -1461,6 +1484,14 @@ export function printConfig(config: Config): void {
   console.log(
     `MM Recheck: cancel=${config.mmCancelRecheckMs}ms reprice=${config.mmRepriceRecheckMs}ms cooldown=${config.mmRecheckCooldownMs}ms`
   );
+  if (config.mmWsEnabled) {
+    const maxAge = config.mmWsMaxAgeMs || config.predictWsStaleMs || 0;
+    console.log(
+      `MM WS: ✅ maxAge=${maxAge}ms fallback=${config.mmWsFallbackRest ? '✅' : '❌'} onlyDirty=${config.mmWsOnlyDirty ? '✅' : '❌'}`
+    );
+  } else {
+    console.log(`MM WS: ❌`);
+  }
   console.log(
     `MM Auto Size: onFill=${config.mmAutoSizeOnFill ? '✅' : '❌'} min=${config.mmAutoSizeMinFactor}`
   );

@@ -1275,7 +1275,18 @@ export class MarketMaker {
   }
 
   private canRecheck(tokenId: string): boolean {
-    const cooldown = Math.max(0, this.config.mmRecheckCooldownMs ?? 0);
+    let cooldown = Math.max(0, this.config.mmRecheckCooldownMs ?? 0);
+    const safeMult = this.config.mmSafeModeRecheckMult ?? 1;
+    if (safeMult > 0 && safeMult !== 1) {
+      const safeActive = this.isSafeModeActive(tokenId, {
+        volEma: this.volatilityEma.get(tokenId) ?? 0,
+        depthTrend: this.depthTrend.get(tokenId) ?? 0,
+        depthSpeedBps: this.lastDepthSpeedBps.get(tokenId) ?? 0,
+      });
+      if (safeActive) {
+        cooldown *= safeMult;
+      }
+    }
     if (!cooldown) {
       return true;
     }

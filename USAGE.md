@@ -62,6 +62,14 @@
 - `PREDICT_WS_URL=wss://ws.predict.fun/ws`
 - `PREDICT_WS_TOPIC_KEY=token_id`（如不生效可改成 `condition_id`）
 
+做市使用 WS（降低轮询/更快反应）：
+- `MM_WS_ENABLED=true`
+- `MM_WS_MAX_AGE_MS=5000`（0=沿用 `PREDICT_WS_STALE_MS`）
+- `MM_WS_FALLBACK_REST=true`（WS 缺失回退 REST）
+- `MM_WS_ONLY_DIRTY=true`（只处理有 WS 更新的市场）
+- `MM_WS_DIRTY_MAX_BATCH=20`（每轮最大处理量）
+- `MM_WS_IDLE_SLEEP_MS=200`（空闲轮询间隔）
+
 实时行情（Opinion WebSocket）：
 - `OPINION_WS_ENABLED=true`
 - `OPINION_WS_URL=wss://ws.opinion.trade`
