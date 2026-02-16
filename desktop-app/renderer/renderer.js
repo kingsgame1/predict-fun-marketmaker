@@ -236,6 +236,9 @@ const FIX_HINTS = {
   ARB_RECHECK_DEVIATION_BPS: '偏离过大时需要二次确认（bps）',
   ARB_MAX_VWAP_LEVELS: '限制 VWAP 使用的档位数',
   ARB_MIN_DEPTH_USD: '盘口最小深度（USD）',
+  ARB_MIN_TOP_DEPTH_SHARES: '顶层最小份额（防止过薄）',
+  ARB_MIN_TOP_DEPTH_USD: '顶层最小深度（USD）',
+  ARB_TOP_DEPTH_USAGE: '顶层深度使用比例（0-1）',
   ARB_WS_REALTIME: '开启 WS 实时增量扫描',
   ARB_MIN_PROFIT_BPS: '最小收益占名义金额比例（bps）',
   ARB_MIN_PROFIT_IMPACT_MULT: '冲击系数乘子（越大越保守）',
@@ -2650,7 +2653,13 @@ function applyArbSafeTemplate() {
       ARB_STABILITY_WINDOW_MS: '2000',
       ARB_MIN_PROFIT_USD: '0.05',
       ARB_MIN_DEPTH_USD: '50',
+      ARB_MIN_TOP_DEPTH_SHARES: '25',
+      ARB_MIN_TOP_DEPTH_USD: '20',
+      ARB_TOP_DEPTH_USAGE: '0.6',
       ARB_DEPTH_USAGE: '0.5',
+      CROSS_PLATFORM_REQUIRE_WS: 'true',
+      CROSS_PLATFORM_WS_REALTIME: 'true',
+      CROSS_PLATFORM_WS_REALTIME_FALLBACK_ENABLED: 'true',
     },
     '套利稳健模板'
   );

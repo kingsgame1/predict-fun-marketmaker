@@ -458,6 +458,9 @@
 - `ARB_DEPTH_USAGE`：套利计算使用的深度比例（降低吃深度滑点）。
 - `ARB_DEPTH_LEVELS`：套利深度/VWAP 仅使用的盘口档位数（0=不限制）。
 - `ARB_MIN_DEPTH_USD`：盘口最小深度（USD），低于则跳过。
+- `ARB_MIN_TOP_DEPTH_SHARES`：顶层最小份额（防止顶层过薄）。
+- `ARB_MIN_TOP_DEPTH_USD`：顶层最小 USD 深度。
+- `ARB_TOP_DEPTH_USAGE`：顶层深度使用比例（0-1，用于限制推荐下单量）。
 - `ARB_MIN_NOTIONAL_USD`：套利最小成交金额过滤。
 - `ARB_MIN_PROFIT_USD`：套利最小收益金额过滤。
 - `ARB_MIN_PROFIT_BPS`：套利最小收益占名义金额比例（bps）。

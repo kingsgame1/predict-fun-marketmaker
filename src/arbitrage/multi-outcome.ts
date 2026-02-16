@@ -33,6 +33,9 @@ export interface MultiOutcomeConfig {
   minNotionalUsd: number;
   minProfitUsd: number;
   minDepthUsd: number;
+  minTopDepthShares: number;
+  minTopDepthUsd: number;
+  topDepthUsage: number;
   maxVwapDeviationBps: number;
   recheckDeviationBps: number;
   maxVwapLevels: number;
@@ -53,6 +56,9 @@ export class MultiOutcomeArbitrageDetector {
       minNotionalUsd: 0,
       minProfitUsd: 0,
       minDepthUsd: 0,
+      minTopDepthShares: 0,
+      minTopDepthUsd: 0,
+      topDepthUsage: 0,
       maxVwapDeviationBps: 0,
       recheckDeviationBps: 60,
       maxVwapLevels: 0,
@@ -62,6 +68,9 @@ export class MultiOutcomeArbitrageDetector {
     this.config.depthUsage = Math.max(0.05, Math.min(1, this.config.depthUsage));
     this.config.minNotionalUsd = Math.max(0, this.config.minNotionalUsd);
     this.config.minProfitUsd = Math.max(0, this.config.minProfitUsd);
+    this.config.minTopDepthShares = Math.max(0, this.config.minTopDepthShares || 0);
+    this.config.minTopDepthUsd = Math.max(0, this.config.minTopDepthUsd || 0);
+    this.config.topDepthUsage = Math.max(0, Math.min(1, this.config.topDepthUsage || 0));
   }
 
   setMinProfitThreshold(value: number): void {
@@ -80,6 +89,8 @@ export class MultiOutcomeArbitrageDetector {
       const outcomes: MultiOutcomeArbitrage['outcomes'] = [];
       let minDepth = Infinity;
       let minDepthUsd = Infinity;
+      let minTopDepth = Infinity;
+      let minTopDepthUsd = Infinity;
 
       for (const market of group) {
         const book = orderbooks.get(market.token_id);
@@ -98,6 +109,14 @@ export class MultiOutcomeArbitrageDetector {
           minDepthUsd = Math.min(minDepthUsd, depthUsd);
         }
 
+        if (askSize > 0) {
+          minTopDepth = Math.min(minTopDepth, askSize);
+          const topUsd = askSize * ask;
+          if (Number.isFinite(topUsd) && topUsd > 0) {
+            minTopDepthUsd = Math.min(minTopDepthUsd, topUsd);
+          }
+        }
+
         outcomes.push({
           tokenId: market.token_id,
           price: ask,
@@ -112,12 +131,23 @@ export class MultiOutcomeArbitrageDetector {
       if (this.config.minDepthUsd > 0 && (!Number.isFinite(minDepthUsd) || minDepthUsd < this.config.minDepthUsd)) {
         continue;
       }
+      if (this.config.minTopDepthShares > 0 && (!Number.isFinite(minTopDepth) || minTopDepth < this.config.minTopDepthShares)) {
+        continue;
+      }
+      if (this.config.minTopDepthUsd > 0 && (!Number.isFinite(minTopDepthUsd) || minTopDepthUsd < this.config.minTopDepthUsd)) {
+        continue;
+      }
 
       const startSize = Math.max(
         1,
         Math.floor(Math.min(minDepth * this.config.depthUsage, this.config.maxRecommendedShares))
       );
-      const candidate = this.findBestSize(group, orderbooks, startSize);
+      const topCap =
+        this.config.topDepthUsage > 0 && Number.isFinite(minTopDepth) && minTopDepth > 0
+          ? Math.floor(minTopDepth * this.config.topDepthUsage)
+          : startSize;
+      const cappedStartSize = Math.max(1, Math.min(startSize, topCap));
+      const candidate = this.findBestSize(group, orderbooks, cappedStartSize);
       if (!candidate) {
         continue;
       }

@@ -805,6 +805,9 @@ export interface Config {
   arbDepthUsage?: number;
   arbDepthLevels?: number;
   arbMinDepthUsd?: number;
+  arbMinTopDepthShares?: number;
+  arbMinTopDepthUsd?: number;
+  arbTopDepthUsage?: number;
   arbMinNotionalUsd?: number;
   arbMinProfitUsd?: number;
   arbMinProfitBps?: number;

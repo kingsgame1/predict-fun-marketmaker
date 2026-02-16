@@ -58,6 +58,9 @@ export interface ArbitrageConfig {
   arbDepthUsage: number;
   arbDepthLevels: number;
   arbMinDepthUsd: number;
+  arbMinTopDepthShares: number;
+  arbMinTopDepthUsd: number;
+  arbTopDepthUsage: number;
   arbMinNotionalUsd: number;
   arbMinProfitUsd: number;
   arbMaxVwapDeviationBps: number;
@@ -122,6 +125,9 @@ export class ArbitrageMonitor {
       arbDepthUsage: 0.6,
       arbDepthLevels: 0,
       arbMinDepthUsd: 0,
+      arbMinTopDepthShares: 0,
+      arbMinTopDepthUsd: 0,
+      arbTopDepthUsage: 0,
       arbMinNotionalUsd: 0,
       arbMinProfitUsd: 0,
       arbMaxVwapDeviationBps: 0,
@@ -141,6 +147,9 @@ export class ArbitrageMonitor {
       this.config.arbMinNotionalUsd,
       this.config.arbMinProfitUsd,
       this.config.arbMinDepthUsd,
+      this.config.arbMinTopDepthShares,
+      this.config.arbMinTopDepthUsd,
+      this.config.arbTopDepthUsage,
       this.config.arbMaxVwapDeviationBps,
       this.config.arbRecheckDeviationBps,
       this.config.arbMaxVwapLevels,
@@ -156,6 +165,9 @@ export class ArbitrageMonitor {
       minNotionalUsd: this.config.arbMinNotionalUsd,
       minProfitUsd: this.config.arbMinProfitUsd,
       minDepthUsd: this.config.arbMinDepthUsd,
+      minTopDepthShares: this.config.arbMinTopDepthShares,
+      minTopDepthUsd: this.config.arbMinTopDepthUsd,
+      topDepthUsage: this.config.arbTopDepthUsage,
       maxVwapDeviationBps: this.config.arbMaxVwapDeviationBps,
       recheckDeviationBps: this.config.arbRecheckDeviationBps,
       maxVwapLevels: this.config.arbMaxVwapLevels,

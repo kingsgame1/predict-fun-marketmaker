@@ -996,6 +996,9 @@ export function loadConfig(): Config {
     arbDepthUsage: parseFloat(process.env.ARB_DEPTH_USAGE || '0.6'),
     arbDepthLevels: parseInt(process.env.ARB_DEPTH_LEVELS || '0'),
     arbMinDepthUsd: parseFloat(process.env.ARB_MIN_DEPTH_USD || '0'),
+    arbMinTopDepthShares: parseFloat(process.env.ARB_MIN_TOP_DEPTH_SHARES || '0'),
+    arbMinTopDepthUsd: parseFloat(process.env.ARB_MIN_TOP_DEPTH_USD || '0'),
+    arbTopDepthUsage: parseFloat(process.env.ARB_TOP_DEPTH_USAGE || '0'),
     arbMinNotionalUsd: parseFloat(process.env.ARB_MIN_NOTIONAL_USD || '0'),
     arbMinProfitUsd: parseFloat(process.env.ARB_MIN_PROFIT_USD || '0'),
     arbMinProfitBps: parseFloat(process.env.ARB_MIN_PROFIT_BPS || '0'),
@@ -1093,6 +1096,15 @@ export function loadConfig(): Config {
   }
   if ((config.arbMinDepthUsd ?? 0) < 0) {
     config.arbMinDepthUsd = 0;
+  }
+  if ((config.arbMinTopDepthShares ?? 0) < 0) {
+    config.arbMinTopDepthShares = 0;
+  }
+  if ((config.arbMinTopDepthUsd ?? 0) < 0) {
+    config.arbMinTopDepthUsd = 0;
+  }
+  if ((config.arbTopDepthUsage ?? 0) < 0 || (config.arbTopDepthUsage ?? 0) > 1) {
+    config.arbTopDepthUsage = 0;
   }
   if ((config.arbMinNotionalUsd ?? 0) < 0) {
     config.arbMinNotionalUsd = 0;
@@ -1969,7 +1981,7 @@ export function printConfig(config: Config): void {
   console.log(`Arb WS Health Log: ${config.arbWsHealthLogMs}ms`);
   console.log(`Arb Preflight: ${config.arbPreflightEnabled ? '✅' : '❌'} maxAge=${config.arbPreflightMaxAgeMs}ms`);
   console.log(
-    `Arb Depth Usage: ${config.arbDepthUsage} minDepth=$${config.arbMinDepthUsd} minNotional=$${config.arbMinNotionalUsd} minProfit=$${config.arbMinProfitUsd}`
+    `Arb Depth Usage: ${config.arbDepthUsage} topDepthUsage=${config.arbTopDepthUsage ?? 0} minDepth=$${config.arbMinDepthUsd} minTopDepth=$${config.arbMinTopDepthUsd ?? 0} minTopShares=${config.arbMinTopDepthShares ?? 0} minNotional=$${config.arbMinNotionalUsd} minProfit=$${config.arbMinProfitUsd}`
   );
   console.log(
     `Arb Pause Backoff: base=${config.arbPauseOnErrorMs}ms max=${config.arbPauseMaxMs}ms backoff=${config.arbPauseBackoff} recover=${config.arbPauseRecoveryFactor}`

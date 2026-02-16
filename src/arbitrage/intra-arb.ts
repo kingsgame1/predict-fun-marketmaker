@@ -18,6 +18,9 @@ export class InPlatformArbitrageDetector {
   private minNotionalUsd: number;
   private minProfitUsd: number;
   private minDepthUsd: number;
+  private minTopDepthShares: number;
+  private minTopDepthUsd: number;
+  private topDepthUsage: number;
   private maxVwapDeviationBps: number;
   private recheckDeviationBps: number;
   private maxVwapLevels: number;
@@ -33,6 +36,9 @@ export class InPlatformArbitrageDetector {
     minNotionalUsd: number = 0,
     minProfitUsd: number = 0,
     minDepthUsd: number = 0,
+    minTopDepthShares: number = 0,
+    minTopDepthUsd: number = 0,
+    topDepthUsage: number = 0,
     maxVwapDeviationBps: number = 0,
     recheckDeviationBps: number = 60,
     maxVwapLevels: number = 0,
@@ -47,6 +53,9 @@ export class InPlatformArbitrageDetector {
     this.minNotionalUsd = Math.max(0, minNotionalUsd);
     this.minProfitUsd = Math.max(0, minProfitUsd);
     this.minDepthUsd = Math.max(0, minDepthUsd);
+    this.minTopDepthShares = Math.max(0, minTopDepthShares);
+    this.minTopDepthUsd = Math.max(0, minTopDepthUsd);
+    this.topDepthUsage = Math.max(0, Math.min(1, topDepthUsage));
     this.maxVwapDeviationBps = Math.max(0, maxVwapDeviationBps);
     this.recheckDeviationBps = Math.max(0, recheckDeviationBps);
     this.maxVwapLevels = Math.max(0, Math.floor(maxVwapLevels));
@@ -109,6 +118,23 @@ export class InPlatformArbitrageDetector {
       }
     }
 
+    if (this.minTopDepthShares > 0 || this.minTopDepthUsd > 0) {
+      const buyTopShares = Math.min(yesTop.askSize, noTop.askSize);
+      const buyTopUsd = Math.min(yesTop.askSize * yesTop.ask, noTop.askSize * noTop.ask);
+      const sellTopShares = Math.min(yesTop.bidSize, noTop.bidSize);
+      const sellTopUsd = Math.min(yesTop.bidSize * yesTop.bid, noTop.bidSize * noTop.bid);
+      if (this.minTopDepthShares > 0) {
+        if (buyTopShares < this.minTopDepthShares && sellTopShares < this.minTopDepthShares) {
+          return null;
+        }
+      }
+      if (this.minTopDepthUsd > 0) {
+        if (buyTopUsd < this.minTopDepthUsd && sellTopUsd < this.minTopDepthUsd) {
+          return null;
+        }
+      }
+    }
+
     const buyDepth = Math.min(
       sumDepth(yesBook.asks, this.depthLevels),
       sumDepth(noBook.asks, this.depthLevels)
@@ -120,6 +146,17 @@ export class InPlatformArbitrageDetector {
 
     let buySize = Math.floor(Math.min(buyDepth * this.depthUsage, this.maxRecommendedShares));
     let sellSize = Math.floor(Math.min(sellDepth * this.depthUsage, this.maxRecommendedShares));
+
+    if (this.topDepthUsage > 0) {
+      const buyTopShares = Math.min(yesTop.askSize, noTop.askSize);
+      const sellTopShares = Math.min(yesTop.bidSize, noTop.bidSize);
+      if (buyTopShares > 0) {
+        buySize = Math.min(buySize, Math.floor(buyTopShares * this.topDepthUsage));
+      }
+      if (sellTopShares > 0) {
+        sellSize = Math.min(sellSize, Math.floor(sellTopShares * this.topDepthUsage));
+      }
+    }
 
     if (this.maxVwapDeviationBps > 0) {
       const maxYes = maxBuySharesForLimit(
