@@ -2435,8 +2435,22 @@ export class MarketMaker {
       metrics.depthTrend,
       metrics.depthSpeedBps
     );
-    const bidTargets = this.buildLayerTargets(prices.bidPrice, 'BUY', rampedLayerCount, layerStepBps);
-    const askTargets = this.buildLayerTargets(prices.askPrice, 'SELL', rampedLayerCount, layerStepBps);
+    let bidPriceBase = prices.bidPrice;
+    let askPriceBase = prices.askPrice;
+    const panicSingleSide = this.isLayerPanicActive(tokenId)
+      ? (this.config.mmPanicSingleSide || 'NONE').toUpperCase()
+      : 'NONE';
+    const panicSingleSideOffsetBps = Math.max(0, this.config.mmPanicSingleSideOffsetBps ?? 0);
+    if (panicSingleSideOffsetBps > 0 && panicSingleSide !== 'NONE') {
+      const offset = panicSingleSideOffsetBps / 10000;
+      if (panicSingleSide === 'BUY') {
+        bidPriceBase = Math.max(0.01, bidPriceBase * (1 - offset));
+      } else if (panicSingleSide === 'SELL') {
+        askPriceBase = Math.min(0.99, askPriceBase * (1 + offset));
+      }
+    }
+    const bidTargets = this.buildLayerTargets(bidPriceBase, 'BUY', rampedLayerCount, layerStepBps);
+    const askTargets = this.buildLayerTargets(askPriceBase, 'SELL', rampedLayerCount, layerStepBps);
     const bidLayers = bidTargets.length;
     const askLayers = askTargets.length;
     const canceledOrders = new Set<string>();
@@ -2714,9 +2728,6 @@ export class MarketMaker {
       targetAskShares = Math.max(1, Math.floor(targetAskShares * exitSizeFactor));
     }
 
-    const panicSingleSide = this.isLayerPanicActive(tokenId)
-      ? (this.config.mmPanicSingleSide || 'NONE').toUpperCase()
-      : 'NONE';
     if (panicSingleSide === 'BUY') {
       targetAskShares = 0;
     } else if (panicSingleSide === 'SELL') {
@@ -2726,10 +2737,10 @@ export class MarketMaker {
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
         ? Math.max(1, this.config.mmLayerRestoreMaxShares)
         : 0;
-    const bidBase = restoreCap > 0 ? Math.min(targetBidShares, restoreCap) : targetBidShares;
-    const askBase = restoreCap > 0 ? Math.min(targetAskShares, restoreCap) : targetAskShares;
-    const bidSizes = this.buildLayerSizes(bidBase, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, bidLayers);
-    const askSizes = this.buildLayerSizes(askBase, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, askLayers);
+    const bidSizeBase = restoreCap > 0 ? Math.min(targetBidShares, restoreCap) : targetBidShares;
+    const askSizeBase = restoreCap > 0 ? Math.min(targetAskShares, restoreCap) : targetAskShares;
+    const bidSizes = this.buildLayerSizes(bidSizeBase, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, bidLayers);
+    const askSizes = this.buildLayerSizes(askSizeBase, minShares, allowBelowMin, layerCount, sizeFloor).slice(0, askLayers);
 
     const retreatOnlyFar =
       this.config.mmLayerRetreatOnlyFar === true &&
