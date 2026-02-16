@@ -393,6 +393,10 @@
 - `MM_PROFILE_VOL_HYSTERESIS_BPS`：波动阈值回切缓冲（防止频繁切换）。
 - `MM_ICEBERG_FILL_PENALTY`：被动成交后冰山缩小比例。
 - `MM_ICEBERG_PENALTY_DECAY_MS`：冰山惩罚恢复时间（毫秒）。
+- `MM_ORDER_REFRESH_JITTER_PCT`：挂单寿命抖动比例（0-1，避免批量同时刷新）。
+- `MM_BATCH_CANCEL_ENABLED`：启用批量撤单（降低 API 压力）。
+- `MM_BATCH_CANCEL_MAX`：批量撤单每次最大数量。
+- `MM_BATCH_CANCEL_DELAY_MS`：批量撤单前等待时间（毫秒，用于聚合）。
 - `MM_METRICS_PATH`：做市指标输出路径（JSON）。
 - `MM_METRICS_FLUSH_MS`：做市指标刷新间隔（毫秒）。
 

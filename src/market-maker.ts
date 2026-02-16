@@ -128,6 +128,7 @@ export class MarketMaker {
   private tradingHalted = false;
   private sessionPnL = 0;
   private warnedNoExecution = false;
+  private cancelBatchNonce = 0;
 
   constructor(api: PredictAPI, config: Config) {
     this.api = api;
@@ -799,7 +800,7 @@ export class MarketMaker {
     order: Order,
     orderbook: Orderbook
   ): { cancel: boolean; panic: boolean; reason: string } {
-    const refreshMs = this.config.mmOrderRefreshMs ?? 0;
+    const refreshMs = this.getOrderRefreshMs(order.order_hash || order.id || '');
     if (refreshMs > 0 && Date.now() - order.timestamp > refreshMs) {
       return { cancel: true, panic: false, reason: 'refresh' };
     }
@@ -1104,6 +1105,30 @@ export class MarketMaker {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
+  }
+
+  private hashToUnit(input: string): number {
+    let hash = 0;
+    for (let i = 0; i < input.length; i += 1) {
+      hash = (hash << 5) - hash + input.charCodeAt(i);
+      hash |= 0;
+    }
+    const unsigned = hash >>> 0;
+    return unsigned / 0xffffffff;
+  }
+
+  private getOrderRefreshMs(orderHash: string): number {
+    const base = Math.max(0, this.config.mmOrderRefreshMs ?? 0);
+    if (!base) {
+      return 0;
+    }
+    const jitterPct = Math.max(0, this.config.mmOrderRefreshJitterPct ?? 0);
+    if (jitterPct <= 0 || !orderHash) {
+      return base;
+    }
+    const jitter = (this.hashToUnit(orderHash) * 2 - 1) * jitterPct;
+    const scaled = base * (1 + jitter);
+    return Math.max(0, Math.round(scaled));
   }
 
   private getAccountEquityUsd(): number {
@@ -3536,13 +3561,20 @@ export class MarketMaker {
     const bidLayers = bidTargets.length;
     const askLayers = askTargets.length;
     const canceledOrders = new Set<string>();
+    const pendingCancels: Order[] = [];
+    const enqueueCancel = (order: Order) => {
+      if (canceledOrders.has(order.order_hash)) {
+        return;
+      }
+      canceledOrders.add(order.order_hash);
+      pendingCancels.push(order);
+    };
 
     for (let i = 0; i < existingBids.length; i += 1) {
       const existingBid = existingBids[i];
       const targetPrice = bidTargets[i];
       if (targetPrice === undefined) {
-        await this.cancelOrder(existingBid);
-        canceledOrders.add(existingBid.order_hash);
+        enqueueCancel(existingBid);
         continue;
       }
       let risk = this.evaluateOrderRisk(existingBid, orderbook);
@@ -3597,8 +3629,7 @@ export class MarketMaker {
             this.applySizePenalty(tokenId, sizePenalty, true);
           }
         }
-        await this.cancelOrder(existingBid);
-        canceledOrders.add(existingBid.order_hash);
+        enqueueCancel(existingBid);
         const softCooldown = this.config.mmSoftCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const hardCooldown = this.config.mmHardCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const baseCooldown = risk.panic ? hardCooldown : softCooldown;
@@ -3627,8 +3658,7 @@ export class MarketMaker {
       const existingAsk = existingAsks[i];
       const targetPrice = askTargets[i];
       if (targetPrice === undefined) {
-        await this.cancelOrder(existingAsk);
-        canceledOrders.add(existingAsk.order_hash);
+        enqueueCancel(existingAsk);
         continue;
       }
       let risk = this.evaluateOrderRisk(existingAsk, orderbook);
@@ -3683,8 +3713,7 @@ export class MarketMaker {
             this.applySizePenalty(tokenId, sizePenalty, true);
           }
         }
-        await this.cancelOrder(existingAsk);
-        canceledOrders.add(existingAsk.order_hash);
+        enqueueCancel(existingAsk);
         const softCooldown = this.config.mmSoftCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const hardCooldown = this.config.mmHardCancelCooldownMs ?? (this.config.cooldownAfterCancelMs ?? 4000);
         const baseCooldown = risk.panic ? hardCooldown : softCooldown;
@@ -3708,6 +3737,8 @@ export class MarketMaker {
         }
       }
     }
+
+    await this.cancelOrdersBatch(pendingCancels, 'quote-refresh');
 
     const refreshedOrders = Array.from(this.openOrders.values()).filter(
       (o) => o.token_id === tokenId && o.status === 'OPEN'
@@ -4013,9 +4044,7 @@ export class MarketMaker {
       (o) => o.token_id === tokenId && o.status === 'OPEN'
     );
 
-    for (const order of ordersToCancel) {
-      await this.cancelOrder(order);
-    }
+    await this.cancelOrdersBatch(ordersToCancel, 'market-cancel');
     if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceRefresh) {
       this.markAction(tokenId);
     }
@@ -4023,8 +4052,48 @@ export class MarketMaker {
 
   private async cancelAllOpenOrders(): Promise<void> {
     const ordersToCancel = Array.from(this.openOrders.values()).filter((o) => o.status === 'OPEN');
-    for (const order of ordersToCancel) {
-      await this.cancelOrder(order);
+    await this.cancelOrdersBatch(ordersToCancel, 'global-cancel');
+  }
+
+  private async cancelOrdersBatch(orders: Order[], reason?: string): Promise<void> {
+    if (!orders || orders.length === 0) {
+      return;
+    }
+    const enableBatch = this.config.mmBatchCancelEnabled === true;
+    const maxBatch = Math.max(1, this.config.mmBatchCancelMax ?? 8);
+    const delayMs = Math.max(0, this.config.mmBatchCancelDelayMs ?? 0);
+    if (!enableBatch || orders.length === 1) {
+      for (const order of orders) {
+        await this.cancelOrder(order);
+      }
+      return;
+    }
+    if (delayMs > 0) {
+      await this.sleep(delayMs);
+    }
+    for (let i = 0; i < orders.length; i += maxBatch) {
+      const chunk = orders.slice(i, i + maxBatch);
+      const ids = chunk
+        .map((order) => order.id || order.order_hash)
+        .filter((id): id is string => Boolean(id));
+      if (ids.length === 0) {
+        continue;
+      }
+      try {
+        await this.api.removeOrders(ids);
+        for (const order of chunk) {
+          this.openOrders.delete(order.order_hash);
+          this.recordAutoTuneEvent(order.token_id, 'CANCELED');
+        }
+        if (reason) {
+          this.recordMmEvent('BATCH_CANCEL', `${reason} x${ids.length}`);
+        }
+        this.cancelBatchNonce += ids.length;
+      } catch (error) {
+        for (const order of chunk) {
+          await this.cancelOrder(order);
+        }
+      }
     }
   }
 

@@ -93,6 +93,10 @@ export interface Config {
   mmProfileVolHysteresisBps?: number;
   mmIcebergFillPenalty?: number;
   mmIcebergPenaltyDecayMs?: number;
+  mmOrderRefreshJitterPct?: number;
+  mmBatchCancelEnabled?: boolean;
+  mmBatchCancelMax?: number;
+  mmBatchCancelDelayMs?: number;
   mmMetricsPath?: string;
   mmMetricsFlushMs?: number;
   mmWsEnabled?: boolean;

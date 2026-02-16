@@ -139,6 +139,10 @@ export function loadConfig(): Config {
     mmProfileVolHysteresisBps: parseFloat(process.env.MM_PROFILE_VOL_HYSTERESIS_BPS || '0.002'),
     mmIcebergFillPenalty: parseFloat(process.env.MM_ICEBERG_FILL_PENALTY || '0.6'),
     mmIcebergPenaltyDecayMs: parseInt(process.env.MM_ICEBERG_PENALTY_DECAY_MS || '60000'),
+    mmOrderRefreshJitterPct: parseFloat(process.env.MM_ORDER_REFRESH_JITTER_PCT || '0'),
+    mmBatchCancelEnabled: process.env.MM_BATCH_CANCEL_ENABLED === 'true',
+    mmBatchCancelMax: parseInt(process.env.MM_BATCH_CANCEL_MAX || '8'),
+    mmBatchCancelDelayMs: parseInt(process.env.MM_BATCH_CANCEL_DELAY_MS || '0'),
     mmMetricsPath: process.env.MM_METRICS_PATH || 'data/mm-metrics.json',
     mmMetricsFlushMs: parseInt(process.env.MM_METRICS_FLUSH_MS || '5000'),
     mmWsEnabled: process.env.MM_WS_ENABLED === 'true',
@@ -1085,6 +1089,15 @@ export function loadConfig(): Config {
   if ((config.valueConfidenceMin ?? 0) < 0 || (config.valueConfidenceMin ?? 0) > 1) {
     throw new Error('VALUE_CONFIDENCE_MIN must be between 0 and 1');
   }
+  if ((config.mmOrderRefreshJitterPct ?? 0) < 0) {
+    config.mmOrderRefreshJitterPct = 0;
+  }
+  if ((config.mmBatchCancelMax ?? 0) < 1) {
+    config.mmBatchCancelMax = 1;
+  }
+  if ((config.mmBatchCancelDelayMs ?? 0) < 0) {
+    config.mmBatchCancelDelayMs = 0;
+  }
 
   if ((config.crossPlatformMinSimilarity ?? 0) < 0 || (config.crossPlatformMinSimilarity ?? 0) > 1) {
     throw new Error('CROSS_PLATFORM_MIN_SIMILARITY must be between 0 and 1');
@@ -1849,6 +1862,9 @@ export function printConfig(config: Config): void {
   );
   console.log(
     `MM Cancel Confirm: reprice=${config.mmRepriceConfirmMs}ms cancel=${config.mmCancelConfirmMs}ms`
+  );
+  console.log(
+    `MM Order Refresh: ttl=${config.mmOrderRefreshMs ?? 0}ms jitter=${config.mmOrderRefreshJitterPct ?? 0} batch=${config.mmBatchCancelEnabled ? '✅' : '❌'} max=${config.mmBatchCancelMax ?? 0} delay=${config.mmBatchCancelDelayMs ?? 0}ms`
   );
   console.log(
     `MM Recheck: cancel=${config.mmCancelRecheckMs}ms reprice=${config.mmRepriceRecheckMs}ms cooldown=${config.mmRecheckCooldownMs}ms`
