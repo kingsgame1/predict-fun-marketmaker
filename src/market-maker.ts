@@ -20,6 +20,7 @@ interface QuotePrices {
   askPrice: number;
   midPrice: number;
   spread: number;
+  pressure?: number;
   inventoryBias: number;
   valueBias?: number;
   valueConfidence?: number;
@@ -1345,6 +1346,7 @@ export class MarketMaker {
       topDepth: metrics.topDepth,
       topDepthUsd: metrics.topDepthUsd,
       imbalance,
+      pressure: prices.pressure,
       inventoryBias: prices.inventoryBias,
       nearTouchPenaltyBps: this.getNearTouchPenalty(market.token_id),
       fillPenaltyBps: this.getFillPenalty(market.token_id),
@@ -1660,6 +1662,10 @@ export class MarketMaker {
     if (!microPrice || microPrice <= 0 || microPrice >= 1) {
       return null;
     }
+    const mid = (bestBid + bestAsk) / 2;
+    const pressureMax = Math.max(0, this.config.mmPressureMaxRatio ?? 0);
+    const rawPressure = mid > 0 ? (microPrice - mid) / mid : 0;
+    const pressure = pressureMax > 0 ? this.clamp(rawPressure, -pressureMax, pressureMax) : rawPressure;
 
     const baseSpread = this.config.spread;
     let minSpread = this.config.minSpread ?? 0.01;
@@ -1735,6 +1741,11 @@ export class MarketMaker {
       adaptiveSpread += (1 - depthRatio) * baseSpread * depthPenaltyWeight;
     }
 
+    const pressureSpreadWeight = this.config.mmPressureSpreadWeight ?? 0;
+    if (pressureSpreadWeight > 0) {
+      adaptiveSpread += Math.abs(pressure) * pressureSpreadWeight;
+    }
+
     if (depthMetrics.depthTrend < 0) {
       adaptiveSpread += Math.abs(depthMetrics.depthTrend) * baseSpread * 0.4;
     }
@@ -1808,6 +1819,10 @@ export class MarketMaker {
       const remaining = Math.max(0, maxAllowed - adaptiveSpread);
       quoteOffset = Math.min(quoteOffset, remaining / 2);
     }
+    const pressureOffsetWeight = this.config.mmPressureOffsetWeight ?? 0;
+    if (pressureOffsetWeight > 0) {
+      quoteOffset += Math.abs(pressure) * pressureOffsetWeight;
+    }
 
     let bid = fairPrice * (1 - half * bidFactor - quoteOffset);
     let ask = fairPrice * (1 + half * askFactor + quoteOffset);
@@ -1848,6 +1863,7 @@ export class MarketMaker {
       askPrice: ask,
       midPrice: microPrice,
       spread: adaptiveSpread,
+      pressure,
       inventoryBias,
       valueBias,
       valueConfidence,

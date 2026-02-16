@@ -222,6 +222,9 @@
 - `MM_ORDER_RISK_VWAP_LEVELS`：VWAP 估算使用的盘口层数（0=全部）。
 - `MM_ORDER_RISK_VWAP_FEE_BPS`：VWAP 估算费用（bps）。
 - `MM_ORDER_RISK_VWAP_SLIPPAGE_BPS`：VWAP 估算滑点（bps）。
+- `MM_PRESSURE_MAX_RATIO`：微价格相对中价的最大偏移比例（用于截断）。
+- `MM_PRESSURE_SPREAD_WEIGHT`：盘口压力对价差的扩张权重。
+- `MM_PRESSURE_OFFSET_WEIGHT`：盘口压力对报价偏移的额外权重。
 - `MM_COOLDOWN_VOL_MULTIPLIER`：波动越大，撤单后的冷却时间越长。
 - `MM_IMBALANCE_LEVELS`：盘口不平衡计算层数。
 - `MM_IMBALANCE_WEIGHT`：盘口不平衡对报价的影响权重。

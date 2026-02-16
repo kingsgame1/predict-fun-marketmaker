@@ -69,6 +69,9 @@ export interface Config {
   mmOrderRiskVwapSlippageBps?: number;
   mmPriceAccelBps?: number;
   mmPriceAccelWindowMs?: number;
+  mmPressureMaxRatio?: number;
+  mmPressureSpreadWeight?: number;
+  mmPressureOffsetWeight?: number;
   mmCooldownVolMultiplier?: number;
   mmImbalanceLevels?: number;
   mmImbalanceWeight?: number;
