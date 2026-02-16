@@ -724,6 +724,16 @@ function buildDiagnostics() {
     message: `做市商=${processes.has('mm') ? '运行中' : '未运行'} / 套利=${processes.has('arb') ? '运行中' : '未运行'}`,
   });
 
+  const recoveryTemplateEnabled = (env.get('MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED') || '').toLowerCase() === 'true';
+  const recoveryTemplateReset = (env.get('MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_RESET_ENABLED') || '').toLowerCase() === 'true';
+  items.push({
+    level: recoveryTemplateEnabled ? 'warn' : 'ok',
+    title: '恢复模板',
+    message: recoveryTemplateEnabled
+      ? `已启用（自动恢复默认=${recoveryTemplateReset ? '是' : '否'}）`
+      : '未启用',
+  });
+
   return { items };
 }
 

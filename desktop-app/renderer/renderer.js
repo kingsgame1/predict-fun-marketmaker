@@ -2137,8 +2137,23 @@ function formatUpdateList(updates) {
     .join('，');
 }
 
+function buildDiffSummary(oldEnv, updates) {
+  const diffs = [];
+  Object.entries(updates).forEach(([key, value]) => {
+    const previous = oldEnv.get(key);
+    if (previous === undefined || String(previous) !== String(value)) {
+      diffs.push(`${key}:${previous ?? '∅'}→${value}`);
+    }
+  });
+  if (!diffs.length) {
+    return '未检测到变化。';
+  }
+  return diffs.join('，');
+}
+
 function applyRecoveryTemplateReset() {
   let text = envEditor.value || '';
+  const oldEnv = parseEnv(text);
   const resetLines = {
     MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED: 'false',
     MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE: 'NONE',
@@ -2163,7 +2178,7 @@ function applyRecoveryTemplateReset() {
     saveEnvButton.classList.add('attention');
   }
   if (recoveryTemplateResetHint) {
-    recoveryTemplateResetHint.textContent = `已恢复默认：${formatUpdateList(resetLines)}（请保存生效）`;
+    recoveryTemplateResetHint.textContent = `已恢复默认：${buildDiffSummary(oldEnv, resetLines)}（请保存生效）`;
   }
   pushLog({ type: 'system', level: 'system', message: '已恢复默认恢复模板参数（请保存生效）' });
 }
@@ -2206,6 +2221,7 @@ function toggleRecoveryTemplate(enabled) {
 
 function applyRecoveryTemplatePreset(level) {
   let text = envEditor.value || '';
+  const oldEnv = parseEnv(text);
   const presets = {
     safe: {
       MM_WS_HEALTH_EMERGENCY_RECOVERY_TEMPLATE_ENABLED: 'true',
@@ -2270,7 +2286,7 @@ function applyRecoveryTemplatePreset(level) {
   const label = level === 'extreme' ? '极限' : level === 'ultra' ? '极保守' : '保守';
   pushLog({ type: 'system', level: 'system', message: `已应用恢复模板${label}档（请保存生效）` });
   if (recoveryTemplateResetHint) {
-    recoveryTemplateResetHint.textContent = `本次更新：${formatUpdateList(updates)}（请保存生效）`;
+    recoveryTemplateResetHint.textContent = `本次更新：${buildDiffSummary(oldEnv, updates)}（请保存生效）`;
   }
 }
 
