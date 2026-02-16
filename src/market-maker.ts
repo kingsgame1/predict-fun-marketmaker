@@ -1711,6 +1711,17 @@ export class MarketMaker {
         effective = Math.min(effective, appliedCap);
       }
     }
+    const safeModeActive = this.isSafeModeActive(tokenId, {
+      volEma: this.volatilityEma.get(tokenId) ?? 0,
+      depthTrend,
+      depthSpeedBps,
+    });
+    if (safeModeActive) {
+      const cap = Math.max(0, Math.floor(this.config.mmSafeModeLayerCountCap ?? 0));
+      if (cap > 0) {
+        effective = Math.min(effective, cap);
+      }
+    }
     return Math.max(minCount, effective);
   }
 
