@@ -1403,6 +1403,30 @@ export class MarketMaker {
     return ratio > 0;
   }
 
+  private getWsHealthSizeScale(): number {
+    const minScale = this.config.mmWsHealthSizeScaleMin ?? 1;
+    if (minScale >= 1) {
+      return 1;
+    }
+    const ratio = this.getWsHealthRatio();
+    return 1 - (1 - minScale) * ratio;
+  }
+
+  private getWsHealthSingleSide(): {
+    side: 'BUY' | 'SELL' | 'NONE';
+    mode: 'NORMAL' | 'REMOTE';
+    offsetBps: number;
+  } {
+    const side = (this.config.mmWsHealthSingleSide || 'NONE').toUpperCase() as 'BUY' | 'SELL' | 'NONE';
+    const mode = (this.config.mmWsHealthSingleSideMode || 'NORMAL').toUpperCase() as 'NORMAL' | 'REMOTE';
+    const offsetBps = Math.max(0, this.config.mmWsHealthSingleSideOffsetBps ?? 0);
+    const ratio = this.getWsHealthRatio();
+    if (!side || side === 'NONE' || ratio <= 0) {
+      return { side: 'NONE', mode, offsetBps };
+    }
+    return { side, mode, offsetBps };
+  }
+
   private maybePauseForWsHealth(tokenId: string): void {
     const threshold = this.config.mmWsHealthHardThreshold ?? 0;
     const pauseMs = this.config.mmWsHealthPauseMs ?? 0;
@@ -1619,6 +1643,7 @@ export class MarketMaker {
   ): void {
     const imbalance = this.calculateOrderbookImbalance(orderbook);
     const wsHealth = this.getWsHealthSnapshot();
+    const wsSingle = this.getWsHealthSingleSide();
     const entry = {
       tokenId: market.token_id,
       question: market.question?.slice(0, 80),
@@ -1647,6 +1672,9 @@ export class MarketMaker {
       wsLayerMult: wsHealth.layerMult,
       wsOnlyFar: this.shouldForceOnlyFarWs(),
       wsIntervalMult: this.getWsHealthIntervalMult(),
+      wsSizeScale: this.getWsHealthSizeScale(),
+      wsSingleSide: wsSingle.side,
+      wsSingleMode: wsSingle.mode,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2311,6 +2339,15 @@ export class MarketMaker {
 
     let bid = fairPrice * (1 - half * bidFactor - quoteOffset);
     let ask = fairPrice * (1 + half * askFactor + quoteOffset);
+    const wsSingle = this.getWsHealthSingleSide();
+    if (wsSingle.side !== 'NONE' && wsSingle.offsetBps > 0) {
+      const offset = wsSingle.offsetBps / 10000;
+      if (wsSingle.side === 'BUY') {
+        bid = bid * (1 - offset);
+      } else if (wsSingle.side === 'SELL') {
+        ask = ask * (1 + offset);
+      }
+    }
 
     // Keep maker-friendly but never cross top of book
     let touchBufferBps = Math.max(0, this.config.mmTouchBufferBps ?? 0) + (noFillPenalty.touchBps || 0);
@@ -3094,6 +3131,11 @@ export class MarketMaker {
         targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
       }
     }
+    const wsSizeScale = this.getWsHealthSizeScale();
+    if (wsSizeScale > 0 && wsSizeScale < 1) {
+      targetBidShares = Math.max(1, Math.floor(targetBidShares * wsSizeScale));
+      targetAskShares = Math.max(1, Math.floor(targetAskShares * wsSizeScale));
+    }
     const cooldownUntil = this.cooldownUntil.get(tokenId) || 0;
     if (cooldownUntil > Date.now()) {
       if (this.isLayerPanicActive(tokenId)) {
@@ -3121,6 +3163,12 @@ export class MarketMaker {
     } else if (effectiveSingleSide === 'SELL') {
       targetBidShares = 0;
     }
+    const wsSingle = this.getWsHealthSingleSide();
+    if (wsSingle.side === 'BUY') {
+      targetAskShares = 0;
+    } else if (wsSingle.side === 'SELL') {
+      targetBidShares = 0;
+    }
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
         ? Math.max(1, this.config.mmLayerRestoreMaxShares)
@@ -3141,10 +3189,19 @@ export class MarketMaker {
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
     const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
     const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';
+    const wsSingleSideMode = (wsSingle.mode || 'NORMAL').toUpperCase();
+    const wsRemoteOnly = wsSingle.side !== 'NONE' && wsSingleSideMode === 'REMOTE';
     const forceSingle = this.shouldForceSingleLayer(tokenId);
     const wsOnlyFar = this.shouldForceOnlyFarWs();
     const safeModeOnlyFar = safeModeActive && this.config.mmSafeModeOnlyFar === true;
-    const farOnly = retreatOnlyFar || restoreOnlyFar || panicOnlyFar || panicRemoteOnly || safeRemoteOnly || safeModeOnlyFar;
+    const farOnly =
+      retreatOnlyFar ||
+      restoreOnlyFar ||
+      panicOnlyFar ||
+      panicRemoteOnly ||
+      safeRemoteOnly ||
+      safeModeOnlyFar ||
+      wsRemoteOnly;
     const safeOnlyFarLayers = safeModeActive ? Math.max(0, this.config.mmSafeModeOnlyFarLayers ?? 0) : 0;
     let bidStart = farOnly
       ? bidLayers - 1

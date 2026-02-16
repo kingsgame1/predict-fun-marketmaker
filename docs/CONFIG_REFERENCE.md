@@ -185,6 +185,10 @@
 - `MM_WS_HEALTH_FORCE_ONLY_FAR`：WS 健康度较差时强制仅挂远层。
 - `MM_WS_HEALTH_ONLY_FAR_LAYERS`：WS 健康度较差时仅挂最远层数。
 - `MM_WS_HEALTH_MIN_INTERVAL_MULT_MAX`：WS 健康度最差时下单间隔倍数上限。
+- `MM_WS_HEALTH_SIZE_SCALE_MIN`：WS 健康度最差时挂单份额缩放下限（0-1）。
+- `MM_WS_HEALTH_SINGLE_SIDE`：WS 健康度较差时启用单侧挂单（BUY/SELL/NONE）。
+- `MM_WS_HEALTH_SINGLE_SIDE_MODE`：WS 单侧挂单模式（NORMAL=常规，REMOTE=只挂远层）。
+- `MM_WS_HEALTH_SINGLE_SIDE_OFFSET_BPS`：WS 单侧挂单额外偏移（bps）。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

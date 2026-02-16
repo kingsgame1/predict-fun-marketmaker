@@ -117,6 +117,10 @@ export interface Config {
   mmWsHealthForceOnlyFar?: boolean;
   mmWsHealthOnlyFarLayers?: number;
   mmWsHealthMinIntervalMultMax?: number;
+  mmWsHealthSizeScaleMin?: number;
+  mmWsHealthSingleSide?: 'BUY' | 'SELL' | 'NONE';
+  mmWsHealthSingleSideMode?: 'REMOTE' | 'NORMAL';
+  mmWsHealthSingleSideOffsetBps?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

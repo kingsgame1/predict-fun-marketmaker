@@ -163,6 +163,10 @@ export function loadConfig(): Config {
     mmWsHealthForceOnlyFar: process.env.MM_WS_HEALTH_FORCE_ONLY_FAR === 'true',
     mmWsHealthOnlyFarLayers: parseInt(process.env.MM_WS_HEALTH_ONLY_FAR_LAYERS || '0'),
     mmWsHealthMinIntervalMultMax: parseFloat(process.env.MM_WS_HEALTH_MIN_INTERVAL_MULT_MAX || '1'),
+    mmWsHealthSizeScaleMin: parseFloat(process.env.MM_WS_HEALTH_SIZE_SCALE_MIN || '1'),
+    mmWsHealthSingleSide: (process.env.MM_WS_HEALTH_SINGLE_SIDE || 'NONE') as Config['mmWsHealthSingleSide'],
+    mmWsHealthSingleSideMode: (process.env.MM_WS_HEALTH_SINGLE_SIDE_MODE || 'NORMAL') as Config['mmWsHealthSingleSideMode'],
+    mmWsHealthSingleSideOffsetBps: parseFloat(process.env.MM_WS_HEALTH_SINGLE_SIDE_OFFSET_BPS || '0'),
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1489,6 +1493,15 @@ export function loadConfig(): Config {
   if ((config.mmWsHealthMinIntervalMultMax ?? 0) < 1) {
     config.mmWsHealthMinIntervalMultMax = 1;
   }
+  if ((config.mmWsHealthSizeScaleMin ?? 0) <= 0) {
+    config.mmWsHealthSizeScaleMin = 1;
+  }
+  if ((config.mmWsHealthSizeScaleMin ?? 0) > 1) {
+    config.mmWsHealthSizeScaleMin = 1;
+  }
+  if ((config.mmWsHealthSingleSideOffsetBps ?? 0) < 0) {
+    config.mmWsHealthSingleSideOffsetBps = 0;
+  }
 
   return config;
 }
@@ -1570,6 +1583,11 @@ export function printConfig(config: Config): void {
     if (config.mmWsHealthForceOnlyFar || (config.mmWsHealthMinIntervalMultMax ?? 1) !== 1) {
       console.log(
         `MM WS Health Pace: onlyFar=${config.mmWsHealthForceOnlyFar ? '✅' : '❌'} farLayers=${config.mmWsHealthOnlyFarLayers} intervalMax=${config.mmWsHealthMinIntervalMultMax}`
+      );
+    }
+    if ((config.mmWsHealthSizeScaleMin ?? 1) !== 1 || (config.mmWsHealthSingleSide ?? 'NONE') !== 'NONE') {
+      console.log(
+        `MM WS Health Risk: sizeScaleMin=${config.mmWsHealthSizeScaleMin} singleSide=${config.mmWsHealthSingleSide} mode=${config.mmWsHealthSingleSideMode} offset=${config.mmWsHealthSingleSideOffsetBps}`
       );
     }
   } else {
