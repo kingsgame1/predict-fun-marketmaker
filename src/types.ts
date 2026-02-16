@@ -159,6 +159,8 @@ export interface Config {
   mmWsHealthEmergencyRecoveryIcebergRatio?: number;
   mmWsHealthEmergencyRecoveryCancelConfirmMultMin?: number;
   mmWsHealthEmergencyRecoveryMaxOrdersMultMin?: number;
+  mmWsHealthEmergencyRecoveryRepriceConfirmMultMin?: number;
+  mmWsHealthEmergencyRecoveryMaxNotionalMultMin?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

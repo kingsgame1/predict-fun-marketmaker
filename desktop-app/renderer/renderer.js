@@ -3835,12 +3835,18 @@ async function loadMmMetrics() {
         const recoveryMaxOrders = Number.isFinite(wsHealth.wsEmergencyRecoveryMaxOrdersMult)
           ? wsHealth.wsEmergencyRecoveryMaxOrdersMult.toFixed(2)
           : '--';
+        const recoveryRepriceConfirm = Number.isFinite(wsHealth.wsEmergencyRecoveryRepriceConfirmMult)
+          ? wsHealth.wsEmergencyRecoveryRepriceConfirmMult.toFixed(2)
+          : '--';
+        const recoveryMaxNotional = Number.isFinite(wsHealth.wsEmergencyRecoveryMaxNotionalMult)
+          ? wsHealth.wsEmergencyRecoveryMaxNotionalMult.toFixed(2)
+          : '--';
         const recoveryProgress = Number.isFinite(wsHealth.wsEmergencyRecoveryProgress)
           ? Math.round(wsHealth.wsEmergencyRecoveryProgress * 100)
           : '--';
         const recoverySingle = wsHealth.wsEmergencyRecoverySingleActive ? '单边' : '双边';
         const emergency = wsHealth.wsEmergencyCancel
-          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},maxOrd=${recoveryMaxOrders},prog=${recoveryProgress}%,${recoverySingle})`
+          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},spread+${recoverySpreadAdd},ice=${recoveryIceberg},cancel=${recoveryCancelConfirm},reprice=${recoveryRepriceConfirm},maxOrd=${recoveryMaxOrders},maxNotional=${recoveryMaxNotional},prog=${recoveryProgress}%,${recoverySingle})`
           : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;
