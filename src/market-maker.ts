@@ -2761,6 +2761,13 @@ export class MarketMaker {
         targetAskShares = Math.max(1, Math.floor(targetAskShares * panicScale));
       }
     }
+    if (safeModeActive) {
+      const scale = this.config.mmSafeModeSizeScale ?? 0;
+      if (scale > 0 && scale < 1) {
+        targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
+        targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+      }
+    }
     const cooldownUntil = this.cooldownUntil.get(tokenId) || 0;
     if (cooldownUntil > Date.now()) {
       if (this.isLayerPanicActive(tokenId)) {
