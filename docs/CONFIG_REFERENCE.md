@@ -97,6 +97,9 @@
 - `MM_LAYER_STEP_BPS_RETREAT_ADD`：撤退模式下每层额外偏移（bps）。
 - `MM_LAYER_PANIC_INTERVAL_MULT`：强撤单保护期内，下单间隔倍数。
 - `MM_LAYER_PANIC_ONLY_FAR`：强撤单保护期仅挂最远一层。
+- `MM_PANIC_SPREAD_ADD`：强撤单期间额外扩张的价差。
+- `MM_PANIC_TOUCH_BUFFER_BPS`：强撤单期间额外的盘口缓冲（bps）。
+- `MM_PANIC_AUTO_TUNE_BOOST`：强撤单期间对自适应 multiplier 的额外提升。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

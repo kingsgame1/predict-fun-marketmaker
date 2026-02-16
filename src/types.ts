@@ -170,6 +170,9 @@ export interface Config {
   mmLayerStepBpsRetreatAdd?: number;
   mmLayerPanicIntervalMult?: number;
   mmLayerPanicOnlyFar?: boolean;
+  mmPanicSpreadAdd?: number;
+  mmPanicTouchBufferBps?: number;
+  mmPanicAutoTuneBoost?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

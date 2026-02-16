@@ -1365,7 +1365,10 @@ export class MarketMaker {
       return 1;
     }
     const state = this.getAutoTuneState(tokenId);
-    return Math.max(0.1, state.mult || 1);
+    const panicBoost = this.isLayerPanicActive(tokenId)
+      ? Math.max(0, this.config.mmPanicAutoTuneBoost ?? 0)
+      : 0;
+    return Math.max(0.1, (state.mult || 1) + panicBoost);
   }
 
   private getAutoTuneSnapshot(tokenId: string): { mult: number; fillRate: number; cancelRate: number } {
@@ -1802,6 +1805,9 @@ export class MarketMaker {
         minSpread += cancelBufferAdd / 10000;
       }
     }
+    if (this.isLayerPanicActive(market.token_id)) {
+      minSpread += Math.max(0, this.config.mmPanicSpreadAdd ?? 0);
+    }
 
     const bookWeight = this.config.mmBookSpreadWeight ?? 0.35;
     const volWeight = this.config.mmSpreadVolWeight ?? 1.2;
@@ -1939,6 +1945,9 @@ export class MarketMaker {
       } else {
         touchBufferBps += Math.max(touchBufferBps, 6);
       }
+    }
+    if (this.isLayerPanicActive(market.token_id)) {
+      touchBufferBps += Math.max(0, this.config.mmPanicTouchBufferBps ?? 0);
     }
     if (touchBufferBps > 0) {
       const buffer = touchBufferBps / 10000;
