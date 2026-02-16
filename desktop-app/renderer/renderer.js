@@ -138,6 +138,8 @@ const mmTradingStatus = document.getElementById('mmTradingStatus');
 const mmPnL = document.getElementById('mmPnL');
 const mmOpenOrders = document.getElementById('mmOpenOrders');
 const mmPositions = document.getElementById('mmPositions');
+const mmWsHealth = document.getElementById('mmWsHealth');
+const mmWsHealthHint = document.getElementById('mmWsHealthHint');
 const mmMarketsList = document.getElementById('mmMarketsList');
 const refreshMmMetrics = document.getElementById('refreshMmMetrics');
 
@@ -3753,6 +3755,17 @@ async function loadMmMetrics() {
     setMetricText(mmPnL, data.sessionPnL !== undefined ? data.sessionPnL.toFixed(2) : '--');
     setMetricText(mmOpenOrders, `${data.openOrders ?? '--'}`);
     setMetricText(mmPositions, `${data.positions ?? '--'}`);
+    if (mmWsHealth) {
+      const wsHealth = data.wsHealth || {};
+      const score = Number.isFinite(wsHealth.score) ? Math.round(wsHealth.score) : '--';
+      setMetricText(mmWsHealth, score === '--' ? '--' : `${score}`);
+      if (mmWsHealthHint) {
+        const spreadMult = Number.isFinite(wsHealth.spreadMult) ? wsHealth.spreadMult.toFixed(2) : '--';
+        const sizeMult = Number.isFinite(wsHealth.sizeMult) ? wsHealth.sizeMult.toFixed(2) : '--';
+        const layerMult = Number.isFinite(wsHealth.layerMult) ? wsHealth.layerMult.toFixed(2) : '--';
+        mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult}`;
+      }
+    }
 
     if (mmMarketsList) {
       mmMarketsList.innerHTML = '';
@@ -3775,7 +3788,8 @@ async function loadMmMetrics() {
           const spreadPct = m.spread ? (m.spread * 100).toFixed(2) : '--';
           const vol = m.volEma ? (m.volEma * 100).toFixed(2) : '--';
           const depth = m.depthEma ? m.depthEma.toFixed(0) : '--';
-          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth}`;
+          const wsScore = Number.isFinite(m.wsHealthScore) ? Math.round(m.wsHealthScore) : '--';
+          hint.textContent = `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore}`;
           row.appendChild(label);
           row.appendChild(hint);
           mmMarketsList.appendChild(row);

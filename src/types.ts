@@ -110,6 +110,7 @@ export interface Config {
   mmWsHealthLayerMultMin?: number;
   mmWsHealthHardThreshold?: number;
   mmWsHealthPauseMs?: number;
+  mmWsHealthRecoverMs?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

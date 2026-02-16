@@ -156,6 +156,7 @@ export function loadConfig(): Config {
     mmWsHealthLayerMultMin: parseFloat(process.env.MM_WS_HEALTH_LAYER_MULT_MIN || '1'),
     mmWsHealthHardThreshold: parseFloat(process.env.MM_WS_HEALTH_HARD_THRESHOLD || '0'),
     mmWsHealthPauseMs: parseInt(process.env.MM_WS_HEALTH_PAUSE_MS || '0'),
+    mmWsHealthRecoverMs: parseInt(process.env.MM_WS_HEALTH_RECOVER_MS || '60000'),
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1467,6 +1468,9 @@ export function loadConfig(): Config {
   if ((config.mmWsHealthPauseMs ?? 0) < 0) {
     config.mmWsHealthPauseMs = 0;
   }
+  if ((config.mmWsHealthRecoverMs ?? 0) < 0) {
+    config.mmWsHealthRecoverMs = 0;
+  }
 
   return config;
 }
@@ -1537,7 +1541,7 @@ export function printConfig(config: Config): void {
     const layerMin = config.mmWsHealthLayerMultMin ?? 1;
     if (spreadMult !== 1 || sizeMin !== 1 || layerMin !== 1) {
       console.log(
-        `MM WS Health: spreadMax=${spreadMult} sizeMin=${sizeMin} layerMin=${layerMin} hard=${config.mmWsHealthHardThreshold} pause=${config.mmWsHealthPauseMs}ms`
+        `MM WS Health: spreadMax=${spreadMult} sizeMin=${sizeMin} layerMin=${layerMin} hard=${config.mmWsHealthHardThreshold} pause=${config.mmWsHealthPauseMs}ms recover=${config.mmWsHealthRecoverMs}ms`
       );
     }
   } else {

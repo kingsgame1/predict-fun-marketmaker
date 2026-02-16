@@ -27,6 +27,9 @@ class PredictMarketMakerBot {
   private wsFallbackAt: Map<string, number> = new Map();
   private wsBadCount: Map<string, number> = new Map();
   private wsGapUntil: Map<string, number> = new Map();
+  private wsHealthScore = 100;
+  private wsHealthTarget = 100;
+  private wsHealthUpdatedAt = 0;
   private warnedMissingJwt = false;
 
   private getAccountAddressForQueries(): string {
@@ -183,23 +186,42 @@ class PredictMarketMakerBot {
 
   private updateWsHealth(): void {
     if (!this.config.mmWsEnabled || !this.wsFeed) {
+      this.wsHealthScore = 100;
+      this.wsHealthTarget = 100;
+      this.wsHealthUpdatedAt = Date.now();
       this.marketMaker.setWsHealthScore(100);
       return;
     }
     const status = this.wsFeed.getStatus();
     const maxAge = this.resolveMmWsMaxAgeMs();
     if (!status.connected || !status.lastMessageAt) {
-      this.marketMaker.setWsHealthScore(0);
-      return;
+      this.wsHealthTarget = 0;
+    } else {
+      const age = Math.max(0, Date.now() - status.lastMessageAt);
+      if (maxAge <= 0) {
+        this.wsHealthTarget = 100;
+      } else {
+        const ratio = Math.min(1, age / maxAge);
+        this.wsHealthTarget = Math.max(0, Math.round(100 * (1 - ratio)));
+      }
     }
-    const age = Math.max(0, Date.now() - status.lastMessageAt);
-    if (maxAge <= 0) {
-      this.marketMaker.setWsHealthScore(100);
-      return;
+    const now = Date.now();
+    if (!this.wsHealthUpdatedAt) {
+      this.wsHealthScore = this.wsHealthTarget;
+    } else if (this.wsHealthTarget < this.wsHealthScore) {
+      this.wsHealthScore = this.wsHealthTarget;
+    } else if (this.wsHealthTarget > this.wsHealthScore) {
+      const recoverMs = Math.max(0, Number(this.config.mmWsHealthRecoverMs || 0));
+      if (recoverMs <= 0) {
+        this.wsHealthScore = this.wsHealthTarget;
+      } else {
+        const elapsed = Math.max(1, now - this.wsHealthUpdatedAt);
+        const step = Math.min(1, elapsed / recoverMs);
+        this.wsHealthScore = this.wsHealthScore + (this.wsHealthTarget - this.wsHealthScore) * step;
+      }
     }
-    const ratio = Math.min(1, age / maxAge);
-    const score = Math.max(0, Math.round(100 * (1 - ratio)));
-    this.marketMaker.setWsHealthScore(score);
+    this.wsHealthUpdatedAt = now;
+    this.marketMaker.setWsHealthScore(Math.round(this.wsHealthScore));
   }
 
   private isOrderbookValid(orderbook: Orderbook | null | undefined): boolean {

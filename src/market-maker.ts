@@ -105,6 +105,7 @@ export class MarketMaker {
   private layerRestoreExitRepricePending: Set<string> = new Set();
   private safeModeExitUntil: Map<string, number> = new Map();
   private wsHealthScore = 100;
+  private wsHealthUpdatedAt = 0;
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -225,6 +226,23 @@ export class MarketMaker {
       return;
     }
     this.wsHealthScore = this.clamp(score, 0, 100);
+    this.wsHealthUpdatedAt = Date.now();
+  }
+
+  private getWsHealthSnapshot(): {
+    score: number;
+    spreadMult: number;
+    sizeMult: number;
+    layerMult: number;
+    updatedAt: number;
+  } {
+    return {
+      score: this.wsHealthScore,
+      spreadMult: this.getWsHealthSpreadMult(),
+      sizeMult: this.getWsHealthSizeMult(),
+      layerMult: this.getWsHealthLayerMult(),
+      updatedAt: this.wsHealthUpdatedAt,
+    };
   }
 
   shouldCancelOrders(tokenId: string, orderbook: Orderbook): boolean {
@@ -1515,6 +1533,7 @@ export class MarketMaker {
     }
     this.mmLastFlushAt = now;
     try {
+      const wsHealth = this.getWsHealthSnapshot();
       const payload = {
         version: 1,
         ts: now,
@@ -1522,6 +1541,7 @@ export class MarketMaker {
         sessionPnL: this.sessionPnL,
         openOrders: this.openOrders.size,
         positions: this.positions.size,
+        wsHealth,
         markets: Array.from(this.mmMetrics.values()),
       };
       const resolved = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
@@ -1551,6 +1571,7 @@ export class MarketMaker {
     }
   ): void {
     const imbalance = this.calculateOrderbookImbalance(orderbook);
+    const wsHealth = this.getWsHealthSnapshot();
     const entry = {
       tokenId: market.token_id,
       question: market.question?.slice(0, 80),
@@ -1573,6 +1594,11 @@ export class MarketMaker {
       fillPenaltyBps: this.getFillPenalty(market.token_id),
       noFillPenaltyBps: this.getNoFillPenalty(market.token_id).spreadBps,
       autoTune: this.getAutoTuneSnapshot(market.token_id),
+      wsHealthScore: wsHealth.score,
+      wsSpreadMult: wsHealth.spreadMult,
+      wsSizeMult: wsHealth.sizeMult,
+      wsLayerMult: wsHealth.layerMult,
+      wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
     this.mmMetrics.set(market.token_id, entry);
