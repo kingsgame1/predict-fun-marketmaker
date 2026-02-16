@@ -2490,6 +2490,12 @@ export class MarketMaker {
     }
 
     const metrics = this.updateMarketMetrics(tokenId, orderbook);
+    if (this.isSafeModeActive(tokenId, { volEma: metrics.volEma, depthTrend: metrics.depthTrend, depthSpeedBps: metrics.depthSpeedBps })) {
+      const pauseMs = Math.max(0, this.config.mmSafeModePauseMs ?? 0);
+      if (pauseMs > 0) {
+        this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+      }
+    }
     if (this.layerRestoreExitRepricePending.has(tokenId)) {
       let effectiveMetrics = metrics;
       if (this.config.mmRestoreExitResync) {

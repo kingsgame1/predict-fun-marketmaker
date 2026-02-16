@@ -278,6 +278,7 @@ export function loadConfig(): Config {
     mmSafeModeAntiFillMult: parseFloat(process.env.MM_SAFE_MODE_ANTI_FILL_MULT || '1'),
     mmSafeModeNearTouchAddBps: parseFloat(process.env.MM_SAFE_MODE_NEAR_TOUCH_ADD_BPS || '0'),
     mmSafeModeCancelMult: parseFloat(process.env.MM_SAFE_MODE_CANCEL_MULT || '1'),
+    mmSafeModePauseMs: parseInt(process.env.MM_SAFE_MODE_PAUSE_MS || '0'),
     mmLayerSizeDecay: parseFloat(process.env.MM_LAYER_SIZE_DECAY || '0.6'),
     mmLayerAllowBelowMinShares: process.env.MM_LAYER_ALLOW_BELOW_MIN_SHARES === 'true',
     mmDepthSpeedWindowMs: parseInt(process.env.MM_DEPTH_SPEED_WINDOW_MS || '0'),

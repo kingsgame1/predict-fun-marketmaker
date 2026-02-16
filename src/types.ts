@@ -230,6 +230,7 @@ export interface Config {
   mmSafeModeAntiFillMult?: number;
   mmSafeModeNearTouchAddBps?: number;
   mmSafeModeCancelMult?: number;
+  mmSafeModePauseMs?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;
