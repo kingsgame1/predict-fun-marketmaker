@@ -272,6 +272,8 @@ export class MarketMaker {
     wsEmergencyRecoverySingleActive: boolean;
     wsEmergencyRecoveryDepthMult: number;
     wsEmergencyRecoveryVolatilityMult: number;
+    wsEmergencyRecoverySpreadAdd: number;
+    wsEmergencyRecoveryIcebergRatio: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
@@ -314,6 +316,8 @@ export class MarketMaker {
       wsEmergencyRecoverySingleActive: recoveryInfo.singleActive,
       wsEmergencyRecoveryDepthMult: recoveryDepthMult,
       wsEmergencyRecoveryVolatilityMult: recoveryVolMult,
+      wsEmergencyRecoverySpreadAdd: Math.max(0, this.config.mmWsHealthEmergencyRecoverySpreadAdd ?? 0),
+      wsEmergencyRecoveryIcebergRatio: Math.max(0, this.config.mmWsHealthEmergencyRecoveryIcebergRatio ?? 0),
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -1236,11 +1240,14 @@ export class MarketMaker {
     return desired;
   }
 
-  private applyIceberg(shares: number): number {
+  private applyIceberg(shares: number, ratioOverride?: number): number {
     if (!this.config.mmIcebergEnabled) {
       return shares;
     }
-    const ratio = this.config.mmIcebergRatio ?? 0.3;
+    let ratio = this.config.mmIcebergRatio ?? 0.3;
+    if (ratioOverride !== undefined && ratioOverride > 0) {
+      ratio = ratioOverride;
+    }
     const chunkMax = this.config.mmIcebergMaxChunkShares ?? 15;
     const penalty = this.getIcebergPenalty(this.config.mmIcebergFillPenalty ?? 0.6);
     const next = Math.max(1, Math.floor(shares * Math.max(0.05, ratio) * penalty));
@@ -2062,6 +2069,8 @@ export class MarketMaker {
       wsEmergencyRecoverySingleActive: wsHealth.wsEmergencyRecoverySingleActive,
       wsEmergencyRecoveryDepthMult: wsHealth.wsEmergencyRecoveryDepthMult,
       wsEmergencyRecoveryVolatilityMult: wsHealth.wsEmergencyRecoveryVolatilityMult,
+      wsEmergencyRecoverySpreadAdd: wsHealth.wsEmergencyRecoverySpreadAdd,
+      wsEmergencyRecoveryIcebergRatio: wsHealth.wsEmergencyRecoveryIcebergRatio,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2570,6 +2579,12 @@ export class MarketMaker {
     }
     if (this.isLayerPanicActive(market.token_id)) {
       minSpread += Math.max(0, this.config.mmPanicSpreadAdd ?? 0);
+    }
+    if (this.isWsEmergencyRecoveryActive()) {
+      const add = Math.max(0, this.config.mmWsHealthEmergencyRecoverySpreadAdd ?? 0);
+      if (add > 0) {
+        minSpread += add;
+      }
     }
 
     const bookWeight = this.config.mmBookSpreadWeight ?? 0.35;
@@ -3689,6 +3704,9 @@ export class MarketMaker {
     const restoreSparse = this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreSparseOdd;
     const sparseOdd = restoreSparse || wsSparse;
 
+    const recoveryIcebergRatio = this.isWsEmergencyRecoveryActive()
+      ? this.config.mmWsHealthEmergencyRecoveryIcebergRatio ?? 0
+      : 0;
     if (!suppressBuy && bidOrderSize.shares > 0) {
       for (let i = bidStart; i < bidLayers; i += 1) {
         if (sparseOdd && i % 2 === 1) {
@@ -3701,7 +3719,7 @@ export class MarketMaker {
         if (size <= 0) {
           continue;
         }
-        const shares = this.applyIceberg(size);
+        const shares = this.applyIceberg(size, recoveryIcebergRatio);
         await this.placeLimitOrder(market, 'BUY', bidTargets[i], shares);
         placed = true;
         if (forceSingle) {
@@ -3723,7 +3741,7 @@ export class MarketMaker {
         if (size <= 0) {
           continue;
         }
-        const shares = this.applyIceberg(size);
+        const shares = this.applyIceberg(size, recoveryIcebergRatio);
         await this.placeLimitOrder(market, 'SELL', askTargets[i], shares);
         placed = true;
         if (forceSingle) {
