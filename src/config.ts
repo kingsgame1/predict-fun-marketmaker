@@ -231,6 +231,7 @@ export function loadConfig(): Config {
     mmRestoreExitSizeRampMinFactor: parseFloat(process.env.MM_RESTORE_EXIT_SIZE_RAMP_MIN_FACTOR || '0'),
     mmPanicCooldownMult: parseFloat(process.env.MM_PANIC_COOLDOWN_MULT || '1'),
     mmRestoreCooldownMult: parseFloat(process.env.MM_RESTORE_COOLDOWN_MULT || '1'),
+    mmRestoreExitForceReprice: process.env.MM_RESTORE_EXIT_FORCE_REPRICE === 'true',
     mmLayerSizeDecay: parseFloat(process.env.MM_LAYER_SIZE_DECAY || '0.6'),
     mmLayerAllowBelowMinShares: process.env.MM_LAYER_ALLOW_BELOW_MIN_SHARES === 'true',
     mmDepthSpeedWindowMs: parseInt(process.env.MM_DEPTH_SPEED_WINDOW_MS || '0'),

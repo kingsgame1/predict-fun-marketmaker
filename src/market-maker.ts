@@ -102,6 +102,7 @@ export class MarketMaker {
   private layerRestoreExitRampUntil: Map<string, number> = new Map();
   private layerRestoreExitSizeRampStartAt: Map<string, number> = new Map();
   private layerRestoreExitSizeRampUntil: Map<string, number> = new Map();
+  private layerRestoreExitRepricePending: Set<string> = new Set();
   private autoTuneState: Map<
     string,
     { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
@@ -1600,6 +1601,9 @@ export class MarketMaker {
         this.layerRestoreExitSizeRampStartAt.delete(tokenId);
         this.layerRestoreExitSizeRampUntil.delete(tokenId);
       }
+      if (this.config.mmRestoreExitForceReprice) {
+        this.layerRestoreExitRepricePending.add(tokenId);
+      }
       if (this.config.mmLayerRestoreExitCleanup) {
         this.layerRestoreExitPending.set(tokenId, true);
       }
@@ -2422,6 +2426,9 @@ export class MarketMaker {
       }
       let risk = this.evaluateOrderRisk(existingBid, orderbook);
       let shouldReprice = this.shouldRepriceOrder(existingBid, targetPrice);
+      if (this.layerRestoreExitRepricePending.has(tokenId)) {
+        shouldReprice = true;
+      }
       if ((risk.cancel || shouldReprice) && this.canRecheck(tokenId)) {
         const delay = risk.cancel
           ? Math.max(0, this.config.mmCancelRecheckMs ?? 0)
@@ -2497,6 +2504,9 @@ export class MarketMaker {
       }
       let risk = this.evaluateOrderRisk(existingAsk, orderbook);
       let shouldReprice = this.shouldRepriceOrder(existingAsk, targetPrice);
+      if (this.layerRestoreExitRepricePending.has(tokenId)) {
+        shouldReprice = true;
+      }
       if ((risk.cancel || shouldReprice) && this.canRecheck(tokenId)) {
         const delay = risk.cancel
           ? Math.max(0, this.config.mmCancelRecheckMs ?? 0)
@@ -2574,6 +2584,9 @@ export class MarketMaker {
       .sort((a, b) => Number(a.price) - Number(b.price));
     let hasBid = remainingBids.length > 0;
     let hasAsk = remainingAsks.length > 0;
+    if (this.layerRestoreExitRepricePending.has(tokenId)) {
+      this.layerRestoreExitRepricePending.delete(tokenId);
+    }
 
     const bidOrderSize = this.calculateOrderSize(market, orderbook, 'BUY', prices.bidPrice);
     const askOrderSize = this.calculateOrderSize(market, orderbook, 'SELL', prices.askPrice);
