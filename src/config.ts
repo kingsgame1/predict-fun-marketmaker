@@ -236,6 +236,7 @@ export function loadConfig(): Config {
     mmPanicCleanupOnRestore: process.env.MM_PANIC_CLEANUP_ON_RESTORE === 'true',
     mmPanicSingleSide: (process.env.MM_PANIC_SINGLE_SIDE || 'NONE') as Config['mmPanicSingleSide'],
     mmPanicSingleSideMode: (process.env.MM_PANIC_SINGLE_SIDE_MODE || 'NORMAL') as Config['mmPanicSingleSideMode'],
+    mmRestoreExitCleanupOnReprice: process.env.MM_RESTORE_EXIT_CLEANUP_ON_REPRICE === 'true',
     mmRestoreExitMinDepthShares: parseFloat(process.env.MM_RESTORE_EXIT_MIN_DEPTH_SHARES || '0'),
     mmRestoreExitMinDepthUsd: parseFloat(process.env.MM_RESTORE_EXIT_MIN_DEPTH_USD || '0'),
     mmRestoreExitDepthCooldownMs: parseInt(process.env.MM_RESTORE_EXIT_DEPTH_COOLDOWN_MS || '0'),

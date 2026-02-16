@@ -115,6 +115,7 @@
 - `MM_PANIC_CLEANUP_ON_RESTORE`：强撤单后进入恢复期时强制清理旧挂单。
 - `MM_PANIC_SINGLE_SIDE`：强撤单期间只挂单侧（BUY/SELL/NONE）。
 - `MM_PANIC_SINGLE_SIDE_MODE`：强撤单单侧模式（NORMAL=常规，REMOTE=只挂远层）。
+- `MM_RESTORE_EXIT_CLEANUP_ON_REPRICE`：恢复期结束强制重报价时清理旧挂单。
 - `MM_RESTORE_EXIT_MIN_DEPTH_SHARES`：恢复期结束后重挂前最小顶层深度（份额）。
 - `MM_RESTORE_EXIT_MIN_DEPTH_USD`：恢复期结束后重挂前最小顶层深度（USD）。
 - `MM_RESTORE_EXIT_DEPTH_COOLDOWN_MS`：恢复期结束深度不足时的冷却时间（毫秒）。

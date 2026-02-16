@@ -2354,6 +2354,9 @@ export class MarketMaker {
         this.markCooldown(tokenId, cooldown);
         return;
       }
+      if (this.config.mmRestoreExitCleanupOnReprice) {
+        await this.cancelOrdersForMarket(tokenId);
+      }
     }
 
     if (!this.canSendAction(tokenId)) {
