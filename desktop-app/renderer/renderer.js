@@ -3817,12 +3817,18 @@ async function loadMmMetrics() {
         const recoveryInterval = Number.isFinite(wsHealth.wsEmergencyRecoveryIntervalMult)
           ? wsHealth.wsEmergencyRecoveryIntervalMult.toFixed(2)
           : '--';
+        const recoveryDepth = Number.isFinite(wsHealth.wsEmergencyRecoveryDepthMult)
+          ? wsHealth.wsEmergencyRecoveryDepthMult.toFixed(2)
+          : '--';
+        const recoveryVol = Number.isFinite(wsHealth.wsEmergencyRecoveryVolatilityMult)
+          ? wsHealth.wsEmergencyRecoveryVolatilityMult.toFixed(2)
+          : '--';
         const recoveryProgress = Number.isFinite(wsHealth.wsEmergencyRecoveryProgress)
           ? Math.round(wsHealth.wsEmergencyRecoveryProgress * 100)
           : '--';
         const recoverySingle = wsHealth.wsEmergencyRecoverySingleActive ? '单边' : '双边';
         const emergency = wsHealth.wsEmergencyCancel
-          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},prog=${recoveryProgress}%,${recoverySingle})`
+          ? `急撤-${emergencyActive}/${recovery}(step=${recoveryStage},ratio=${recoveryRatio},pace=${recoveryInterval},depth=${recoveryDepth},vol=${recoveryVol},prog=${recoveryProgress}%,${recoverySingle})`
           : '常规';
         const updatedAt = Number.isFinite(wsHealth.updatedAt) ? formatTimestamp(wsHealth.updatedAt) : '--';
         mmWsHealthHint.textContent = `spread x${spreadMult} size x${sizeMult} layer x${layerMult} pace x${intervalMult} sizeScale=${sizeScale} 单侧=${singleSide}/${singleMode} buffer+${touchAdd}bps ${sparse} layerCap=${layerCap} maxOrders=${maxOrdersMult} cancel x${softCancelMult}/${hardCancelMult} buf+${cancelBufferAdd}/${repriceBufferAdd} confirm x${cancelConfirm}/${repriceConfirm} ${forceSafe} ${disableHedge} ${readOnly} ${ultraSafe}/${emergency} 模式=${onlyFar} 更新=${updatedAt}`;

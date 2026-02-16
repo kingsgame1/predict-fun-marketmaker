@@ -270,11 +270,15 @@ export class MarketMaker {
     wsEmergencyRecoveryIntervalMult: number;
     wsEmergencyRecoveryProgress: number;
     wsEmergencyRecoverySingleActive: boolean;
+    wsEmergencyRecoveryDepthMult: number;
+    wsEmergencyRecoveryVolatilityMult: number;
     updatedAt: number;
   } {
     const wsSingle = this.getWsHealthSingleSide();
     const recoveryInfo = this.getWsEmergencyRecoveryInfo();
     const recoveryIntervalMult = this.getWsEmergencyRecoveryIntervalMult();
+    const recoveryDepthMult = this.getWsEmergencyRecoveryDepthMult();
+    const recoveryVolMult = this.getWsEmergencyRecoveryVolatilityMult();
     return {
       score: this.wsHealthScore,
       spreadMult: this.getWsHealthSpreadMult(),
@@ -308,6 +312,8 @@ export class MarketMaker {
       wsEmergencyRecoveryIntervalMult: recoveryIntervalMult,
       wsEmergencyRecoveryProgress: recoveryInfo.progress,
       wsEmergencyRecoverySingleActive: recoveryInfo.singleActive,
+      wsEmergencyRecoveryDepthMult: recoveryDepthMult,
+      wsEmergencyRecoveryVolatilityMult: recoveryVolMult,
       updatedAt: this.wsHealthUpdatedAt,
     };
   }
@@ -696,7 +702,10 @@ export class MarketMaker {
     }
 
     const change = Math.abs(orderbook.mid_price - lastMid) / lastMid;
-    const threshold = this.config.volatilityPauseBps ?? 0.01;
+    let threshold = this.config.volatilityPauseBps ?? 0.01;
+    if (this.isWsEmergencyRecoveryActive()) {
+      threshold *= this.getWsEmergencyRecoveryVolatilityMult();
+    }
 
     if (change >= threshold) {
       this.pauseForVolatility(tokenId);
@@ -1664,6 +1673,32 @@ export class MarketMaker {
     return 1 + (maxMult - 1) * (1 - progress);
   }
 
+  private getWsEmergencyRecoveryDepthMult(): number {
+    if (!this.isWsEmergencyRecoveryActive()) {
+      return 1;
+    }
+    const maxMult = Math.max(1, this.config.mmWsHealthEmergencyRecoveryDepthMult ?? 1);
+    if (maxMult <= 1) {
+      return 1;
+    }
+    const info = this.getWsEmergencyRecoveryInfo();
+    const progress = Math.max(0, Math.min(1, info.progress));
+    return 1 + (maxMult - 1) * (1 - progress);
+  }
+
+  private getWsEmergencyRecoveryVolatilityMult(): number {
+    if (!this.isWsEmergencyRecoveryActive()) {
+      return 1;
+    }
+    const minMult = this.clamp(this.config.mmWsHealthEmergencyRecoveryVolatilityMultMin ?? 1, 0.1, 1);
+    if (minMult >= 1) {
+      return 1;
+    }
+    const info = this.getWsEmergencyRecoveryInfo();
+    const progress = Math.max(0, Math.min(1, info.progress));
+    return minMult + (1 - minMult) * progress;
+  }
+
   private shouldForceOnlyFarWs(): boolean {
     if (this.isWsUltraSafeActive()) {
       return true;
@@ -2025,6 +2060,8 @@ export class MarketMaker {
       wsEmergencyRecoveryIntervalMult: wsHealth.wsEmergencyRecoveryIntervalMult,
       wsEmergencyRecoveryProgress: wsHealth.wsEmergencyRecoveryProgress,
       wsEmergencyRecoverySingleActive: wsHealth.wsEmergencyRecoverySingleActive,
+      wsEmergencyRecoveryDepthMult: wsHealth.wsEmergencyRecoveryDepthMult,
+      wsEmergencyRecoveryVolatilityMult: wsHealth.wsEmergencyRecoveryVolatilityMult,
       wsHealthAt: wsHealth.updatedAt,
       updatedAt: Date.now(),
     };
@@ -2422,8 +2459,13 @@ export class MarketMaker {
   }
 
   private isLiquidityThin(metrics: { topDepth: number; topDepthUsd: number }): boolean {
-    const minShares = this.config.mmMinTopDepthShares ?? 0;
-    const minUsd = this.config.mmMinTopDepthUsd ?? 0;
+    let minShares = this.config.mmMinTopDepthShares ?? 0;
+    let minUsd = this.config.mmMinTopDepthUsd ?? 0;
+    if (this.isWsEmergencyRecoveryActive()) {
+      const mult = this.getWsEmergencyRecoveryDepthMult();
+      minShares *= mult;
+      minUsd *= mult;
+    }
     if (minShares > 0 && metrics.topDepth < minShares) {
       return true;
     }

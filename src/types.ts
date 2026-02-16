@@ -153,6 +153,8 @@ export interface Config {
   mmWsHealthEmergencyRecoverySingleSide?: 'BUY' | 'SELL' | 'NONE';
   mmWsHealthEmergencyRecoverySingleSideMode?: 'REMOTE' | 'NORMAL';
   mmWsHealthEmergencyRecoverySingleSideExitProgress?: number;
+  mmWsHealthEmergencyRecoveryDepthMult?: number;
+  mmWsHealthEmergencyRecoveryVolatilityMultMin?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
