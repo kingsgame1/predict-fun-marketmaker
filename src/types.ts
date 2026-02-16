@@ -173,6 +173,8 @@ export interface Config {
   mmPanicSpreadAdd?: number;
   mmPanicTouchBufferBps?: number;
   mmPanicAutoTuneBoost?: number;
+  mmPanicRestoreHoldMs?: number;
+  mmPanicRestoreCount?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

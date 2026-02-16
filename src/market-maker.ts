@@ -1533,6 +1533,12 @@ export class MarketMaker {
     const until = now + holdMs;
     const current = this.layerPanicUntil.get(tokenId) || 0;
     this.layerPanicUntil.set(tokenId, Math.max(current, until));
+    const restoreHold = Math.max(0, this.config.mmPanicRestoreHoldMs ?? 0);
+    const restoreCount = Math.max(0, this.config.mmPanicRestoreCount ?? 0);
+    if (restoreHold > 0 && restoreCount > 0) {
+      this.layerRestoreAt.set(tokenId, now + restoreHold);
+      this.layerRestoreStartAt.set(tokenId, now);
+    }
   }
 
   private isLayerPanicActive(tokenId: string): boolean {
@@ -1653,29 +1659,31 @@ export class MarketMaker {
 
   private getRestoreLayerCount(tokenId: string): number {
     const base = Math.max(0, Math.floor(this.config.mmLayerRestoreCount ?? 0));
+    const panicRestoreCount = Math.max(0, Math.floor(this.config.mmPanicRestoreCount ?? 0));
+    const restoreCount = panicRestoreCount > 0 ? panicRestoreCount : base;
     const stepMs = Math.max(0, this.config.mmLayerRestoreStepMs ?? 0);
     const stepCount = Math.max(0, this.config.mmLayerRestoreStepCount ?? 0);
     const rampMs = Math.max(0, this.config.mmLayerRestoreRampMs ?? 0);
-    if (!base) {
-      return base;
+    if (!restoreCount) {
+      return restoreCount;
     }
     const now = Date.now();
     const start = this.layerRestoreStartAt.get(tokenId) || 0;
     if (!start) {
-      return base;
+      return restoreCount;
     }
-    const max = Math.max(base, Math.floor(this.config.mmLayerCount ?? base));
+    const max = Math.max(restoreCount, Math.floor(this.config.mmLayerCount ?? restoreCount));
     const elapsed = Math.max(0, now - start);
     if (stepMs > 0 && stepCount > 0) {
       const steps = Math.floor(elapsed / stepMs);
-      const target = Math.max(base, Math.min(max, base + steps * stepCount));
+      const target = Math.max(restoreCount, Math.min(max, restoreCount + steps * stepCount));
       return target;
     }
     if (!rampMs) {
-      return base;
+      return restoreCount;
     }
     const fraction = Math.min(1, elapsed / rampMs);
-    const target = Math.max(base, Math.floor(base + (max - base) * fraction));
+    const target = Math.max(restoreCount, Math.floor(restoreCount + (max - restoreCount) * fraction));
     return Math.min(max, target);
   }
 
