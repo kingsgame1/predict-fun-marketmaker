@@ -286,6 +286,13 @@ export class MarketMaker {
       const restoreMult = Math.max(1, this.config.mmLayerRestoreIntervalMult ?? 1);
       multiplier *= restoreMult;
     }
+    const panicRestoreMult =
+      this.isLayerRestoreActive(tokenId) && this.config.mmPanicRestoreIntervalMult
+        ? Math.max(1, this.config.mmPanicRestoreIntervalMult ?? 1)
+        : 1;
+    if (panicRestoreMult > 1) {
+      multiplier *= panicRestoreMult;
+    }
     multiplier *= this.getFillSlowdownMultiplier(tokenId);
     return Math.max(500, Math.round(base * multiplier));
   }
@@ -2551,6 +2558,11 @@ export class MarketMaker {
       if (scale > 0 && scale < 1) {
         targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
         targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+      }
+      const panicScale = this.config.mmPanicRestoreSizeScale ?? 0;
+      if (panicScale > 0 && panicScale < 1) {
+        targetBidShares = Math.max(1, Math.floor(targetBidShares * panicScale));
+        targetAskShares = Math.max(1, Math.floor(targetAskShares * panicScale));
       }
     }
     const restoreCap =

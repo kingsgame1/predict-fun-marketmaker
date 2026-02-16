@@ -175,6 +175,8 @@ export interface Config {
   mmPanicAutoTuneBoost?: number;
   mmPanicRestoreHoldMs?: number;
   mmPanicRestoreCount?: number;
+  mmPanicRestoreSizeScale?: number;
+  mmPanicRestoreIntervalMult?: number;
   mmLayerRetreatOnlyFar?: boolean;
   mmLayerRetreatHoldMs?: number;
   mmLayerRetreatForceSingle?: boolean;

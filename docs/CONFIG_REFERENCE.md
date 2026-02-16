@@ -102,6 +102,8 @@
 - `MM_PANIC_AUTO_TUNE_BOOST`：强撤单期间对自适应 multiplier 的额外提升。
 - `MM_PANIC_RESTORE_HOLD_MS`：强撤单后进入恢复期的持续时间（毫秒）。
 - `MM_PANIC_RESTORE_COUNT`：强撤单后恢复期分层上限（0=不启用）。
+- `MM_PANIC_RESTORE_SIZE_SCALE`：强撤单恢复期挂单份额缩放（0-1）。
+- `MM_PANIC_RESTORE_INTERVAL_MULT`：强撤单恢复期下单间隔倍数。
 - `MM_LAYER_RETREAT_ONLY_FAR`：撤退模式仅挂最远一层。
 - `MM_LAYER_RETREAT_HOLD_MS`：撤退模式持续时间（毫秒）。
 - `MM_LAYER_RETREAT_FORCE_SINGLE`：撤退模式强制只挂单层（无论层数配置）。

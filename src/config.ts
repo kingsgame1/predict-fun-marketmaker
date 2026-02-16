@@ -223,6 +223,8 @@ export function loadConfig(): Config {
     mmPanicAutoTuneBoost: parseFloat(process.env.MM_PANIC_AUTO_TUNE_BOOST || '0'),
     mmPanicRestoreHoldMs: parseInt(process.env.MM_PANIC_RESTORE_HOLD_MS || '0'),
     mmPanicRestoreCount: parseInt(process.env.MM_PANIC_RESTORE_COUNT || '0'),
+    mmPanicRestoreSizeScale: parseFloat(process.env.MM_PANIC_RESTORE_SIZE_SCALE || '0'),
+    mmPanicRestoreIntervalMult: parseFloat(process.env.MM_PANIC_RESTORE_INTERVAL_MULT || '0'),
     mmLayerSizeDecay: parseFloat(process.env.MM_LAYER_SIZE_DECAY || '0.6'),
     mmLayerAllowBelowMinShares: process.env.MM_LAYER_ALLOW_BELOW_MIN_SHARES === 'true',
     mmDepthSpeedWindowMs: parseInt(process.env.MM_DEPTH_SPEED_WINDOW_MS || '0'),
