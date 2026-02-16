@@ -72,6 +72,15 @@ export interface Config {
   mmPressureMaxRatio?: number;
   mmPressureSpreadWeight?: number;
   mmPressureOffsetWeight?: number;
+  mmAutoTuneEnabled?: boolean;
+  mmAutoTuneWindowMs?: number;
+  mmAutoTuneTargetFillRate?: number;
+  mmAutoTuneTargetCancelRate?: number;
+  mmAutoTuneStep?: number;
+  mmAutoTuneMinMult?: number;
+  mmAutoTuneMaxMult?: number;
+  mmAutoTuneMinEvents?: number;
+  mmAutoTuneUpdateMs?: number;
   mmCooldownVolMultiplier?: number;
   mmImbalanceLevels?: number;
   mmImbalanceWeight?: number;

@@ -98,6 +98,10 @@ export class MarketMaker {
   private layerRestoreAt: Map<string, number> = new Map();
   private layerRestoreStartAt: Map<string, number> = new Map();
   private layerRestoreExitPending: Map<string, boolean> = new Map();
+  private autoTuneState: Map<
+    string,
+    { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
+  > = new Map();
   private mmMetrics: Map<string, Record<string, unknown>> = new Map();
   private mmLastFlushAt = 0;
   private valueDetector?: ValueMismatchDetector;
@@ -617,6 +621,11 @@ export class MarketMaker {
         nearTouchBase *= restoreCancelMult;
         antiFillBase *= restoreCancelMult;
       }
+    }
+    const autoTuneMult = this.getAutoTuneMultiplier(order.token_id);
+    if (autoTuneMult !== 1) {
+      nearTouchBase *= autoTuneMult;
+      antiFillBase *= autoTuneMult;
     }
     const depthSpeedThreshold = Math.max(0, this.config.mmNearTouchDepthSpeedBps ?? 0);
     if (depthSpeedThreshold > 0) {
@@ -1282,6 +1291,96 @@ export class MarketMaker {
     return Math.min(maxMult, Math.max(1, multiplier));
   }
 
+  private getAutoTuneState(tokenId: string): {
+    mult: number;
+    windowStart: number;
+    placed: number;
+    canceled: number;
+    filled: number;
+    lastUpdate: number;
+  } {
+    const now = Date.now();
+    const existing = this.autoTuneState.get(tokenId);
+    if (existing) {
+      return existing;
+    }
+    const state = { mult: 1, windowStart: now, placed: 0, canceled: 0, filled: 0, lastUpdate: now };
+    this.autoTuneState.set(tokenId, state);
+    return state;
+  }
+
+  private recordAutoTuneEvent(tokenId: string, type: 'PLACED' | 'CANCELED' | 'FILLED'): void {
+    if (!this.config.mmAutoTuneEnabled) {
+      return;
+    }
+    const now = Date.now();
+    const windowMs = Math.max(1000, this.config.mmAutoTuneWindowMs ?? 60000);
+    const state = this.getAutoTuneState(tokenId);
+    if (now - state.windowStart > windowMs) {
+      state.windowStart = now;
+      state.placed = 0;
+      state.canceled = 0;
+      state.filled = 0;
+    }
+    if (type === 'PLACED') {
+      state.placed += 1;
+    } else if (type === 'CANCELED') {
+      state.canceled += 1;
+    } else {
+      state.filled += 1;
+    }
+    this.updateAutoTuneMultiplier(state, now);
+  }
+
+  private updateAutoTuneMultiplier(
+    state: { mult: number; placed: number; canceled: number; filled: number; lastUpdate: number },
+    now: number
+  ): void {
+    const minEvents = Math.max(1, this.config.mmAutoTuneMinEvents ?? 20);
+    const updateMs = Math.max(0, this.config.mmAutoTuneUpdateMs ?? 2000);
+    const total = state.placed + state.canceled + state.filled;
+    if (total < minEvents || now - state.lastUpdate < updateMs) {
+      return;
+    }
+    const placed = Math.max(1, state.placed);
+    const fillRate = state.filled / placed;
+    const cancelRate = state.canceled / placed;
+    const targetFill = Math.max(0, this.config.mmAutoTuneTargetFillRate ?? 0.02);
+    const targetCancel = Math.max(0, this.config.mmAutoTuneTargetCancelRate ?? 0.6);
+    const step = Math.max(0, this.config.mmAutoTuneStep ?? 0.05);
+    const minMult = Math.max(0.1, this.config.mmAutoTuneMinMult ?? 0.6);
+    const maxMult = Math.max(minMult, this.config.mmAutoTuneMaxMult ?? 2.5);
+    let mult = state.mult ?? 1;
+    if (targetFill > 0 && fillRate > targetFill) {
+      mult = Math.min(maxMult, mult + step);
+    } else if (targetFill > 0 && fillRate < targetFill * 0.5 && targetCancel > 0 && cancelRate > targetCancel) {
+      mult = Math.max(minMult, mult - step * 0.5);
+    }
+    state.mult = mult;
+    state.lastUpdate = now;
+  }
+
+  private getAutoTuneMultiplier(tokenId: string): number {
+    if (!this.config.mmAutoTuneEnabled) {
+      return 1;
+    }
+    const state = this.getAutoTuneState(tokenId);
+    return Math.max(0.1, state.mult || 1);
+  }
+
+  private getAutoTuneSnapshot(tokenId: string): { mult: number; fillRate: number; cancelRate: number } {
+    const state = this.autoTuneState.get(tokenId);
+    if (!state || !this.config.mmAutoTuneEnabled) {
+      return { mult: 1, fillRate: 0, cancelRate: 0 };
+    }
+    const placed = Math.max(1, state.placed);
+    return {
+      mult: state.mult || 1,
+      fillRate: state.filled / placed,
+      cancelRate: state.canceled / placed,
+    };
+  }
+
   private async flushMmMetrics(): Promise<void> {
     const target = this.config.mmMetricsPath;
     const interval = this.config.mmMetricsFlushMs ?? 0;
@@ -1351,6 +1450,7 @@ export class MarketMaker {
       nearTouchPenaltyBps: this.getNearTouchPenalty(market.token_id),
       fillPenaltyBps: this.getFillPenalty(market.token_id),
       noFillPenaltyBps: this.getNoFillPenalty(market.token_id).spreadBps,
+      autoTune: this.getAutoTuneSnapshot(market.token_id),
       updatedAt: Date.now(),
     };
     this.mmMetrics.set(market.token_id, entry);
@@ -2538,6 +2638,7 @@ export class MarketMaker {
         timestamp: Date.now(),
       });
 
+      this.recordAutoTuneEvent(market.token_id, 'PLACED');
       console.log(`✅ ${side} order submitted at ${price.toFixed(4)} (${shares} shares)`);
     } catch (error) {
       console.error(`Error placing ${side} order:`, error);
@@ -2562,6 +2663,7 @@ export class MarketMaker {
       const id = order.id || order.order_hash;
       await this.api.removeOrders([id]);
       this.openOrders.delete(order.order_hash);
+      this.recordAutoTuneEvent(order.token_id, 'CANCELED');
       console.log(`❌ Canceled ${order.order_hash.substring(0, 10)}...`);
     } catch (error) {
       console.error('Error canceling order:', error);
@@ -2616,6 +2718,7 @@ export class MarketMaker {
       if (absDelta > 0) {
         this.updateFillPressure(tokenId, absDelta);
         this.lastFillAt.set(tokenId, Date.now());
+        this.recordAutoTuneEvent(tokenId, 'FILLED');
       }
       const partialThreshold = this.config.mmPartialFillShares ?? 5;
       if (absDelta > 0) {

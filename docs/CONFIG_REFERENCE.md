@@ -225,6 +225,15 @@
 - `MM_PRESSURE_MAX_RATIO`：微价格相对中价的最大偏移比例（用于截断）。
 - `MM_PRESSURE_SPREAD_WEIGHT`：盘口压力对价差的扩张权重。
 - `MM_PRESSURE_OFFSET_WEIGHT`：盘口压力对报价偏移的额外权重。
+- `MM_AUTO_TUNE_ENABLED`：启用做市自适应调参（基于成交/撤单反馈）。
+- `MM_AUTO_TUNE_WINDOW_MS`：自适应统计窗口（毫秒）。
+- `MM_AUTO_TUNE_TARGET_FILL_RATE`：目标成交率（成交/挂单）。
+- `MM_AUTO_TUNE_TARGET_CANCEL_RATE`：目标撤单率（撤单/挂单）。
+- `MM_AUTO_TUNE_STEP`：每次调参步进幅度。
+- `MM_AUTO_TUNE_MIN_MULT`：自适应乘数下限。
+- `MM_AUTO_TUNE_MAX_MULT`：自适应乘数上限。
+- `MM_AUTO_TUNE_MIN_EVENTS`：触发调参的最小事件数。
+- `MM_AUTO_TUNE_UPDATE_MS`：调参最小间隔（毫秒）。
 - `MM_COOLDOWN_VOL_MULTIPLIER`：波动越大，撤单后的冷却时间越长。
 - `MM_IMBALANCE_LEVELS`：盘口不平衡计算层数。
 - `MM_IMBALANCE_WEIGHT`：盘口不平衡对报价的影响权重。
