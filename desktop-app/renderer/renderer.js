@@ -32,6 +32,7 @@ const statusArb = document.getElementById('statusArb');
 const toggleInputs = Array.from(document.querySelectorAll('.toggle input[data-env]'));
 const mmVenueSelect = document.getElementById('mmVenueSelect');
 const applyMmPassiveBtn = document.getElementById('applyMmPassive');
+const applyMmProbablePointsBtn = document.getElementById('applyMmProbablePoints');
 const applyArbSafeBtn = document.getElementById('applyArbSafe');
 const tabButtons = Array.from(document.querySelectorAll('.tab-button'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
@@ -2861,6 +2862,33 @@ function applyMmPassiveTemplate() {
   );
 }
 
+function applyMmProbablePointsTemplate() {
+  applyTemplate(
+    {
+      MM_VENUE: 'probable',
+      MM_REQUIRE_JWT: 'false',
+      PROBABLE_ENABLED: 'true',
+      PROBABLE_WS_ENABLED: 'true',
+      MM_ONLY_POINTS_MARKETS: 'true',
+      MM_POINTS_MIN_ONLY: 'true',
+      MM_POINTS_MIN_MULTIPLIER: '1',
+      MM_ORDER_DEPTH_USAGE: '0.2',
+      MM_TOUCH_BUFFER_BPS: '0.0012',
+      MM_FILL_RISK_SPREAD_BPS: '0.0020',
+      MM_NEAR_TOUCH_PENALTY_BPS: '10',
+      MM_NEAR_TOUCH_SIZE_PENALTY: '0.8',
+      MM_SOFT_CANCEL_BPS: '0.0015',
+      MM_HARD_CANCEL_BPS: '0.0030',
+      MM_HOLD_NEAR_TOUCH_MS: '700',
+      MM_DYNAMIC_CANCEL_ON_FILL: 'true',
+      MM_AUTO_TUNE_ENABLED: 'true',
+      MM_AUTO_TUNE_TARGET_FILL_RATE: '0.015',
+      MM_AUTO_TUNE_TARGET_CANCEL_RATE: '0.7',
+    },
+    'Probable 积分做市模板'
+  );
+}
+
 function applyArbSafeTemplate() {
   applyTemplate(
     {
@@ -2882,6 +2910,13 @@ function applyArbSafeTemplate() {
       CROSS_PLATFORM_REQUIRE_WS: 'true',
       CROSS_PLATFORM_WS_REALTIME: 'true',
       CROSS_PLATFORM_WS_REALTIME_FALLBACK_ENABLED: 'true',
+      CROSS_PLATFORM_MIN_DEPTH_SHARES: '5',
+      CROSS_PLATFORM_MIN_DEPTH_USD: '3',
+      CROSS_PLATFORM_MAX_VWAP_DEVIATION_BPS: '40',
+      CROSS_PLATFORM_MAX_VWAP_LEVELS: '3',
+      CROSS_PLATFORM_PRE_SUBMIT_VWAP_BPS: '60',
+      CROSS_PLATFORM_PRE_SUBMIT_PROFIT_USD: '0.05',
+      CROSS_PLATFORM_PRE_SUBMIT_TOTAL_COST_BPS: '30',
     },
     '套利稳健模板'
   );
@@ -4516,6 +4551,9 @@ if (applyConsistencyAvoidBtn) {
 refreshMmMetrics.addEventListener('click', loadMmMetrics);
 if (applyMmPassiveBtn) {
   applyMmPassiveBtn.addEventListener('click', applyMmPassiveTemplate);
+}
+if (applyMmProbablePointsBtn) {
+  applyMmProbablePointsBtn.addEventListener('click', applyMmProbablePointsTemplate);
 }
 if (applyArbSafeBtn) {
   applyArbSafeBtn.addEventListener('click', applyArbSafeTemplate);

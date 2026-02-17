@@ -180,12 +180,22 @@ WS 健康日志：
 - `MM_HOLD_NEAR_TOUCH_MS=800`：接近成交时短暂观察，避免误撤。
 - `MM_DYNAMIC_CANCEL_ON_FILL=true`：一旦成交，提高撤单敏感度。
 
+## Probable 积分做市模板（挂单为主）
+
+如果你要在 Probable 上用“积分激励”模式，建议一键套用模板（桌面端按钮），核心是：
+
+- `MM_VENUE=probable` + `MM_REQUIRE_JWT=false`
+- `MM_ONLY_POINTS_MARKETS=true` + `MM_POINTS_MIN_ONLY=true`
+- `MM_ORDER_DEPTH_USAGE=0.2`（保守深度利用）
+- 开启 `MM_AUTO_TUNE_ENABLED=true` 让参数自适应盘口变化
+
 ## 一键模板（推荐）
 
 桌面端策略开关区提供两套模板：
 
 1. **做市防吃单模板**：自动开启盘口缓冲 + 成交压力价差 + 近触碰撤单。
 2. **套利稳健模板**：自动启用 WS + 预检 + VWAP 偏离二次确认 + 稳定性窗口。
+3. **Probable 积分做市模板**：切换到 Probable + 只做积分市场 + 最小挂单 + 自适应调参。
 
 ## 跨平台 WS 实时扫描（进阶）
 

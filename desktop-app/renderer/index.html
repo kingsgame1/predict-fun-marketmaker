@@ -96,10 +96,13 @@
             </div>
             <div class="button-row">
               <button class="btn ghost" id="applyMmPassive">做市防吃单模板</button>
+              <button class="btn ghost" id="applyMmProbablePoints">Probable 积分做市模板</button>
               <button class="btn ghost" id="applyArbSafe">套利稳健模板</button>
             </div>
             <div class="template-hint">
               做市模板：`MM_TOUCH_BUFFER_BPS`、`MM_FILL_RISK_SPREAD_BPS`、`MM_NEAR_TOUCH_PENALTY_BPS` 等
+              <br />
+              Probable 模板：`MM_VENUE=probable` + `MM_POINTS_MIN_ONLY=true` + `MM_ONLY_POINTS_MARKETS=true`
               <br />
               套利模板：`ARB_PREFLIGHT_ENABLED`、`ARB_WS_REALTIME`、`ARB_MAX_VWAP_DEVIATION_BPS` 等
             </div>
