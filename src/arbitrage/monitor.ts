@@ -30,6 +30,8 @@ export interface ArbitrageConfig {
   crossPlatformUseMapping: boolean;
   crossPlatformMaxShares: number;
   crossPlatformDepthLevels: number;
+  crossPlatformMaxVwapLevels: number;
+  crossPlatformMaxVwapDeviationBps: number;
   crossPlatformSlippageBps: number;
   crossPlatformDepthUsage: number;
   crossPlatformMinDepthShares: number;
@@ -102,6 +104,8 @@ export class ArbitrageMonitor {
       crossPlatformUseMapping: true,
       crossPlatformMaxShares: 200,
       crossPlatformDepthLevels: 10,
+      crossPlatformMaxVwapLevels: 0,
+      crossPlatformMaxVwapDeviationBps: 0,
       crossPlatformSlippageBps: 250,
       crossPlatformDepthUsage: 0.5,
       crossPlatformMinDepthShares: 0,
@@ -198,7 +202,9 @@ export class ArbitrageMonitor {
       this.config.crossPlatformMinProfitUsd ?? 0,
       this.config.crossPlatformMinTopDepthShares ?? 0,
       this.config.crossPlatformMinTopDepthUsd ?? 0,
-      this.config.crossPlatformTopDepthUsage ?? 0
+      this.config.crossPlatformTopDepthUsage ?? 0,
+      this.config.crossPlatformMaxVwapDeviationBps ?? 0,
+      this.config.crossPlatformMaxVwapLevels ?? 0
     );
     if (this.config.enableDependency) {
       this.dependencyDetector = new DependencyArbitrageDetector({

@@ -96,6 +96,8 @@ class ArbitrageBot {
       crossPlatformUseMapping: Boolean(this.config.crossPlatformUseMapping),
       crossPlatformMaxShares: this.config.crossPlatformMaxShares || 200,
       crossPlatformDepthLevels: this.config.crossPlatformDepthLevels || 10,
+      crossPlatformMaxVwapLevels: this.config.crossPlatformMaxVwapLevels || 0,
+      crossPlatformMaxVwapDeviationBps: this.config.crossPlatformMaxVwapDeviationBps || 0,
       crossPlatformSlippageBps: this.config.crossPlatformSlippageBps || 250,
       crossPlatformDepthUsage: this.config.crossPlatformDepthUsage || 0.5,
       crossPlatformMinDepthShares: this.config.crossPlatformMinDepthShares || 0,

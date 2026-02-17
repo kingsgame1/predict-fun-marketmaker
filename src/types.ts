@@ -446,6 +446,7 @@ export interface Config {
   crossPlatformMaxShares?: number;
   crossPlatformDepthLevels?: number;
   crossPlatformMaxVwapLevels?: number;
+  crossPlatformMaxVwapDeviationBps?: number;
   crossPlatformWsRealtime?: boolean;
   crossPlatformWsRealtimeIntervalMs?: number;
   crossPlatformWsRealtimeMaxBatch?: number;

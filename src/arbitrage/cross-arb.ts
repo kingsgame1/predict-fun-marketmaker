@@ -27,6 +27,8 @@ export class CrossPlatformArbitrageDetector {
   private minTopDepthShares: number;
   private minTopDepthUsd: number;
   private topDepthUsage: number;
+  private maxVwapDeviationBps: number;
+  private maxVwapLevels: number;
 
   constructor(
     platforms: string[] = ['Predict', 'Polymarket', 'Opinion', 'Probable'],
@@ -44,7 +46,9 @@ export class CrossPlatformArbitrageDetector {
     minProfitUsd: number = 0,
     minTopDepthShares: number = 0,
     minTopDepthUsd: number = 0,
-    topDepthUsage: number = 0
+    topDepthUsage: number = 0,
+    maxVwapDeviationBps: number = 0,
+    maxVwapLevels: number = 0
   ) {
     this.platforms = platforms;
     this.minProfitThreshold = minProfitThreshold;
@@ -62,6 +66,8 @@ export class CrossPlatformArbitrageDetector {
     this.minTopDepthShares = Math.max(0, minTopDepthShares);
     this.minTopDepthUsd = Math.max(0, minTopDepthUsd);
     this.topDepthUsage = Math.max(0, Math.min(1, topDepthUsage));
+    this.maxVwapDeviationBps = Math.max(0, maxVwapDeviationBps);
+    this.maxVwapLevels = Math.max(0, Math.floor(maxVwapLevels));
   }
 
   setMinProfitThreshold(value: number): void {
@@ -189,6 +195,56 @@ export class CrossPlatformArbitrageDetector {
       size = Math.max(1, Math.floor(size * 0.6));
     }
     return best && best.edge >= this.minProfitThreshold ? best : null;
+  }
+
+  private isBuyVwapOk(
+    yes: ReturnType<typeof estimateBuy> | null,
+    no: ReturnType<typeof estimateBuy> | null,
+    yesAsk: number,
+    noAsk: number
+  ): boolean {
+    if (this.maxVwapDeviationBps <= 0 && this.maxVwapLevels <= 0) {
+      return true;
+    }
+    if (!yes || !no) {
+      return false;
+    }
+    if (this.maxVwapLevels > 0) {
+      if (yes.levelsUsed > this.maxVwapLevels || no.levelsUsed > this.maxVwapLevels) {
+        return false;
+      }
+    }
+    if (this.maxVwapDeviationBps > 0) {
+      const maxDev = this.maxVwapDeviationBps / 10000;
+      if (yes.avgPrice > yesAsk * (1 + maxDev)) return false;
+      if (no.avgPrice > noAsk * (1 + maxDev)) return false;
+    }
+    return true;
+  }
+
+  private isSellVwapOk(
+    yes: ReturnType<typeof estimateSell> | null,
+    no: ReturnType<typeof estimateSell> | null,
+    yesBid: number,
+    noBid: number
+  ): boolean {
+    if (this.maxVwapDeviationBps <= 0 && this.maxVwapLevels <= 0) {
+      return true;
+    }
+    if (!yes || !no) {
+      return false;
+    }
+    if (this.maxVwapLevels > 0) {
+      if (yes.levelsUsed > this.maxVwapLevels || no.levelsUsed > this.maxVwapLevels) {
+        return false;
+      }
+    }
+    if (this.maxVwapDeviationBps > 0) {
+      const maxDev = this.maxVwapDeviationBps / 10000;
+      if (yes.avgPrice < yesBid * (1 - maxDev)) return false;
+      if (no.avgPrice < noBid * (1 - maxDev)) return false;
+    }
+    return true;
   }
 
   /**
@@ -335,6 +391,11 @@ export class CrossPlatformArbitrageDetector {
     const resolvedBuySizeBA = buyCandidateBA?.size ?? finalBuySizeBA;
 
     if (finalBuySizeAB > 0 && canUseAB) {
+      const yesVwap = buyCandidateAB?.yes ?? buyYesA;
+      const noVwap = buyCandidateAB?.no ?? buyNoB;
+      if (!this.isBuyVwapOk(yesVwap, noVwap, yesAskA, noAskB)) {
+        buyNetAB = -Infinity;
+      }
       if (buyCandidateAB) {
         buyCostAB = buyCandidateAB.costPerShare;
         buyNetAB = buyCandidateAB.edge;
@@ -351,6 +412,11 @@ export class CrossPlatformArbitrageDetector {
     }
 
     if (finalBuySizeBA > 0 && canUseBA) {
+      const yesVwap = buyCandidateBA?.yes ?? buyYesB;
+      const noVwap = buyCandidateBA?.no ?? buyNoA;
+      if (!this.isBuyVwapOk(yesVwap, noVwap, yesAskB, noAskA)) {
+        buyNetBA = -Infinity;
+      }
       if (buyCandidateBA) {
         buyCostBA = buyCandidateBA.costPerShare;
         buyNetBA = buyCandidateBA.edge;
@@ -525,6 +591,11 @@ export class CrossPlatformArbitrageDetector {
       const resolvedSellSizeBA = sellCandidateBA?.size ?? finalSellSizeBA;
 
       if (finalSellSizeAB > 0 && canSellAB) {
+        const yesVwap = sellCandidateAB?.yes ?? sellYesA;
+        const noVwap = sellCandidateAB?.no ?? sellNoB;
+        if (!this.isSellVwapOk(yesVwap, noVwap, yesBidA, noBidB)) {
+          sellNetAB = -Infinity;
+        }
         if (sellCandidateAB) {
           sellNetAB = sellCandidateAB.edge;
         } else {
@@ -540,6 +611,11 @@ export class CrossPlatformArbitrageDetector {
       }
 
       if (finalSellSizeBA > 0 && canSellBA) {
+        const yesVwap = sellCandidateBA?.yes ?? sellYesB;
+        const noVwap = sellCandidateBA?.no ?? sellNoA;
+        if (!this.isSellVwapOk(yesVwap, noVwap, yesBidB, noBidA)) {
+          sellNetBA = -Infinity;
+        }
         if (sellCandidateBA) {
           sellNetBA = sellCandidateBA.edge;
         } else {

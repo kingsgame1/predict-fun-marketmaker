@@ -537,6 +537,7 @@ export function loadConfig(): Config {
     crossPlatformMaxShares: parseInt(process.env.CROSS_PLATFORM_MAX_SHARES || '200'),
     crossPlatformDepthLevels: parseInt(process.env.CROSS_PLATFORM_DEPTH_LEVELS || '10'),
     crossPlatformMaxVwapLevels: parseInt(process.env.CROSS_PLATFORM_MAX_VWAP_LEVELS || '0'),
+    crossPlatformMaxVwapDeviationBps: parseFloat(process.env.CROSS_PLATFORM_MAX_VWAP_DEVIATION_BPS || '0'),
     crossPlatformWsRealtime: process.env.CROSS_PLATFORM_WS_REALTIME === 'true',
     crossPlatformWsRealtimeIntervalMs: parseInt(process.env.CROSS_PLATFORM_WS_REALTIME_INTERVAL_MS || '600'),
     crossPlatformWsRealtimeMaxBatch: parseInt(process.env.CROSS_PLATFORM_WS_REALTIME_MAX_BATCH || '30'),
