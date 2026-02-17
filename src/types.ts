@@ -210,8 +210,6 @@ export interface Config {
   mmVenue?: 'predict' | 'probable';
   mmRequireJwt?: boolean;
   mmAsymSpreadWeight?: number;
-  mmIntervalProfileVolatileMultiplier?: number;
-  mmIntervalProfileCalmMultiplier?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
@@ -467,6 +465,7 @@ export interface Config {
   crossPlatformPreSubmitLegCostSpreadBps?: number;
   crossPlatformAdaptiveSize?: boolean;
   crossPlatformMinDepthShares?: number;
+  crossPlatformMinDepthUsd?: number;
   crossPlatformMinNotionalUsd?: number;
   crossPlatformMinProfitUsd?: number;
   crossPlatformMinProfitBps?: number;
@@ -809,6 +808,9 @@ export interface Config {
   arbExecutionCooldownMs?: number;
   arbScanIntervalMs?: number;
   arbMaxMarkets?: number;
+  arbOpportunitiesPath?: string;
+  arbCommandPath?: string;
+  arbSnapshotMax?: number;
   arbOrderbookConcurrency?: number;
   arbMarketsCacheMs?: number;
   arbWsMaxAgeMs?: number;
@@ -1013,6 +1015,17 @@ export interface Position {
   avg_entry_price: number;
   current_price: number;
   pnl: number;
+  tokenId?: string;
+  market?: { tokenId?: string; question?: string };
+  outcome?: string;
+  side?: string;
+  amount?: number;
+  shares?: number;
+  size?: number;
+  value?: number;
+  avg_price?: number;
+  avgEntryPrice?: number;
+  currentPrice?: number;
 }
 
 export interface MarketMakerState {

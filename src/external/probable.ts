@@ -46,6 +46,15 @@ function joinUrl(base: string, path: string): string {
   return `${trimmed}${suffix}`;
 }
 
+function ensureProbableApiPath(base: string, path: string): string {
+  const trimmed = base.replace(/\/+$/, '');
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  if (trimmed.includes('/public/api/v1')) {
+    return `${trimmed}${suffix}`;
+  }
+  return `${trimmed}/public/api/v1${suffix}`;
+}
+
 function parseOrderbook(
   data: any,
   depthLevels?: number
@@ -177,7 +186,7 @@ export class ProbableDataProvider implements PlatformProvider {
 
       if (!yesTop || !yesTop.bestBid || !yesTop.bestAsk || !noTop || !noTop.bestBid || !noTop.bestAsk || (needsDepth && !hasDepth)) {
         const base = this.config.orderbookApiUrl;
-        const url = joinUrl(base, '/book');
+        const url = ensureProbableApiPath(base, '/book');
         const [yesRaw, noRaw] = await Promise.all([
           axios.get(url, { params: { token_id: yesTokenId }, timeout: 8000 }).then((r) => r.data),
           axios.get(url, { params: { token_id: noTokenId }, timeout: 8000 }).then((r) => r.data),
@@ -241,7 +250,7 @@ export class ProbableDataProvider implements PlatformProvider {
       return this.cachedMarkets.slice(0, this.config.maxMarkets);
     }
 
-    const url = joinUrl(this.config.marketApiUrl, '/public/api/v1/markets/');
+    const url = ensureProbableApiPath(this.config.marketApiUrl, '/markets/');
     const response = await axios.get(url, {
       params: {
         active: true,

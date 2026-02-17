@@ -454,6 +454,9 @@
 - `ARB_EXECUTION_COOLDOWN_MS`：同一机会冷却时间。
 - `ARB_SCAN_INTERVAL_MS`：扫描频率。
 - `ARB_MAX_MARKETS`：扫描市场数上限。
+- `ARB_OPPORTUNITIES_PATH`：套利机会快照输出路径（供 UI 一键执行使用）。
+- `ARB_COMMAND_PATH`：套利一键执行命令文件路径。
+- `ARB_SNAPSHOT_MAX`：快照最多保留的机会条数。
 - `ARB_ORDERBOOK_CONCURRENCY`：并发拉取 orderbook。
 - `ARB_MARKETS_CACHE_MS`：市场列表缓存。
 - `ARB_WS_MAX_AGE_MS`：WS 数据最大允许延迟。
@@ -583,6 +586,7 @@
 - `CROSS_PLATFORM_PRE_SUBMIT_LEG_COST_SPREAD_BPS`：提交前腿间 VWAP 成本差阈值（bps，0=关闭）。
 - `CROSS_PLATFORM_ADAPTIVE_SIZE`：执行前根据订单簿深度自动缩小下单份额。
 - `CROSS_PLATFORM_MIN_DEPTH_SHARES`：深度不足时的最小下单份额门槛。
+- `CROSS_PLATFORM_MIN_DEPTH_USD`：跨平台套利时要求的最低深度美元值（基于盘口深度估算）。
 - `CROSS_PLATFORM_MIN_NOTIONAL_USD`：跨平台机会的最小成交金额过滤。
 - `CROSS_PLATFORM_MIN_PROFIT_USD`：跨平台机会的最小收益金额过滤。
 - `CROSS_PLATFORM_MIN_PROFIT_BPS`：跨平台最小收益占名义金额比例（bps）。
@@ -926,8 +930,8 @@
 ## 12. Probable
 
 - `PROBABLE_ENABLED`：是否启用 Probable 数据/执行。
-- `PROBABLE_MARKET_API_URL`：市场列表 API（market-api）。
-- `PROBABLE_ORDERBOOK_API_URL`：订单簿 API（public api v1）。
+- `PROBABLE_MARKET_API_URL`：市场列表 API（默认 `https://market-api.probable.markets`，自动补全 `/public/api/v1`）。
+- `PROBABLE_ORDERBOOK_API_URL`：订单簿 API（默认 `https://api.probable.markets`，自动补全 `/public/api/v1`）。
 - `PROBABLE_MAX_MARKETS`：扫描上限。
 - `PROBABLE_FEE_BPS`：手续费估算。
 - `PROBABLE_WS_ENABLED`：WS 开关。

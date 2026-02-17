@@ -167,7 +167,7 @@ export class MarketMaker {
     }
 
     if (this.config.hedgeMode === 'CROSS' && this.crossAggregator) {
-      this.crossExecutionRouter = new CrossPlatformExecutionRouter(this.config, this.api, this.orderManager);
+      this.crossExecutionRouter = new CrossPlatformExecutionRouter(this.config, this.api as any, this.orderManager);
     }
   }
 

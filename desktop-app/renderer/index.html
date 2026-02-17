@@ -556,6 +556,35 @@
           </div>
         </section>
 
+        <section class="card arb-card">
+          <div class="card-header">
+            <h2>套利机会</h2>
+            <div class="filters">
+              <span class="badge" id="arbSnapshotStatus">未加载</span>
+              <button class="btn ghost" id="refreshArbSnapshot">刷新</button>
+            </div>
+          </div>
+          <div class="arb-toolbar">
+            <label>类型</label>
+            <select id="arbTypeFilter">
+              <option value="all">全部</option>
+              <option value="intra">站内</option>
+              <option value="cross">跨平台</option>
+              <option value="multi">多结果</option>
+              <option value="dependency">依赖</option>
+              <option value="value">价值错配</option>
+            </select>
+            <label>最小收益%</label>
+            <input id="arbMinReturn" type="number" min="0" step="0.1" value="0" />
+            <label>最小利润USD</label>
+            <input id="arbMinProfitUsd" type="number" min="0" step="0.1" value="0" />
+          </div>
+          <div class="arb-list" id="arbOppList">
+            <div class="health-item ok">暂无机会。</div>
+          </div>
+          <p class="hint" id="arbCommandHint"></p>
+        </section>
+
         <section class="card health-card">
           <div class="card-header">
             <h2>系统体检</h2>

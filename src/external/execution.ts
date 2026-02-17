@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import type { Config } from '../types.js';
 import type { PlatformLeg, ExternalPlatform } from './types.js';
 import { PredictAPI } from '../api/client.js';
-import { OrderManager } from '../order-manager.js';
+import type { MakerOrderManager } from '../mm/venue.js';
 import { Wallet } from 'ethers';
 import { ClobClient } from '@polymarket/clob-client';
 import { createClobClient, OrderSide, LimitTimeInForce } from '@prob/clob';
@@ -59,7 +59,7 @@ interface PlatformExecutor {
 class PredictExecutor implements PlatformExecutor {
   platform: ExternalPlatform = 'Predict';
   private api: PredictAPI;
-  private orderManager: OrderManager;
+  private orderManager: MakerOrderManager;
   private slippageBps: string;
   private useLimitOrders: boolean;
   private cancelOpenMs: number;
@@ -67,7 +67,7 @@ class PredictExecutor implements PlatformExecutor {
 
   constructor(
     api: PredictAPI,
-    orderManager: OrderManager,
+    orderManager: MakerOrderManager,
     slippageBps: number,
     options?: { useLimitOrders?: boolean; cancelOpenMs?: number }
   ) {
@@ -940,7 +940,7 @@ export class CrossPlatformExecutionRouter {
   private wsHealthChunkDelayExtraMs = 0;
   private wsHealthChunkFactor = 1;
 
-  constructor(config: Config, api: PredictAPI, orderManager: OrderManager) {
+  constructor(config: Config, api: PredictAPI, orderManager: MakerOrderManager) {
     this.config = config;
     this.api = api;
     this.allowlistTokens = this.buildSet(config.crossPlatformAllowlistTokens);

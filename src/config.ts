@@ -562,6 +562,7 @@ export function loadConfig(): Config {
     crossPlatformPreSubmitLegCostSpreadBps: parseFloat(process.env.CROSS_PLATFORM_PRE_SUBMIT_LEG_COST_SPREAD_BPS || '0'),
     crossPlatformAdaptiveSize: process.env.CROSS_PLATFORM_ADAPTIVE_SIZE !== 'false',
     crossPlatformMinDepthShares: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_SHARES || '1'),
+    crossPlatformMinDepthUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_USD || '0'),
     crossPlatformMinNotionalUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_NOTIONAL_USD || '0'),
     crossPlatformMinProfitUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_PROFIT_USD || '0'),
     crossPlatformMinProfitBps: parseFloat(process.env.CROSS_PLATFORM_MIN_PROFIT_BPS || '0'),
@@ -997,6 +998,9 @@ export function loadConfig(): Config {
     arbExecutionCooldownMs: parseInt(process.env.ARB_EXECUTION_COOLDOWN_MS || '60000'),
     arbScanIntervalMs: parseInt(process.env.ARB_SCAN_INTERVAL_MS || '10000'),
     arbMaxMarkets: parseInt(process.env.ARB_MAX_MARKETS || '80'),
+    arbOpportunitiesPath: process.env.ARB_OPPORTUNITIES_PATH || 'data/arb-opportunities.json',
+    arbCommandPath: process.env.ARB_COMMAND_PATH || 'data/arb-command.json',
+    arbSnapshotMax: parseInt(process.env.ARB_SNAPSHOT_MAX || '50'),
     arbOrderbookConcurrency: parseInt(process.env.ARB_ORDERBOOK_CONCURRENCY || '8'),
     arbMarketsCacheMs: parseInt(process.env.ARB_MARKETS_CACHE_MS || '10000'),
     arbWsMaxAgeMs: parseInt(process.env.ARB_WS_MAX_AGE_MS || '10000'),
@@ -1068,7 +1072,7 @@ export function loadConfig(): Config {
     polymarketCacheTtlMs: parseInt(process.env.POLYMARKET_CACHE_TTL_MS || '60000'),
     probableEnabled: (process.env.PROBABLE_ENABLED || '').toLowerCase() === 'true',
     probableMarketApiUrl: process.env.PROBABLE_MARKET_API_URL || 'https://market-api.probable.markets',
-    probableOrderbookApiUrl: process.env.PROBABLE_ORDERBOOK_API_URL || 'https://api.probable.markets/public/api/v1',
+    probableOrderbookApiUrl: process.env.PROBABLE_ORDERBOOK_API_URL || 'https://api.probable.markets',
     probableMaxMarkets: parseInt(process.env.PROBABLE_MAX_MARKETS || '30'),
     probableFeeBps: parseFloat(process.env.PROBABLE_FEE_BPS || '0'),
     probableWsEnabled: process.env.PROBABLE_WS_ENABLED === 'true',
@@ -1317,6 +1321,9 @@ export function loadConfig(): Config {
 
   if ((config.crossPlatformMinDepthShares ?? 0) < 0) {
     config.crossPlatformMinDepthShares = 0;
+  }
+  if ((config.crossPlatformMinDepthUsd ?? 0) < 0) {
+    config.crossPlatformMinDepthUsd = 0;
   }
   if ((config.crossPlatformDepthUsage ?? 0) <= 0 || (config.crossPlatformDepthUsage ?? 0) > 1) {
     config.crossPlatformDepthUsage = 0.5;
@@ -2125,6 +2132,8 @@ export function printConfig(config: Config): void {
   console.log(`Cross Require WS: ${config.crossPlatformRequireWs ? '✅' : '❌'}`);
   console.log(`Arb Scan Interval: ${config.arbScanIntervalMs}ms`);
   console.log(`Arb Max Markets: ${config.arbMaxMarkets}`);
+  console.log(`Arb Snapshot Max: ${config.arbSnapshotMax} path=${config.arbOpportunitiesPath}`);
+  console.log(`Arb Command Path: ${config.arbCommandPath}`);
   console.log(`Arb WS Max Age: ${config.arbWsMaxAgeMs}ms`);
   console.log(`Arb WS Health Log: ${config.arbWsHealthLogMs}ms`);
   console.log(`Arb Preflight: ${config.arbPreflightEnabled ? '✅' : '❌'} maxAge=${config.arbPreflightMaxAgeMs}ms`);

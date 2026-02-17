@@ -36,6 +36,13 @@ const applyArbSafeBtn = document.getElementById('applyArbSafe');
 const tabButtons = Array.from(document.querySelectorAll('.tab-button'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
 const metricsStatus = document.getElementById('metricsStatus');
+const arbSnapshotStatus = document.getElementById('arbSnapshotStatus');
+const refreshArbSnapshot = document.getElementById('refreshArbSnapshot');
+const arbTypeFilter = document.getElementById('arbTypeFilter');
+const arbMinReturn = document.getElementById('arbMinReturn');
+const arbMinProfitUsd = document.getElementById('arbMinProfitUsd');
+const arbOppList = document.getElementById('arbOppList');
+const arbCommandHint = document.getElementById('arbCommandHint');
 const metricSuccessRate = document.getElementById('metricSuccessRate');
 const metricSuccessRaw = document.getElementById('metricSuccessRaw');
 const metricFailureRate = document.getElementById('metricFailureRate');
@@ -168,6 +175,8 @@ const riskWeights = {
   consistency: 1,
   stale: 1,
 };
+let arbSnapshot = null;
+let arbCommandState = null;
 const FIX_HINTS = {
   CROSS_PLATFORM_ADAPTIVE_SIZE: '根据深度自动缩放下单量',
   CROSS_PLATFORM_DEPTH_USAGE: '使用的盘口深度比例',
@@ -821,6 +830,15 @@ function parseEnv(text) {
   return map;
 }
 
+function parseJsonSafe(text, fallback = null) {
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
 function syncSelectsFromEnv(text) {
   const env = parseEnv(text);
   if (mmVenueSelect) {
@@ -835,6 +853,161 @@ function updateMetricsPaths() {
   const statePath = env.get('CROSS_PLATFORM_STATE_PATH') || 'data/cross-platform-state.json';
   if (metricMetricsPath) metricMetricsPath.textContent = metricsPath;
   if (metricStatePath) metricStatePath.textContent = statePath;
+}
+
+function formatArbType(typeKey, type) {
+  const key = String(typeKey || '').toLowerCase();
+  if (key === 'intra') return '站内';
+  if (key === 'cross') return '跨平台';
+  if (key === 'multi') return '多结果';
+  if (key === 'dependency') return '依赖';
+  if (key === 'value') return '价值';
+  const raw = String(type || '');
+  if (raw.includes('IN_PLATFORM')) return '站内';
+  if (raw.includes('CROSS_PLATFORM')) return '跨平台';
+  if (raw.includes('MULTI_OUTCOME')) return '多结果';
+  if (raw.includes('DEPENDENCY')) return '依赖';
+  if (raw.includes('VALUE')) return '价值';
+  return '其他';
+}
+
+function updateArbSnapshotStatus(snapshot) {
+  if (!arbSnapshotStatus) return;
+  if (!snapshot?.ts) {
+    arbSnapshotStatus.textContent = '未加载';
+    arbSnapshotStatus.style.color = '#f7c46c';
+    return;
+  }
+  const age = Math.max(0, Date.now() - Number(snapshot.ts || 0));
+  const sec = Math.round(age / 1000);
+  arbSnapshotStatus.textContent = `更新 ${sec}s 前`;
+  arbSnapshotStatus.style.color = sec > 30 ? '#f7c46c' : '#51d1b6';
+}
+
+function renderArbList() {
+  if (!arbOppList) return;
+  const snapshot = arbSnapshot || { items: [] };
+  let items = Array.isArray(snapshot.items) ? snapshot.items.slice() : [];
+  const typeFilter = arbTypeFilter ? arbTypeFilter.value : 'all';
+  const minReturn = arbMinReturn ? parseFloat(arbMinReturn.value || '0') : 0;
+  const minProfit = arbMinProfitUsd ? parseFloat(arbMinProfitUsd.value || '0') : 0;
+
+  if (typeFilter && typeFilter !== 'all') {
+    items = items.filter((item) => item.typeKey === typeFilter);
+  }
+  if (Number.isFinite(minReturn) && minReturn > 0) {
+    items = items.filter((item) => Number(item.expectedReturn || 0) >= minReturn);
+  }
+  if (Number.isFinite(minProfit) && minProfit > 0) {
+    items = items.filter((item) => Number(item.profitUsd || 0) >= minProfit);
+  }
+
+  arbOppList.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'health-item ok';
+    empty.textContent = '暂无符合条件的机会。';
+    arbOppList.appendChild(empty);
+    return;
+  }
+
+  items.slice(0, 50).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'arb-item';
+
+    const header = document.createElement('div');
+    header.className = 'arb-item-header';
+    const title = document.createElement('div');
+    title.className = 'arb-item-title';
+    title.textContent = item.marketQuestion || item.marketId || '未知市场';
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = formatArbType(item.typeKey, item.type);
+    header.appendChild(title);
+    header.appendChild(badge);
+
+    const meta = document.createElement('div');
+    meta.className = 'arb-item-meta';
+    const returnPct = Number(item.expectedReturn || 0);
+    const profitUsd = Number(item.profitUsd || 0);
+    meta.innerHTML = [
+      item.recommendedAction ? `动作：${item.recommendedAction}` : '',
+      Number.isFinite(returnPct) ? `收益：${returnPct.toFixed(2)}%` : '',
+      Number.isFinite(profitUsd) ? `利润≈$${profitUsd.toFixed(2)}` : '',
+      item.positionSize ? `建议量：${item.positionSize}` : '',
+      item.platformA && item.platformB ? `${item.platformA} vs ${item.platformB}` : '',
+      item.spread ? `Spread=${Number(item.spread).toFixed(4)}` : '',
+    ]
+      .filter(Boolean)
+      .map((text) => `<span>${text}</span>`)
+      .join('');
+
+    const actions = document.createElement('div');
+    actions.className = 'arb-item-actions';
+    const execBtn = document.createElement('button');
+    execBtn.className = 'btn primary';
+    execBtn.textContent = '执行';
+    execBtn.addEventListener('click', async () => {
+      if (!window.predictBot.executeArbOpportunity) {
+        pushLog({ type: 'system', level: 'stderr', message: '当前版本不支持一键执行' });
+        return;
+      }
+      if (!confirm('确认执行该套利机会？')) return;
+      const payload = {
+        id: `cmd_${Date.now()}`,
+        typeKey: item.typeKey,
+        type: item.type,
+        index: item.index,
+        fingerprint: item.fingerprint,
+      };
+      const result = await window.predictBot.executeArbOpportunity(payload);
+      if (!result?.ok) {
+        if (arbCommandHint) arbCommandHint.textContent = result?.message || '执行请求失败';
+        pushLog({ type: 'arb', level: 'stderr', message: result?.message || '执行请求失败' });
+        return;
+      }
+      if (arbCommandHint) arbCommandHint.textContent = `执行指令已发送：${result.id}`;
+      pushLog({ type: 'arb', level: 'system', message: `一键执行已发送：${result.id}` });
+      loadArbCommandStatus().catch(() => {});
+    });
+    actions.appendChild(execBtn);
+
+    row.appendChild(header);
+    row.appendChild(meta);
+    row.appendChild(actions);
+    arbOppList.appendChild(row);
+  });
+}
+
+async function loadArbSnapshot() {
+  if (!window.predictBot.readArbOpportunities) {
+    return;
+  }
+  try {
+    const raw = await window.predictBot.readArbOpportunities();
+    arbSnapshot = parseJsonSafe(raw, { ts: 0, items: [] });
+    updateArbSnapshotStatus(arbSnapshot);
+    renderArbList();
+  } catch {
+    if (arbSnapshotStatus) arbSnapshotStatus.textContent = '读取失败';
+  }
+}
+
+async function loadArbCommandStatus() {
+  if (!window.predictBot.readArbCommand) {
+    return;
+  }
+  try {
+    const raw = await window.predictBot.readArbCommand();
+    arbCommandState = parseJsonSafe(raw, null);
+    if (arbCommandHint && arbCommandState?.status) {
+      const status = arbCommandState.status;
+      const message = arbCommandState.message ? `：${arbCommandState.message}` : '';
+      arbCommandHint.textContent = `执行状态：${status}${message}`;
+    }
+  } catch {
+    // ignore
+  }
 }
 
 function syncTogglesFromEnv(text) {
@@ -4235,6 +4408,8 @@ async function init() {
   bindLogFilterPresets();
   await loadMetrics();
   await loadMmMetrics();
+  await loadArbSnapshot();
+  await loadArbCommandStatus();
   await runDiagnostics();
 }
 
@@ -4311,6 +4486,13 @@ refreshMetrics.addEventListener('click', loadMetrics);
 runDiagnosticsBtn.addEventListener('click', runDiagnostics);
 exportDiagnosticsBtn.addEventListener('click', exportDiagnostics);
 exportMmEventsBtn?.addEventListener('click', exportMmEvents);
+refreshArbSnapshot?.addEventListener('click', () => {
+  loadArbSnapshot().catch(() => {});
+  loadArbCommandStatus().catch(() => {});
+});
+arbTypeFilter?.addEventListener('change', renderArbList);
+arbMinReturn?.addEventListener('input', renderArbList);
+arbMinProfitUsd?.addEventListener('input', renderArbList);
 enableRecoveryTemplateBtn?.addEventListener('click', () => toggleRecoveryTemplate(true));
 disableRecoveryTemplateBtn?.addEventListener('click', () => toggleRecoveryTemplate(false));
 applyRecoveryTemplateSafeBtn?.addEventListener('click', () => applyRecoveryTemplatePreset('safe'));
@@ -4473,4 +4655,6 @@ init().catch((err) => {
 setInterval(() => {
   loadMetrics().catch(() => {});
   loadMmMetrics().catch(() => {});
+  loadArbSnapshot().catch(() => {});
+  loadArbCommandStatus().catch(() => {});
 }, 5000);

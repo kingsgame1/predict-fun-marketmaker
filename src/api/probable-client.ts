@@ -64,11 +64,13 @@ function parseOrderbook(data: any): Orderbook {
   const parsedAsks = parseSide(asks);
   const bestBid = parsedBids.length > 0 ? Number(parsedBids[0].price) : undefined;
   const bestAsk = parsedAsks.length > 0 ? Number(parsedAsks[0].price) : undefined;
-  const mid =
-    Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (Number(bestBid) + Number(bestAsk)) / 2 : undefined;
-  const spread = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? Number(bestAsk) - Number(bestBid) : undefined;
-  const spreadPct =
-    Number.isFinite(spread) && Number.isFinite(mid) && mid > 0 ? (spread / mid) * 100 : undefined;
+  const midValue =
+    Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (Number(bestBid) + Number(bestAsk)) / 2 : 0;
+  const spreadValue =
+    Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? Number(bestAsk) - Number(bestBid) : 0;
+  const mid = midValue > 0 ? midValue : undefined;
+  const spread = Number.isFinite(spreadValue) ? spreadValue : undefined;
+  const spreadPct = mid && Number.isFinite(spreadValue) ? (spreadValue / mid) * 100 : undefined;
   return {
     token_id: String(payload?.token_id ?? payload?.tokenId ?? ''),
     bids: parsedBids,

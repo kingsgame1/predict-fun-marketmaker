@@ -468,7 +468,7 @@ npm run dev
 npm run pack
 ```
 
-Note: The desktop console reads the root `.env` file and spawns bots via `npx tsx`, so make sure root dependencies are installed. Packaged builds run compiled `dist` via system `node`. Set `NODE_BINARY` to override.
+Note: The desktop console reads the root `.env` file and spawns bots via `node --import tsx`, so make sure root dependencies are installed. Packaged builds run compiled `dist` via system `node`. Set `NODE_BINARY` to override.
 
 Cross-platform auto-execution requirements:
 - Polymarket: configure `POLYMARKET_PRIVATE_KEY` (API keys can be derived or set manually).

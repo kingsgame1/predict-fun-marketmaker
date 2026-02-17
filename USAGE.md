@@ -17,6 +17,7 @@
 - macOS 依赖套利约束：`~/Library/Application Support/Predict.fun Console/bot/dependency-constraints.json`
 
 桌面端 UI 内可直接编辑 `.env`。
+套利机会面板会读取 `ARB_OPPORTUNITIES_PATH`，点击“执行”会写入 `ARB_COMMAND_PATH`。请确保套利机器人在运行中。
 
 ## 必要配置
 
@@ -198,6 +199,11 @@ WS 健康日志：
 - `CROSS_PLATFORM_MIN_PROFIT_USD=0.08`
 - `CROSS_PLATFORM_MIN_PROFIT_BPS=25`
 - `CROSS_PLATFORM_MIN_PROFIT_IMPACT_MULT=1.2`
+
+跨平台深度/VWAP 保护（减少“看似套利但深度不足”）：
+
+- `CROSS_PLATFORM_MIN_DEPTH_SHARES=5`
+- `CROSS_PLATFORM_MIN_DEPTH_USD=3`
 
 成交后漂移回撤（残差风控）：
 

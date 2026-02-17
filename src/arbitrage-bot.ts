@@ -19,6 +19,8 @@ import { CrossPlatformExecutionRouter } from './external/execution.js';
 import type { PlatformLeg, PlatformMarket } from './external/types.js';
 import type { CrossPlatformMappingStore } from './external/mapping.js';
 import { PredictWebSocketFeed } from './external/predict-ws.js';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 class ArbitrageBot {
   private api: PredictAPI;
@@ -61,9 +63,18 @@ class ArbitrageBot {
   private arbPauseMs = 0;
   private arbDegradeLevel = 0;
   private arbRecheckBumpMs = 0;
+  private arbSnapshotPath: string;
+  private arbCommandPath: string;
+  private arbSnapshotMax: number;
+  private lastCommandId = '';
 
   constructor() {
     this.config = loadConfig();
+    this.arbSnapshotPath = this.normalizePath(
+      this.config.arbOpportunitiesPath || 'data/arb-opportunities.json'
+    );
+    this.arbCommandPath = this.normalizePath(this.config.arbCommandPath || 'data/arb-command.json');
+    this.arbSnapshotMax = Math.max(1, this.config.arbSnapshotMax || 50);
     this.wallet = new Wallet(this.config.privateKey);
     this.api = new PredictAPI(this.config.apiBaseUrl, this.config.apiKey, this.config.jwtToken);
 
@@ -87,6 +98,8 @@ class ArbitrageBot {
       crossPlatformDepthLevels: this.config.crossPlatformDepthLevels || 10,
       crossPlatformSlippageBps: this.config.crossPlatformSlippageBps || 250,
       crossPlatformDepthUsage: this.config.crossPlatformDepthUsage || 0.5,
+      crossPlatformMinDepthShares: this.config.crossPlatformMinDepthShares || 0,
+      crossPlatformMinDepthUsd: this.config.crossPlatformMinDepthUsd || 0,
       crossPlatformMinTopDepthShares: this.config.crossPlatformMinTopDepthShares || 0,
       crossPlatformMinTopDepthUsd: this.config.crossPlatformMinTopDepthUsd || 0,
       crossPlatformTopDepthUsage: this.config.crossPlatformTopDepthUsage || 0,
@@ -208,6 +221,8 @@ class ArbitrageBot {
 
     this.startWsHealthLogger();
 
+    await this.ensureArbAssets();
+
     console.log('✅ Initialization complete\n');
   }
 
@@ -239,7 +254,13 @@ class ArbitrageBot {
         const orderbooks = await this.loadOrderbooks(sample);
         return { markets, orderbooks };
       },
-      this.config.arbAutoExecute ? async (scan) => this.autoExecute(scan) : undefined
+      async (scan) => {
+        await this.writeArbSnapshot(scan);
+        await this.processArbCommand(scan);
+        if (this.config.arbAutoExecute) {
+          await this.autoExecute(scan);
+        }
+      }
     );
   }
 
@@ -261,61 +282,14 @@ class ArbitrageBot {
     const maxTop = this.getEffectiveTopN(Math.max(1, this.config.arbExecuteTopN || 1));
 
     const executeOne = async (opp: any) => {
-      if (opp.type === 'CROSS_PLATFORM') {
-        if (!this.isCrossWsHealthy(now)) {
-          this.warnWsHealth('Cross-platform WS unhealthy, skip auto-exec');
-          return;
-        }
-      } else if (!this.isPredictWsHealthy(now)) {
-        this.warnWsHealth('Predict WS unhealthy, skip auto-exec');
-        return;
-      }
-      const key = `${opp.type}-${opp.marketId}`;
-      const last = this.lastExecution.get(key) || 0;
-      if (now - last < cooldown) {
-        return;
-      }
-      if (!this.isStableOpportunity(opp, now)) {
-        return;
-      }
-    if (this.config.arbPreflightEnabled !== false) {
-      const ok = await this.preflightOpportunity(opp, markets);
-      if (!ok) {
-        const base = Math.max(0, this.config.arbRecheckMs || 0);
-        const bump = Math.max(0, this.arbRecheckBumpMs || 0);
-        const maxBump = Math.max(0, this.config.arbRecheckBumpMaxMs || 0);
-        const effective = Math.max(0, base + Math.min(bump, maxBump || bump));
-        if (effective > base) {
-          this.arbRecheckBumpMs = effective - base;
-        }
+      const result = await this.executeOpportunity(opp, markets, {
+        bypassCooldown: false,
+        bypassStability: false,
+        reason: 'auto',
+      });
+      if (!result.ok && result.message && result.message === 'Preflight failed') {
         console.log(`⚠️ Preflight failed for ${opp.type} ${opp.marketId}, skip execution.`);
-        return;
       }
-    }
-      try {
-        switch (opp.type) {
-          case 'VALUE_MISMATCH':
-            await this.executor.executeValueMismatch(opp);
-            break;
-          case 'IN_PLATFORM':
-            await this.executor.executeInPlatformArbitrage(opp);
-            break;
-          case 'MULTI_OUTCOME':
-            await this.executor.executeMultiOutcomeArbitrage(opp);
-            break;
-          case 'CROSS_PLATFORM':
-            await this.executor.executeCrossPlatformArbitrage(opp);
-            break;
-          case 'DEPENDENCY':
-            await this.executor.executeDependencyArbitrage(opp);
-            break;
-        }
-      } catch (error) {
-        this.recordArbError(error);
-        return;
-      }
-      this.recordArbSuccess();
-      this.lastExecution.set(key, now);
     };
 
     const buckets = [scan.inPlatform, scan.multiOutcome, scan.crossPlatform, scan.dependency];
@@ -417,6 +391,309 @@ class ArbitrageBot {
 
   shouldAutoExecute(): boolean {
     return Boolean(this.config.arbAutoExecute);
+  }
+
+  private normalizePath(filePath: string): string {
+    if (!filePath) {
+      return filePath;
+    }
+    return path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
+  }
+
+  private async ensureArbAssets(): Promise<void> {
+    const paths = [this.arbSnapshotPath, this.arbCommandPath].filter(Boolean);
+    for (const filePath of paths) {
+      try {
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        if (!filePath) continue;
+        if (!(await this.fileExists(filePath))) {
+          const payload =
+            filePath === this.arbSnapshotPath
+              ? { ts: 0, items: [] }
+              : { status: 'IDLE', ts: 0 };
+          await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to prepare arb asset:', filePath, error);
+      }
+    }
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private buildFingerprint(opp: any): string {
+    const legs = Array.isArray(opp?.legs)
+      ? opp.legs
+          .map((leg: any) => `${leg?.platform || ''}:${leg?.tokenId || ''}:${leg?.side || ''}`)
+          .filter(Boolean)
+          .join(',')
+      : '';
+    return [
+      opp?.type,
+      opp?.marketId,
+      opp?.yesTokenId,
+      opp?.noTokenId,
+      opp?.platformA,
+      opp?.platformB,
+      opp?.recommendedAction,
+      opp?.marketQuestion,
+      legs,
+    ]
+      .filter(Boolean)
+      .join('|');
+  }
+
+  private buildSnapshotItems(scan: {
+    valueMismatches: any[];
+    inPlatform: any[];
+    multiOutcome: any[];
+    crossPlatform: any[];
+    dependency: any[];
+  }): any[] {
+    const items: any[] = [];
+    const push = (list: any[], typeKey: string) => {
+      if (!Array.isArray(list)) return;
+      list.forEach((opp, index) => {
+        items.push({
+          id: `${typeKey}-${opp.marketId || index}`,
+          typeKey,
+          type: opp.type,
+          index,
+          fingerprint: this.buildFingerprint(opp),
+          marketId: opp.marketId,
+          marketQuestion: opp.marketQuestion,
+          expectedReturn: opp.expectedReturn,
+          guaranteedProfit: opp.guaranteedProfit,
+          positionSize: opp.positionSize ?? opp.recommendedSize ?? opp.depthShares,
+          edge: opp.edge ?? opp.arbitrageProfit,
+          spread: opp.spread,
+          yesTokenId: opp.yesTokenId,
+          noTokenId: opp.noTokenId,
+          platformA: opp.platformA,
+          platformB: opp.platformB,
+          recommendedAction: opp.recommendedAction,
+          riskLevel: opp.riskLevel,
+          legs: opp.legs,
+          timestamp: opp.timestamp,
+          profitUsd: this.estimateOpportunityProfitUsd(opp),
+        });
+      });
+    };
+
+    push(scan.valueMismatches, 'value');
+    push(scan.inPlatform, 'intra');
+    push(scan.multiOutcome, 'multi');
+    push(scan.crossPlatform, 'cross');
+    push(scan.dependency, 'dependency');
+
+    return items.sort((a, b) => (b.profitUsd || 0) - (a.profitUsd || 0));
+  }
+
+  private async writeArbSnapshot(scan: {
+    valueMismatches: any[];
+    inPlatform: any[];
+    multiOutcome: any[];
+    crossPlatform: any[];
+    dependency: any[];
+  }): Promise<void> {
+    if (!this.arbSnapshotPath) {
+      return;
+    }
+    try {
+      const items = this.buildSnapshotItems(scan).slice(0, this.arbSnapshotMax);
+      const payload = {
+        ts: Date.now(),
+        counts: {
+          value: scan.valueMismatches?.length || 0,
+          intra: scan.inPlatform?.length || 0,
+          multi: scan.multiOutcome?.length || 0,
+          cross: scan.crossPlatform?.length || 0,
+          dependency: scan.dependency?.length || 0,
+        },
+        items,
+      };
+      await fs.mkdir(path.dirname(this.arbSnapshotPath), { recursive: true });
+      await fs.writeFile(this.arbSnapshotPath, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (error) {
+      console.warn('⚠️ Failed to write arb snapshot:', error);
+    }
+  }
+
+  private async processArbCommand(scan: {
+    valueMismatches: any[];
+    inPlatform: any[];
+    multiOutcome: any[];
+    crossPlatform: any[];
+    dependency: any[];
+  }): Promise<void> {
+    if (!this.arbCommandPath) {
+      return;
+    }
+    let raw: string | null = null;
+    try {
+      if (!(await this.fileExists(this.arbCommandPath))) {
+        return;
+      }
+      raw = await fs.readFile(this.arbCommandPath, 'utf8');
+    } catch {
+      return;
+    }
+    if (!raw) {
+      return;
+    }
+    let command: any = null;
+    try {
+      command = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!command || command.status !== 'PENDING') {
+      return;
+    }
+    if (this.lastCommandId && command.id === this.lastCommandId) {
+      return;
+    }
+
+    command.status = 'RUNNING';
+    command.startedAt = Date.now();
+    await fs.writeFile(this.arbCommandPath, JSON.stringify(command, null, 2), 'utf8');
+
+    const list = this.resolveOpportunitiesByKey(scan, command.typeKey || command.type);
+    let target: any = null;
+    if (command.fingerprint) {
+      target = list.find((opp) => this.buildFingerprint(opp) === command.fingerprint);
+    }
+    if (!target && typeof command.index === 'number') {
+      target = list[command.index];
+    }
+    if (!target) {
+      command.status = 'NOT_FOUND';
+      command.completedAt = Date.now();
+      command.message = 'Opportunity not found in latest scan';
+      await fs.writeFile(this.arbCommandPath, JSON.stringify(command, null, 2), 'utf8');
+      return;
+    }
+
+    const markets = await this.getMarketsCached();
+    const result = await this.executeOpportunity(target, markets, {
+      bypassCooldown: true,
+      bypassStability: true,
+      reason: 'manual',
+    });
+
+    command.status = result.ok ? 'DONE' : 'FAILED';
+    command.completedAt = Date.now();
+    command.message = result.message || (result.ok ? 'Executed' : 'Execution failed');
+    command.executed = result.ok === true;
+    command.marketId = target.marketId;
+    command.type = target.type;
+    await fs.writeFile(this.arbCommandPath, JSON.stringify(command, null, 2), 'utf8');
+    this.lastCommandId = command.id || '';
+  }
+
+  private resolveOpportunitiesByKey(scan: any, key?: string): any[] {
+    const normalized = String(key || '').toLowerCase();
+    switch (normalized) {
+      case 'value':
+      case 'value_mismatch':
+      case 'value-mismatch':
+        return scan.valueMismatches || [];
+      case 'intra':
+      case 'in_platform':
+      case 'in-platform':
+        return scan.inPlatform || [];
+      case 'cross':
+      case 'cross_platform':
+      case 'cross-platform':
+        return scan.crossPlatform || [];
+      case 'dependency':
+        return scan.dependency || [];
+      case 'multi':
+      case 'multi_outcome':
+      case 'multi-outcome':
+        return scan.multiOutcome || [];
+      default:
+        return [];
+    }
+  }
+
+  private async executeOpportunity(
+    opp: any,
+    markets: Market[],
+    options: { bypassCooldown?: boolean; bypassStability?: boolean; reason?: 'auto' | 'manual' }
+  ): Promise<{ ok: boolean; message?: string }> {
+    const now = Date.now();
+    if (opp.type === 'CROSS_PLATFORM') {
+      if (!this.isCrossWsHealthy(now)) {
+        this.warnWsHealth('Cross-platform WS unhealthy, skip execution');
+        return { ok: false, message: 'Cross-platform WS unhealthy' };
+      }
+    } else if (!this.isPredictWsHealthy(now)) {
+      this.warnWsHealth('Predict WS unhealthy, skip execution');
+      return { ok: false, message: 'Predict WS unhealthy' };
+    }
+
+    const key = `${opp.type}-${opp.marketId}`;
+    if (!options.bypassCooldown) {
+      const last = this.lastExecution.get(key) || 0;
+      const baseCooldown = this.config.arbExecutionCooldownMs || 60000;
+      const cooldown = this.getEffectiveCooldownMs(baseCooldown);
+      if (now - last < cooldown) {
+        return { ok: false, message: 'Cooldown active' };
+      }
+    }
+
+    if (!options.bypassStability && !this.isStableOpportunity(opp, now)) {
+      return { ok: false, message: 'Opportunity unstable' };
+    }
+
+    if (this.config.arbPreflightEnabled !== false) {
+      const ok = await this.preflightOpportunity(opp, markets);
+      if (!ok) {
+        const base = Math.max(0, this.config.arbRecheckMs || 0);
+        const bump = Math.max(0, this.arbRecheckBumpMs || 0);
+        const maxBump = Math.max(0, this.config.arbRecheckBumpMaxMs || 0);
+        const effective = Math.max(0, base + Math.min(bump, maxBump || bump));
+        if (effective > base) {
+          this.arbRecheckBumpMs = effective - base;
+        }
+        return { ok: false, message: 'Preflight failed' };
+      }
+    }
+
+    try {
+      switch (opp.type) {
+        case 'VALUE_MISMATCH':
+          await this.executor.executeValueMismatch(opp);
+          break;
+        case 'IN_PLATFORM':
+          await this.executor.executeInPlatformArbitrage(opp);
+          break;
+        case 'MULTI_OUTCOME':
+          await this.executor.executeMultiOutcomeArbitrage(opp);
+          break;
+        case 'CROSS_PLATFORM':
+          await this.executor.executeCrossPlatformArbitrage(opp);
+          break;
+        case 'DEPENDENCY':
+          await this.executor.executeDependencyArbitrage(opp);
+          break;
+      }
+    } catch (error: any) {
+      this.recordArbError(error);
+      return { ok: false, message: error?.message || 'Execution failed' };
+    }
+
+    this.recordArbSuccess();
+    this.lastExecution.set(key, now);
+    return { ok: true };
   }
 
   private async executeLegs(

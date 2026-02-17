@@ -56,6 +56,8 @@ function ensureUserDataAssets() {
   const statePath = path.join(userRoot, 'cross-platform-state.json');
   const metricsPath = path.join(userRoot, 'cross-platform-metrics.json');
   const mmMetricsPath = path.join(userRoot, 'mm-metrics.json');
+  const arbOppPath = path.join(userRoot, 'arb-opportunities.json');
+  const arbCmdPath = path.join(userRoot, 'arb-command.json');
 
   if (!fs.existsSync(envPath)) {
     const templatePath = path.join(getProjectRoot(), '.env.example');
@@ -94,6 +96,16 @@ function ensureUserDataAssets() {
     } else {
       template = template.replace(/MM_METRICS_PATH=.*/g, `MM_METRICS_PATH=${mmMetricsPath}`);
     }
+    if (!template.includes('ARB_OPPORTUNITIES_PATH')) {
+      template = `${template.trim()}\nARB_OPPORTUNITIES_PATH=${arbOppPath}\n`;
+    } else {
+      template = template.replace(/ARB_OPPORTUNITIES_PATH=.*/g, `ARB_OPPORTUNITIES_PATH=${arbOppPath}`);
+    }
+    if (!template.includes('ARB_COMMAND_PATH')) {
+      template = `${template.trim()}\nARB_COMMAND_PATH=${arbCmdPath}\n`;
+    } else {
+      template = template.replace(/ARB_COMMAND_PATH=.*/g, `ARB_COMMAND_PATH=${arbCmdPath}`);
+    }
     fs.writeFileSync(envPath, template.endsWith('\n') ? template : `${template}\n`, 'utf8');
   }
 
@@ -125,6 +137,14 @@ function ensureUserDataAssets() {
 
   if (!fs.existsSync(mmMetricsPath)) {
     fs.writeFileSync(mmMetricsPath, '{\"version\":1,\"ts\":0,\"markets\":[]}\n', 'utf8');
+  }
+
+  if (!fs.existsSync(arbOppPath)) {
+    fs.writeFileSync(arbOppPath, '{\"ts\":0,\"items\":[]}\n', 'utf8');
+  }
+
+  if (!fs.existsSync(arbCmdPath)) {
+    fs.writeFileSync(arbCmdPath, '{\"status\":\"IDLE\",\"ts\":0}\n', 'utf8');
   }
 }
 
@@ -409,6 +429,20 @@ function resolveMmMetricsPath() {
   return resolveConfigPath(env.get('MM_METRICS_PATH'), fallback);
 }
 
+function resolveArbOpportunitiesPath() {
+  const envText = readEnvFile();
+  const env = parseEnv(envText);
+  const fallback = path.join(getUserDataRoot(), 'arb-opportunities.json');
+  return resolveConfigPath(env.get('ARB_OPPORTUNITIES_PATH'), fallback);
+}
+
+function resolveArbCommandPath() {
+  const envText = readEnvFile();
+  const env = parseEnv(envText);
+  const fallback = path.join(getUserDataRoot(), 'arb-command.json');
+  return resolveConfigPath(env.get('ARB_COMMAND_PATH'), fallback);
+}
+
 function readTextFile(filePath, fallback = '') {
   if (!fs.existsSync(filePath)) {
     return fallback;
@@ -534,6 +568,8 @@ function spawnBot(type) {
   const envPath = getEnvPath();
   const mappingPath = path.join(getUserDataRoot(), 'cross-platform-mapping.json');
   const dependencyPath = path.join(getUserDataRoot(), 'dependency-constraints.json');
+  const arbOppPath = resolveArbOpportunitiesPath();
+  const arbCmdPath = resolveArbCommandPath();
 
   let command;
   let args;
@@ -559,6 +595,8 @@ function spawnBot(type) {
       ENV_PATH: envPath,
       CROSS_PLATFORM_MAPPING_PATH: mappingPath,
       DEPENDENCY_CONSTRAINTS_PATH: dependencyPath,
+      ARB_OPPORTUNITIES_PATH: arbOppPath,
+      ARB_COMMAND_PATH: arbCmdPath,
     },
     shell: false,
   });
@@ -983,6 +1021,29 @@ ipcMain.handle('write-dependency', (_, text) => {
 });
 ipcMain.handle('read-metrics', () => readTextFile(resolveMetricsPath(), '{\"version\":1,\"ts\":0,\"metrics\":{}}'));
 ipcMain.handle('read-mm-metrics', () => readTextFile(resolveMmMetricsPath(), '{\"version\":1,\"ts\":0,\"markets\":[]}'));
+ipcMain.handle('read-arb-opportunities', () =>
+  readTextFile(resolveArbOpportunitiesPath(), '{\"ts\":0,\"items\":[]}\n')
+);
+ipcMain.handle('read-arb-command', () =>
+  readTextFile(resolveArbCommandPath(), '{\"status\":\"IDLE\",\"ts\":0}\n')
+);
+ipcMain.handle('execute-arb-opportunity', (_, payload) => {
+  try {
+    const command = {
+      id: payload?.id || `cmd_${Date.now()}`,
+      typeKey: payload?.typeKey,
+      type: payload?.type,
+      index: payload?.index,
+      fingerprint: payload?.fingerprint,
+      requestedAt: Date.now(),
+      status: 'PENDING',
+    };
+    writeTextFile(resolveArbCommandPath(), JSON.stringify(command, null, 2));
+    return { ok: true, id: command.id };
+  } catch (error) {
+    return { ok: false, message: error?.message || String(error) };
+  }
+});
 ipcMain.handle('run-diagnostics', () => {
   try {
     const result = buildDiagnostics();
