@@ -38,6 +38,10 @@
 - `MM_ASYM_SPREAD_MAX_FACTOR`：非对称价差最大因子（>1 放宽）。
 - `MM_QUOTE_OFFSET_BPS`：额外偏离做市中间价的 bps 偏移。
 - `MM_TOUCH_BUFFER_BPS`：挂单离盘口最优价的最小缓冲（bps，>0 会更“被动”以防吃单）。
+- `MM_TOUCH_BUFFER_VOL_WEIGHT`：根据波动率 EMA 动态增加缓冲（系数，0 为关闭）。
+- `MM_TOUCH_BUFFER_VOL_MAX_BPS`：波动率动态缓冲上限（bps）。
+- `MM_TOUCH_BUFFER_DEPTH_SPEED_WEIGHT`：根据盘口顶层深度收缩速度增加缓冲（系数，0 为关闭）。
+- `MM_TOUCH_BUFFER_DEPTH_SPEED_MAX_BPS`：深度速度缓冲上限（bps）。
 - `MM_FILL_RISK_SPREAD_BPS`：成交压力越高，自动放大价差的系数（bps）。
 - `MM_NEAR_TOUCH_PENALTY_BPS`：近触碰撤单后给价差加的惩罚（bps）。
 - `MM_NEAR_TOUCH_PENALTY_MAX_BPS`：近触碰惩罚的上限（bps）。
@@ -287,6 +291,8 @@
 - `MM_SIZE_IMBALANCE_WEIGHT`：盘口不平衡对“挂单份额”的影响权重。
 - `MM_SIZE_MIN_FACTOR`：挂单份额缩放下限（防止缩得过小）。
 - `MM_SIZE_MAX_FACTOR`：挂单份额缩放上限（防止过度放大）。
+- `MM_SIZE_VOL_WEIGHT`：按波动率缩小单笔份额（系数，0 为关闭）。
+- `MM_SIZE_DEPTH_SPEED_WEIGHT`：按深度收缩速度缩小单笔份额（系数，0 为关闭）。
 - `MM_SOFT_CANCEL_BPS`：软撤单阈值（进入软区，优先重挂而非强制撤单）。
 - `MM_HARD_CANCEL_BPS`：硬撤单阈值（触发强制撤单）。
 - `MM_SOFT_CANCEL_COOLDOWN_MS`：软撤单冷却。
@@ -585,6 +591,7 @@
 - `CROSS_PLATFORM_PRE_SUBMIT_LEG_VWAP_SPREAD_BPS`：提交前各腿 VWAP 偏离差阈值（bps，0=关闭）。
 - `CROSS_PLATFORM_PRE_SUBMIT_TOTAL_COST_BPS`：提交前总 VWAP 成本缓冲（bps，0=关闭）。
 - `CROSS_PLATFORM_PRE_SUBMIT_LEG_COST_SPREAD_BPS`：提交前腿间 VWAP 成本差阈值（bps，0=关闭）。
+- `CROSS_PLATFORM_PRE_SUBMIT_RECHECK_MS`：提交前二次快照确认等待时间（毫秒，0=关闭）。
 - `CROSS_PLATFORM_ADAPTIVE_SIZE`：执行前根据订单簿深度自动缩小下单份额。
 - `CROSS_PLATFORM_MIN_DEPTH_SHARES`：深度不足时的最小下单份额门槛。
 - `CROSS_PLATFORM_MIN_DEPTH_USD`：跨平台套利时要求的最低深度美元值（基于盘口深度估算）。

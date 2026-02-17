@@ -33,6 +33,7 @@ const toggleInputs = Array.from(document.querySelectorAll('.toggle input[data-en
 const mmVenueSelect = document.getElementById('mmVenueSelect');
 const applyMmPassiveBtn = document.getElementById('applyMmPassive');
 const applyMmProbablePointsBtn = document.getElementById('applyMmProbablePoints');
+const applyMmProbableHedgeBtn = document.getElementById('applyMmProbableHedge');
 const applyArbSafeBtn = document.getElementById('applyArbSafe');
 const tabButtons = Array.from(document.querySelectorAll('.tab-button'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
@@ -2889,6 +2890,38 @@ function applyMmProbablePointsTemplate() {
   );
 }
 
+function applyMmProbableHedgeTemplate() {
+  applyTemplate(
+    {
+      MM_VENUE: 'probable',
+      MM_REQUIRE_JWT: 'false',
+      PROBABLE_ENABLED: 'true',
+      PROBABLE_WS_ENABLED: 'true',
+      MM_ONLY_POINTS_MARKETS: 'true',
+      MM_POINTS_MIN_ONLY: 'true',
+      MM_POINTS_MIN_MULTIPLIER: '1',
+      MM_ORDER_DEPTH_USAGE: '0.2',
+      HEDGE_ON_FILL: 'true',
+      HEDGE_MODE: 'FLATTEN',
+      HEDGE_TRIGGER_SHARES: '10',
+      HEDGE_MAX_SLIPPAGE_BPS: '250',
+      MM_PARTIAL_FILL_HEDGE_SLIPPAGE_BPS: '250',
+      MM_TOUCH_BUFFER_BPS: '0.0015',
+      MM_FILL_RISK_SPREAD_BPS: '0.0022',
+      MM_NEAR_TOUCH_PENALTY_BPS: '10',
+      MM_NEAR_TOUCH_SIZE_PENALTY: '0.8',
+      MM_SOFT_CANCEL_BPS: '0.0015',
+      MM_HARD_CANCEL_BPS: '0.0030',
+      MM_HOLD_NEAR_TOUCH_MS: '700',
+      MM_DYNAMIC_CANCEL_ON_FILL: 'true',
+      MM_AUTO_TUNE_ENABLED: 'true',
+      MM_AUTO_TUNE_TARGET_FILL_RATE: '0.015',
+      MM_AUTO_TUNE_TARGET_CANCEL_RATE: '0.7',
+    },
+    'Probable 对冲模板'
+  );
+}
+
 function applyArbSafeTemplate() {
   applyTemplate(
     {
@@ -2917,6 +2950,7 @@ function applyArbSafeTemplate() {
       CROSS_PLATFORM_PRE_SUBMIT_VWAP_BPS: '60',
       CROSS_PLATFORM_PRE_SUBMIT_PROFIT_USD: '0.05',
       CROSS_PLATFORM_PRE_SUBMIT_TOTAL_COST_BPS: '30',
+      CROSS_PLATFORM_PRE_SUBMIT_RECHECK_MS: '200',
     },
     '套利稳健模板'
   );
@@ -4554,6 +4588,9 @@ if (applyMmPassiveBtn) {
 }
 if (applyMmProbablePointsBtn) {
   applyMmProbablePointsBtn.addEventListener('click', applyMmProbablePointsTemplate);
+}
+if (applyMmProbableHedgeBtn) {
+  applyMmProbableHedgeBtn.addEventListener('click', applyMmProbableHedgeTemplate);
 }
 if (applyArbSafeBtn) {
   applyArbSafeBtn.addEventListener('click', applyArbSafeTemplate);

@@ -226,6 +226,10 @@ export interface Config {
   mmAsymSpreadMaxFactor?: number;
   mmQuoteOffsetBps?: number;
   mmTouchBufferBps?: number;
+  mmTouchBufferVolWeight?: number;
+  mmTouchBufferVolMaxBps?: number;
+  mmTouchBufferDepthSpeedWeight?: number;
+  mmTouchBufferDepthSpeedMaxBps?: number;
   mmFillRiskSpreadBps?: number;
   mmNearTouchPenaltyBps?: number;
   mmNearTouchPenaltyMaxBps?: number;
@@ -393,6 +397,8 @@ export interface Config {
   mmSizeImbalanceWeight?: number;
   mmSizeMinFactor?: number;
   mmSizeMaxFactor?: number;
+  mmSizeVolWeight?: number;
+  mmSizeDepthSpeedWeight?: number;
   mmSoftCancelBps?: number;
   mmHardCancelBps?: number;
   mmSoftCancelCooldownMs?: number;
@@ -464,6 +470,7 @@ export interface Config {
   crossPlatformPreSubmitLegVwapSpreadBps?: number;
   crossPlatformPreSubmitTotalCostBps?: number;
   crossPlatformPreSubmitLegCostSpreadBps?: number;
+  crossPlatformPreSubmitRecheckMs?: number;
   crossPlatformAdaptiveSize?: boolean;
   crossPlatformMinDepthShares?: number;
   crossPlatformMinDepthUsd?: number;

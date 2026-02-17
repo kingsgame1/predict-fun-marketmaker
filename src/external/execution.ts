@@ -1236,6 +1236,15 @@ export class CrossPlatformExecutionRouter {
   }
 
   private async preSubmitCheck(legs: PlatformLeg[]): Promise<void> {
+    await this.preSubmitCheckOnce(legs);
+    const recheckMs = Math.max(0, this.config.crossPlatformPreSubmitRecheckMs || 0);
+    if (recheckMs > 0) {
+      await this.sleep(recheckMs);
+      await this.preSubmitCheckOnce(legs);
+    }
+  }
+
+  private async preSubmitCheckOnce(legs: PlatformLeg[]): Promise<void> {
     let driftBps = Math.max(0, this.config.crossPlatformPreSubmitDriftBps || 0);
     let vwapBps = Math.max(0, this.config.crossPlatformPreSubmitVwapBps || 0);
     let minProfitBps = Math.max(0, this.config.crossPlatformPreSubmitProfitBps || 0);

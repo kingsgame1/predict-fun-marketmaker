@@ -3186,6 +3186,24 @@ export class MarketMaker {
 
     // Keep maker-friendly but never cross top of book
     let touchBufferBps = Math.max(0, this.config.mmTouchBufferBps ?? 0) + (noFillPenalty.touchBps || 0);
+    const volTouchWeight = Math.max(0, this.config.mmTouchBufferVolWeight ?? 0);
+    if (volTouchWeight > 0 && volEma > 0) {
+      let add = volEma * 10000 * volTouchWeight;
+      const maxAdd = Math.max(0, this.config.mmTouchBufferVolMaxBps ?? 0);
+      if (maxAdd > 0) {
+        add = Math.min(add, maxAdd);
+      }
+      touchBufferBps += add;
+    }
+    const depthSpeedWeight = Math.max(0, this.config.mmTouchBufferDepthSpeedWeight ?? 0);
+    if (depthSpeedWeight > 0 && depthMetrics.depthSpeedBps > 0) {
+      let add = depthMetrics.depthSpeedBps * depthSpeedWeight;
+      const maxAdd = Math.max(0, this.config.mmTouchBufferDepthSpeedMaxBps ?? 0);
+      if (maxAdd > 0) {
+        add = Math.min(add, maxAdd);
+      }
+      touchBufferBps += add;
+    }
     if (this.isLayerRestoreActive(market.token_id)) {
       touchBufferBps += Math.max(0, this.config.mmLayerRestoreTouchBufferBps ?? 0);
     }
@@ -3315,6 +3333,21 @@ export class MarketMaker {
     } else {
       sizeFactor *= 1 + inventoryBias * sizeInvWeight;
       sizeFactor *= 1 - imbalance * sizeImbWeight;
+    }
+    const volWeight = Math.max(0, this.config.mmSizeVolWeight ?? 0);
+    if (volWeight > 0) {
+      const vol = this.volatilityEma.get(market.token_id) ?? 0;
+      if (vol > 0) {
+        sizeFactor *= 1 / (1 + vol * volWeight);
+      }
+    }
+    const depthSpeedWeight = Math.max(0, this.config.mmSizeDepthSpeedWeight ?? 0);
+    if (depthSpeedWeight > 0) {
+      const depthSpeed = this.lastDepthSpeedBps.get(market.token_id) ?? 0;
+      if (depthSpeed > 0) {
+        const scaled = 1 + (depthSpeed / 10000) * depthSpeedWeight;
+        sizeFactor *= 1 / Math.max(0.2, scaled);
+      }
     }
     sizeFactor = this.clamp(sizeFactor, sizeMin, sizeMax);
     const penalty = this.getSizePenalty(market.token_id);
