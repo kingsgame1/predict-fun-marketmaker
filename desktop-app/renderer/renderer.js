@@ -2887,6 +2887,8 @@ function applyMmProbablePointsTemplate() {
       MM_AUTO_TUNE_TARGET_CANCEL_RATE: '0.7',
       MM_AUTO_TUNE_TOUCH_BUFFER_WEIGHT: '0.6',
       MM_AUTO_TUNE_SIZE_WEIGHT: '0.5',
+      MM_AUTO_TUNE_CANCEL_WEIGHT: '0.4',
+      MM_AUTO_TUNE_REPRICE_WEIGHT: '0.4',
     },
     'Probable 积分做市模板'
   );
@@ -2926,6 +2928,8 @@ function applyMmProbableHedgeTemplate() {
       MM_AUTO_TUNE_TARGET_CANCEL_RATE: '0.7',
       MM_AUTO_TUNE_TOUCH_BUFFER_WEIGHT: '0.6',
       MM_AUTO_TUNE_SIZE_WEIGHT: '0.5',
+      MM_AUTO_TUNE_CANCEL_WEIGHT: '0.4',
+      MM_AUTO_TUNE_REPRICE_WEIGHT: '0.4',
     },
     'Probable 对冲模板'
   );

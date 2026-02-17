@@ -83,6 +83,8 @@ export interface Config {
   mmAutoTuneUpdateMs?: number;
   mmAutoTuneTouchBufferWeight?: number;
   mmAutoTuneSizeWeight?: number;
+  mmAutoTuneCancelWeight?: number;
+  mmAutoTuneRepriceWeight?: number;
   mmCooldownVolMultiplier?: number;
   mmImbalanceLevels?: number;
   mmImbalanceWeight?: number;

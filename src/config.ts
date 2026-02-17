@@ -129,6 +129,8 @@ export function loadConfig(): Config {
     mmAutoTuneUpdateMs: parseInt(process.env.MM_AUTO_TUNE_UPDATE_MS || '2000'),
     mmAutoTuneTouchBufferWeight: parseFloat(process.env.MM_AUTO_TUNE_TOUCH_BUFFER_WEIGHT || '0'),
     mmAutoTuneSizeWeight: parseFloat(process.env.MM_AUTO_TUNE_SIZE_WEIGHT || '0'),
+    mmAutoTuneCancelWeight: parseFloat(process.env.MM_AUTO_TUNE_CANCEL_WEIGHT || '0'),
+    mmAutoTuneRepriceWeight: parseFloat(process.env.MM_AUTO_TUNE_REPRICE_WEIGHT || '0'),
     mmCooldownVolMultiplier: parseFloat(process.env.MM_COOLDOWN_VOL_MULTIPLIER || '1.2'),
     mmImbalanceLevels: parseInt(process.env.MM_IMBALANCE_LEVELS || '3'),
     mmImbalanceWeight: parseFloat(process.env.MM_IMBALANCE_WEIGHT || '0.25'),

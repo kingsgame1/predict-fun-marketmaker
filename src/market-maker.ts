@@ -397,6 +397,16 @@ export class MarketMaker {
     const boost = this.getCancelBoost(tokenId);
     const noFill = this.getNoFillPenalty(tokenId);
     let threshold = (base + (noFill.cancelBps || 0) / 10000) / mult / boost;
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneCancelWeight ?? 0);
+      if (autoWeight > 0) {
+        const autoMult = this.getAutoTuneMultiplier(tokenId);
+        if (autoMult !== 1) {
+          const factor = 1 + (autoMult - 1) * autoWeight;
+          threshold = threshold / Math.max(0.2, factor);
+        }
+      }
+    }
     const wsCancelMult = this.getWsHealthCancelMult();
     if (wsCancelMult > 0 && wsCancelMult !== 1) {
       threshold = threshold / wsCancelMult;
@@ -3476,6 +3486,16 @@ export class MarketMaker {
     const mult = this.getVolatilityMultiplier(order.token_id, this.config.mmRepriceVolMultiplier ?? 1.5);
     const noFill = this.getNoFillPenalty(order.token_id);
     let threshold = (base + (noFill.repriceBps || 0) / 10000) / mult;
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneRepriceWeight ?? 0);
+      if (autoWeight > 0) {
+        const autoMult = this.getAutoTuneMultiplier(order.token_id);
+        if (autoMult !== 1) {
+          const factor = 1 + (autoMult - 1) * autoWeight;
+          threshold = threshold / Math.max(0.2, factor);
+        }
+      }
+    }
     const wsRepriceMult = this.getWsHealthRepriceMult();
     if (wsRepriceMult > 0 && wsRepriceMult !== 1) {
       threshold = threshold / wsRepriceMult;

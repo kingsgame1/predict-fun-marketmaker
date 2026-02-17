@@ -391,6 +391,8 @@
 - `MM_AUTO_TUNE_UPDATE_MS`：调参最小间隔（毫秒）。
 - `MM_AUTO_TUNE_TOUCH_BUFFER_WEIGHT`：自适应乘数对“触碰缓冲”的影响强度（0-1）。
 - `MM_AUTO_TUNE_SIZE_WEIGHT`：自适应乘数对“挂单份额”的影响强度（0-1）。
+- `MM_AUTO_TUNE_CANCEL_WEIGHT`：自适应乘数对“撤单阈值”的影响强度（0-1）。
+- `MM_AUTO_TUNE_REPRICE_WEIGHT`：自适应乘数对“重报价阈值”的影响强度（0-1）。
 - `MM_COOLDOWN_VOL_MULTIPLIER`：波动越大，撤单后的冷却时间越长。
 - `MM_IMBALANCE_LEVELS`：盘口不平衡计算层数。
 - `MM_IMBALANCE_WEIGHT`：盘口不平衡对报价的影响权重。
