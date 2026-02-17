@@ -548,8 +548,8 @@ function spawnBot(type) {
     args = [entryPath];
   } else {
     const entry = type === 'mm' ? 'src/index.ts' : 'src/arbitrage-bot.ts';
-    command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-    args = ['tsx', entry];
+    command = resolveNodeBinary();
+    args = ['--import', 'tsx', entry];
   }
 
   const child = spawn(command, args, {

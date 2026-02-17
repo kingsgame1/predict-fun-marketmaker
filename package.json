@@ -5,15 +5,15 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "start:mm": "tsx src/index.ts",
-    "start:arb": "tsx src/arbitrage-bot.ts",
+    "start:mm": "node --import tsx src/index.ts",
+    "start:arb": "node --import tsx src/arbitrage-bot.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "test": "tsx src/test.ts",
-    "debug": "tsx src/debug-api.ts",
+    "test": "node --import tsx src/test.ts",
+    "debug": "node --import tsx src/debug-api.ts",
     "check:api": "node scripts/check-api.cjs",
-    "auth:jwt": "tsx src/auth-jwt.ts",
-    "setup:approvals": "tsx src/setup-approvals.ts",
+    "auth:jwt": "node --import tsx src/auth-jwt.ts",
+    "setup:approvals": "node --import tsx src/setup-approvals.ts",
     "smoke:predict": "node --import tsx scripts/smoke-trade.ts"
   },
   "keywords": [
