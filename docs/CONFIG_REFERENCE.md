@@ -437,6 +437,16 @@
 - `MM_RISK_THROTTLE_ONLY_FAR_THRESHOLD`：节流系数低于该值时仅挂远层（0-1）。
 - `MM_RISK_THROTTLE_ONLY_FAR_LAYERS`：节流远层挂单数量（0=仅挂最远一层）。
 - `MM_RISK_THROTTLE_LAYER_CAP`：节流期间分层数量上限（0=不限制）。
+- `MM_NEAR_TOUCH_BURST_LIMIT`：近触碰触发次数阈值（触发熔断）。
+- `MM_NEAR_TOUCH_BURST_WINDOW_MS`：近触碰统计窗口（毫秒）。
+- `MM_NEAR_TOUCH_BURST_HOLD_MS`：触发后进入退避/收缩的持续时间。
+- `MM_NEAR_TOUCH_BURST_SAFE_MODE`：触发后是否进入安全模式。
+- `MM_NEAR_TOUCH_BURST_SAFE_MODE_MS`：安全模式持续时间。
+- `MM_FILL_BURST_LIMIT`：连续成交触发次数阈值（触发熔断）。
+- `MM_FILL_BURST_WINDOW_MS`：成交统计窗口（毫秒）。
+- `MM_FILL_BURST_HOLD_MS`：触发后进入退避/收缩的持续时间。
+- `MM_FILL_BURST_SAFE_MODE`：触发后是否进入安全模式。
+- `MM_FILL_BURST_SAFE_MODE_MS`：安全模式持续时间。
 - `MM_METRICS_PATH`：做市指标输出路径（JSON）。
 - `MM_METRICS_FLUSH_MS`：做市指标刷新间隔（毫秒）。
 

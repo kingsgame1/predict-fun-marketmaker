@@ -135,6 +135,8 @@ export class MarketMaker {
   private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private cancelBurst: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
+  private nearTouchBurst: Map<string, { count: number; windowStart: number }> = new Map();
+  private fillBurst: Map<string, { count: number; windowStart: number }> = new Map();
 
   constructor(api: MakerApi, config: Config, orderManagerFactory?: () => Promise<MakerOrderManager>) {
     this.api = api;
@@ -1266,6 +1268,40 @@ export class MarketMaker {
       entry.coolOffUntil = Date.now() + coolOff;
     }
     this.riskThrottleState.set(tokenId, entry);
+  }
+
+  private recordNearTouch(tokenId: string): number {
+    const windowMs = Math.max(1000, this.config.mmNearTouchBurstWindowMs ?? 30000);
+    const limit = Math.max(1, this.config.mmNearTouchBurstLimit ?? 0);
+    if (limit <= 0) {
+      return 0;
+    }
+    const now = Date.now();
+    const entry = this.nearTouchBurst.get(tokenId) || { count: 0, windowStart: now };
+    if (now - entry.windowStart > windowMs) {
+      entry.count = 0;
+      entry.windowStart = now;
+    }
+    entry.count += 1;
+    this.nearTouchBurst.set(tokenId, entry);
+    return entry.count;
+  }
+
+  private recordFillBurst(tokenId: string): number {
+    const windowMs = Math.max(1000, this.config.mmFillBurstWindowMs ?? 30000);
+    const limit = Math.max(1, this.config.mmFillBurstLimit ?? 0);
+    if (limit <= 0) {
+      return 0;
+    }
+    const now = Date.now();
+    const entry = this.fillBurst.get(tokenId) || { count: 0, windowStart: now };
+    if (now - entry.windowStart > windowMs) {
+      entry.count = 0;
+      entry.windowStart = now;
+    }
+    entry.count += 1;
+    this.fillBurst.set(tokenId, entry);
+    return entry.count;
   }
 
   private getRiskThrottleFactor(tokenId: string): number {
@@ -3894,21 +3930,32 @@ export class MarketMaker {
           }
         }
       }
-      if (risk.cancel || shouldReprice) {
-        if (!this.allowCancel(tokenId, risk.panic)) {
-          this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
-          continue;
-        }
-        if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
-          const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
-            this.addRiskThrottle('__global__', penalty * 0.5);
+        if (risk.cancel || shouldReprice) {
+          if (!this.allowCancel(tokenId, risk.panic)) {
+            this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
+            continue;
           }
-        } else if (risk.reason === 'refresh' || shouldReprice) {
-          const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
+          if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
+            const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
+              this.addRiskThrottle('__global__', penalty * 0.5);
+            }
+            const count = this.recordNearTouch(tokenId);
+            const limit = Math.max(1, this.config.mmNearTouchBurstLimit ?? 0);
+            if (limit > 0 && count >= limit) {
+              const hold = Math.max(0, this.config.mmNearTouchBurstHoldMs ?? 0);
+              if (hold > 0) {
+                this.applyLayerRetreatFor(tokenId, hold);
+              }
+              if (this.config.mmNearTouchBurstSafeMode) {
+                this.safeModeExitUntil.set(tokenId, Date.now() + Math.max(0, this.config.mmNearTouchBurstSafeModeMs ?? hold));
+              }
+            }
+          } else if (risk.reason === 'refresh' || shouldReprice) {
+            const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
             this.addRiskThrottle('__global__', penalty * 0.4);
           }
         }
@@ -4015,21 +4062,32 @@ export class MarketMaker {
           }
         }
       }
-      if (risk.cancel || shouldReprice) {
-        if (!this.allowCancel(tokenId, risk.panic)) {
-          this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
-          continue;
-        }
-        if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
-          const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
-            this.addRiskThrottle('__global__', penalty * 0.5);
+        if (risk.cancel || shouldReprice) {
+          if (!this.allowCancel(tokenId, risk.panic)) {
+            this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
+            continue;
           }
-        } else if (risk.reason === 'refresh' || shouldReprice) {
-          const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
+          if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
+            const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
+              this.addRiskThrottle('__global__', penalty * 0.5);
+            }
+            const count = this.recordNearTouch(tokenId);
+            const limit = Math.max(1, this.config.mmNearTouchBurstLimit ?? 0);
+            if (limit > 0 && count >= limit) {
+              const hold = Math.max(0, this.config.mmNearTouchBurstHoldMs ?? 0);
+              if (hold > 0) {
+                this.applyLayerRetreatFor(tokenId, hold);
+              }
+              if (this.config.mmNearTouchBurstSafeMode) {
+                this.safeModeExitUntil.set(tokenId, Date.now() + Math.max(0, this.config.mmNearTouchBurstSafeModeMs ?? hold));
+              }
+            }
+          } else if (risk.reason === 'refresh' || shouldReprice) {
+            const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
             this.addRiskThrottle('__global__', penalty * 0.4);
           }
         }
@@ -4561,6 +4619,17 @@ export class MarketMaker {
         this.updateFillPressure(tokenId, absDelta);
         this.lastFillAt.set(tokenId, Date.now());
         this.recordAutoTuneEvent(tokenId, 'FILLED');
+        const fillCount = this.recordFillBurst(tokenId);
+        const fillLimit = Math.max(1, this.config.mmFillBurstLimit ?? 0);
+        if (fillLimit > 0 && fillCount >= fillLimit) {
+          const hold = Math.max(0, this.config.mmFillBurstHoldMs ?? 0);
+          if (hold > 0) {
+            this.applyLayerRetreatFor(tokenId, hold);
+          }
+          if (this.config.mmFillBurstSafeMode) {
+            this.safeModeExitUntil.set(tokenId, Date.now() + Math.max(0, this.config.mmFillBurstSafeModeMs ?? hold));
+          }
+        }
         const penalty = Math.max(0, this.config.mmRiskThrottleFillPenalty ?? 0);
         if (penalty > 0) {
           this.addRiskThrottle(tokenId, penalty);

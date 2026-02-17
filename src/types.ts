@@ -129,6 +129,16 @@ export interface Config {
   mmRiskThrottleOnlyFarThreshold?: number;
   mmRiskThrottleOnlyFarLayers?: number;
   mmRiskThrottleLayerCap?: number;
+  mmNearTouchBurstLimit?: number;
+  mmNearTouchBurstWindowMs?: number;
+  mmNearTouchBurstHoldMs?: number;
+  mmNearTouchBurstSafeMode?: boolean;
+  mmNearTouchBurstSafeModeMs?: number;
+  mmFillBurstLimit?: number;
+  mmFillBurstWindowMs?: number;
+  mmFillBurstHoldMs?: number;
+  mmFillBurstSafeMode?: boolean;
+  mmFillBurstSafeModeMs?: number;
   mmMetricsPath?: string;
   mmMetricsFlushMs?: number;
   mmWsEnabled?: boolean;
