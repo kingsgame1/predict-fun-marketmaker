@@ -244,7 +244,7 @@ npm run smoke:predict
 如需真实下单再撤单：
 - `ENABLE_TRADING=true`
 - `SMOKE_LIVE=true`
-- 可选：`SMOKE_SHARES=1`、`SMOKE_PRICE_BUFFER_BPS=50`、`SMOKE_CANCEL_MS=5000`
+- 可选：`SMOKE_SHARES=1`、`SMOKE_PRICE_BUFFER_BPS=50`、`SMOKE_CANCEL_MS=5000`、`SMOKE_ALLOW_OFFLINE=true`
 
 ## 跨平台严格映射（强烈建议）
 

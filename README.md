@@ -306,6 +306,7 @@ Optional env overrides:
 - `SMOKE_PRICE_BUFFER_BPS` (default `50`, keep away from top of book)
 - `SMOKE_CANCEL_MS` (default `5000`)
 - `SMOKE_LIVE=true` to actually place and cancel the order
+- `SMOKE_ALLOW_OFFLINE=true` to skip failures when the API is unreachable
 
 To run live, also set `ENABLE_TRADING=true` and `JWT_TOKEN` in `.env`.
 

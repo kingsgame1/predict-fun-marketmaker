@@ -171,7 +171,7 @@ Probable 做市（可选）：
 如需真实下单再撤单：
 - `ENABLE_TRADING=true`
 - `SMOKE_LIVE=true`
-- 建议设置 `SMOKE_SHARES=1`、`SMOKE_PRICE_BUFFER_BPS=50`
+- 建议设置 `SMOKE_SHARES=1`、`SMOKE_PRICE_BUFFER_BPS=50`（离线环境可加 `SMOKE_ALLOW_OFFLINE=true`）
 
 ## 13. 做市自适应强化（推荐）
 

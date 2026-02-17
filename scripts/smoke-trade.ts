@@ -20,10 +20,16 @@ function clamp(value: number, min: number, max: number): number {
 async function main() {
   const config = loadConfig();
   const api = new PredictAPI(config.apiBaseUrl, config.apiKey, config.jwtToken);
+  const allowOffline = envBool('SMOKE_ALLOW_OFFLINE');
 
   console.log('🔧 Smoke test starting...');
-  const ok = await api.testConnection();
+  const ok = await api.testConnection(allowOffline);
   if (!ok) {
+    if (allowOffline) {
+      console.warn('⚠️ API connection failed (offline). Skipping smoke test.');
+      console.warn('Set SMOKE_ALLOW_OFFLINE=false to fail on connectivity errors.');
+      return;
+    }
     throw new Error('API connection failed. Check API_BASE_URL / API_KEY.');
   }
 

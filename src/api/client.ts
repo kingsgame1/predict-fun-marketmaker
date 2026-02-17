@@ -195,7 +195,9 @@ export class PredictAPI {
   /**
    * Get all active markets
    */
-  async getMarkets(): Promise<Market[]> {
+  async getMarkets(options: { silent?: boolean; throwOnError?: boolean } = {}): Promise<Market[]> {
+    const { silent = false, throwOnError = true } = options;
+
     try {
       const rawMarkets = await this.requestWithFallback<any[]>('get', ['/v1/markets', '/markets']);
       if (!Array.isArray(rawMarkets)) {
@@ -206,8 +208,13 @@ export class PredictAPI {
         .map((m) => this.normalizeMarket(m))
         .filter((m) => m.token_id && m.token_id !== 'undefined');
     } catch (error) {
-      console.error('Error fetching markets:', error);
-      throw error;
+      if (!silent) {
+        console.error('Error fetching markets:', error);
+      }
+      if (throwOnError) {
+        throw error;
+      }
+      return [];
     }
   }
 
@@ -427,18 +434,22 @@ export class PredictAPI {
   /**
    * Test API connection
    */
-  async testConnection(): Promise<boolean> {
+  async testConnection(silent = false): Promise<boolean> {
     try {
-      await this.getMarkets();
-      console.log('✅ API connection successful');
+      await this.getMarkets({ silent });
+      if (!silent) {
+        console.log('✅ API connection successful');
+      }
       return true;
     } catch (error: any) {
-      if (error.response?.status === 401) {
-        console.error('❌ API authentication failed. Check API_KEY and/or JWT_TOKEN.');
-      } else if ((error as AxiosError).message) {
-        console.error('❌ API connection failed:', (error as AxiosError).message);
-      } else {
-        console.error('❌ API connection failed');
+      if (!silent) {
+        if (error.response?.status === 401) {
+          console.error('❌ API authentication failed. Check API_KEY and/or JWT_TOKEN.');
+        } else if ((error as AxiosError).message) {
+          console.error('❌ API connection failed:', (error as AxiosError).message);
+        } else {
+          console.error('❌ API connection failed');
+        }
       }
       return false;
     }

@@ -209,6 +209,9 @@ export interface Config {
   mmWsHealthEmergencyRecoverySingleSideLossWeight?: number;
   mmVenue?: 'predict' | 'probable';
   mmRequireJwt?: boolean;
+  mmAsymSpreadWeight?: number;
+  mmIntervalProfileVolatileMultiplier?: number;
+  mmIntervalProfileCalmMultiplier?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
