@@ -478,6 +478,8 @@ export interface Config {
   crossPlatformPreSubmitGlobal?: boolean;
   crossPlatformShadowMinProfitUsd?: number;
   crossPlatformShadowMinProfitBps?: number;
+  crossPlatformShadowImpactBps?: number;
+  crossPlatformShadowImpactPerLevelBps?: number;
   crossHedgeSimilarityWeight?: number;
   crossHedgeDepthWeight?: number;
   crossHedgeMinDepthUsd?: number;

@@ -1276,9 +1276,20 @@ export class CrossPlatformExecutionRouter {
       if (!vwap) {
         throw new Error(`Shadow check failed: insufficient depth for ${leg.platform}:${leg.tokenId}`);
       }
-      const vwapAllIn = Number.isFinite(vwap.avgAllIn) ? vwap.avgAllIn : vwap.avgPrice;
+      let vwapAllIn = Number.isFinite(vwap.avgAllIn) ? vwap.avgAllIn : vwap.avgPrice;
       if (!Number.isFinite(vwapAllIn) || vwapAllIn <= 0) {
         throw new Error(`Shadow check failed: invalid VWAP for ${leg.platform}:${leg.tokenId}`);
+      }
+      const impactBase = Math.max(0, this.config.crossPlatformShadowImpactBps || 0);
+      const impactPerLevel = Math.max(0, this.config.crossPlatformShadowImpactPerLevelBps || 0);
+      let impactBps = impactBase;
+      if (impactPerLevel > 0) {
+        const extraLevels = Math.max(0, (vwap.levelsUsed ?? 1) - 1);
+        impactBps += extraLevels * impactPerLevel;
+      }
+      if (impactBps > 0) {
+        const factor = impactBps / 10000;
+        vwapAllIn = leg.side === 'BUY' ? vwapAllIn * (1 + factor) : vwapAllIn * (1 - factor);
       }
       if (leg.side === 'BUY') {
         hasBuy = true;

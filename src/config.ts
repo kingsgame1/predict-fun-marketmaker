@@ -575,6 +575,8 @@ export function loadConfig(): Config {
     crossPlatformPreSubmitGlobal: process.env.CROSS_PLATFORM_PRE_SUBMIT_GLOBAL === 'true',
     crossPlatformShadowMinProfitUsd: parseFloat(process.env.CROSS_PLATFORM_SHADOW_MIN_PROFIT_USD || '0'),
     crossPlatformShadowMinProfitBps: parseFloat(process.env.CROSS_PLATFORM_SHADOW_MIN_PROFIT_BPS || '0'),
+    crossPlatformShadowImpactBps: parseFloat(process.env.CROSS_PLATFORM_SHADOW_IMPACT_BPS || '0'),
+    crossPlatformShadowImpactPerLevelBps: parseFloat(process.env.CROSS_PLATFORM_SHADOW_IMPACT_PER_LEVEL_BPS || '0'),
     crossHedgeSimilarityWeight: parseFloat(process.env.CROSS_HEDGE_SIMILARITY_WEIGHT || '0.7'),
     crossHedgeDepthWeight: parseFloat(process.env.CROSS_HEDGE_DEPTH_WEIGHT || '0.3'),
     crossHedgeMinDepthUsd: parseFloat(process.env.CROSS_HEDGE_MIN_DEPTH_USD || '0'),
