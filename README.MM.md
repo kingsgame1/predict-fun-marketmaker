@@ -265,6 +265,7 @@ npm run start:mm
 - 挂双边限价单赚取积分
 - 智能撤单避免成交
 - 支持 liquidity points 规则
+- Probable 做市：在 `.env` 中设置 `MM_VENUE=probable` + `PROBABLE_ENABLED=true`
 
 ### 套利模式
 

@@ -297,6 +297,8 @@ export function loadConfig(): Config {
     mmWsHealthEmergencyRecoverySingleSideLossWeight: parseFloat(
       process.env.MM_WS_HEALTH_EMERGENCY_RECOVERY_SINGLE_SIDE_LOSS_WEIGHT || '0.5'
     ),
+    mmVenue: (process.env.MM_VENUE || 'predict') as Config['mmVenue'],
+    mmRequireJwt: process.env.MM_REQUIRE_JWT !== 'false',
     inventorySkewFactor: parseFloat(process.env.INVENTORY_SKEW_FACTOR || '0.15'),
     cancelThreshold: parseFloat(process.env.CANCEL_THRESHOLD || '0.05'),
     repriceThreshold: parseFloat(process.env.REPRICE_THRESHOLD || '0.003'),
@@ -1924,6 +1926,7 @@ export function printConfig(config: Config): void {
   console.log('\n⚙️  Configuration:');
   console.log('─'.repeat(80));
   console.log(`API URL: ${config.apiBaseUrl}`);
+  console.log(`MM Venue: ${config.mmVenue || 'predict'} (require JWT: ${config.mmRequireJwt !== false ? 'yes' : 'no'})`);
   console.log(`RPC URL: ${config.rpcUrl || 'Using SDK default provider'}`);
   console.log(`Predict Account: ${config.predictAccountAddress || 'Using direct EOA'}`);
   console.log(`JWT Token: ${config.jwtToken ? '✅ configured' : '❌ missing (required for private endpoints)'}`);

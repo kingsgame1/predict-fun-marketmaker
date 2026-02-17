@@ -227,7 +227,14 @@ function buildEnvSuggestions(env) {
   if (!env.get('PRIVATE_KEY')) {
     lines.push('# 缺少 PRIVATE_KEY：请补全钱包私钥');
   }
-  if ((env.get('ENABLE_TRADING') || '').toLowerCase() === 'true' && !env.get('JWT_TOKEN')) {
+  const mmVenue = (env.get('MM_VENUE') || 'predict').toLowerCase();
+  const mmRequireJwt = (env.get('MM_REQUIRE_JWT') || '').toLowerCase() !== 'false';
+  if (
+    (env.get('ENABLE_TRADING') || '').toLowerCase() === 'true' &&
+    !env.get('JWT_TOKEN') &&
+    mmRequireJwt &&
+    mmVenue !== 'probable'
+  ) {
     lines.push('# 实盘模式未设置 JWT_TOKEN');
   }
   return lines.join('\n');
@@ -670,6 +677,8 @@ function buildDiagnostics() {
   const privateKey = env.get('PRIVATE_KEY');
   const jwtToken = env.get('JWT_TOKEN');
   const enableTrading = (env.get('ENABLE_TRADING') || '').toLowerCase() === 'true';
+  const mmVenue = (env.get('MM_VENUE') || 'predict').toLowerCase();
+  const mmRequireJwt = (env.get('MM_REQUIRE_JWT') || '').toLowerCase() !== 'false';
 
   if (!apiKey) {
     items.push({ level: 'error', title: 'API_KEY', message: 'Predict API Key 未配置' });
@@ -683,7 +692,7 @@ function buildDiagnostics() {
     items.push({ level: 'ok', title: 'PRIVATE_KEY', message: '已配置' });
   }
 
-  if (enableTrading && !jwtToken) {
+  if (enableTrading && !jwtToken && mmRequireJwt && mmVenue !== 'probable') {
     items.push({ level: 'warn', title: 'JWT_TOKEN', message: '实盘模式未检测到 JWT_TOKEN' });
   } else if (jwtToken) {
     items.push({ level: 'ok', title: 'JWT_TOKEN', message: '已配置' });

@@ -207,6 +207,8 @@ export interface Config {
   mmWsHealthEmergencyRecoveryOffsetVolWeight?: number;
   mmWsHealthEmergencyRecoveryTemplateResetEnabled?: boolean;
   mmWsHealthEmergencyRecoverySingleSideLossWeight?: number;
+  mmVenue?: 'predict' | 'probable';
+  mmRequireJwt?: boolean;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;

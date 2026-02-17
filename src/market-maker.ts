@@ -4,7 +4,7 @@
  */
 
 import type { Config, Market, Orderbook, Order, OrderbookEntry, Position } from './types.js';
-import { PredictAPI } from './api/client.js';
+import type { MakerApi, MakerOrderManager } from './mm/venue.js';
 import { OrderManager } from './order-manager.js';
 import { ValueMismatchDetector } from './arbitrage/value-detector.js';
 import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
@@ -40,7 +40,7 @@ export class MarketMaker {
   private static readonly MIN_TICK = 0.0001;
   private static readonly MAX_ALLOWED_BOOK_SPREAD = 0.2;
 
-  private readonly api: PredictAPI;
+  private readonly api: MakerApi;
   private readonly config: Config;
 
   private openOrders: Map<string, Order> = new Map();
@@ -124,18 +124,22 @@ export class MarketMaker {
   private crossAggregator?: CrossPlatformAggregator;
   private crossExecutionRouter?: CrossPlatformExecutionRouter;
 
-  private orderManager?: OrderManager;
+  private orderManager?: MakerOrderManager;
+  private orderManagerFactory?: () => Promise<MakerOrderManager>;
   private tradingHalted = false;
   private sessionPnL = 0;
   private warnedNoExecution = false;
+  private warnedNoOrderSync = false;
+  private warnedNoPositionSync = false;
   private cancelBatchNonce = 0;
   private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private cancelBurst: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
 
-  constructor(api: PredictAPI, config: Config) {
+  constructor(api: MakerApi, config: Config, orderManagerFactory?: () => Promise<MakerOrderManager>) {
     this.api = api;
     this.config = config;
+    this.orderManagerFactory = orderManagerFactory;
     if (this.config.useValueSignal) {
       this.valueDetector = new ValueMismatchDetector(0, 0);
     }
@@ -149,12 +153,18 @@ export class MarketMaker {
       return;
     }
 
-    if (!this.config.jwtToken) {
-      throw new Error('ENABLE_TRADING=true requires JWT_TOKEN in .env');
+    if (this.config.mmRequireJwt !== false && !this.config.jwtToken) {
+      throw new Error('ENABLE_TRADING=true requires JWT_TOKEN in .env (or set MM_REQUIRE_JWT=false)');
     }
 
-    this.orderManager = await OrderManager.create(this.config);
-    console.log(`✅ OrderManager initialized (maker: ${this.orderManager.getMakerAddress()})`);
+    if (!this.orderManager) {
+      if (this.orderManagerFactory) {
+        this.orderManager = await this.orderManagerFactory();
+      } else {
+        this.orderManager = await OrderManager.create(this.config);
+      }
+      console.log(`✅ OrderManager initialized (maker: ${this.orderManager.getMakerAddress()})`);
+    }
 
     if (this.config.hedgeMode === 'CROSS' && this.crossAggregator) {
       this.crossExecutionRouter = new CrossPlatformExecutionRouter(this.config, this.api, this.orderManager);
@@ -163,52 +173,62 @@ export class MarketMaker {
 
   async updateState(makerAddress: string): Promise<void> {
     try {
-      const orders = await this.api.getOrders(makerAddress);
-      this.openOrders.clear();
-      for (const order of orders) {
-        if (order.status === 'OPEN') {
-          this.openOrders.set(order.order_hash, order);
+      if (this.api.getOrders) {
+        const orders = await this.api.getOrders(makerAddress);
+        this.openOrders.clear();
+        for (const order of orders) {
+          if (order.status === 'OPEN') {
+            this.openOrders.set(order.order_hash, order);
+          }
         }
+      } else if (!this.warnedNoOrderSync) {
+        console.log('⚠️  当前交易所不支持获取 Open Orders，改为本地订单追踪');
+        this.warnedNoOrderSync = true;
       }
 
-      const positionsData = await this.api.getPositions(makerAddress);
-      this.positions.clear();
+      if (this.api.getPositions) {
+        const positionsData = await this.api.getPositions(makerAddress);
+        this.positions.clear();
 
-      for (const pos of positionsData) {
-        const tokenId = String(pos.token_id ?? pos.tokenId ?? pos.market?.tokenId ?? '');
-        if (!tokenId) {
-          continue;
+        for (const pos of positionsData) {
+          const tokenId = String(pos.token_id ?? pos.tokenId ?? pos.market?.tokenId ?? '');
+          if (!tokenId) {
+            continue;
+          }
+
+          const current = this.positions.get(tokenId) || {
+            token_id: tokenId,
+            question: pos.question || pos.market?.question || 'Unknown',
+            yes_amount: 0,
+            no_amount: 0,
+            total_value: 0,
+            avg_entry_price: 0,
+            current_price: 0,
+            pnl: 0,
+          };
+
+          const outcome = String(pos.outcome ?? pos.side ?? '').toUpperCase();
+          const size = Number(pos.amount ?? pos.shares ?? pos.size ?? 0);
+
+          if (outcome === 'YES' || outcome === 'BUY_YES') {
+            current.yes_amount += size;
+          } else if (outcome === 'NO' || outcome === 'BUY_NO') {
+            current.no_amount += size;
+          } else {
+            current.yes_amount += Number(pos.yes_amount ?? 0);
+            current.no_amount += Number(pos.no_amount ?? 0);
+          }
+
+          current.total_value += Number(pos.total_value ?? pos.value ?? 0);
+          current.avg_entry_price = Number(pos.avg_price ?? pos.avgEntryPrice ?? current.avg_entry_price);
+          current.current_price = Number(pos.current_price ?? pos.currentPrice ?? current.current_price);
+          current.pnl += Number(pos.pnl ?? 0);
+
+          this.positions.set(tokenId, current);
         }
-
-        const current = this.positions.get(tokenId) || {
-          token_id: tokenId,
-          question: pos.question || pos.market?.question || 'Unknown',
-          yes_amount: 0,
-          no_amount: 0,
-          total_value: 0,
-          avg_entry_price: 0,
-          current_price: 0,
-          pnl: 0,
-        };
-
-        const outcome = String(pos.outcome ?? pos.side ?? '').toUpperCase();
-        const size = Number(pos.amount ?? pos.shares ?? pos.size ?? 0);
-
-        if (outcome === 'YES' || outcome === 'BUY_YES') {
-          current.yes_amount += size;
-        } else if (outcome === 'NO' || outcome === 'BUY_NO') {
-          current.no_amount += size;
-        } else {
-          current.yes_amount += Number(pos.yes_amount ?? 0);
-          current.no_amount += Number(pos.no_amount ?? 0);
-        }
-
-        current.total_value += Number(pos.total_value ?? pos.value ?? 0);
-        current.avg_entry_price = Number(pos.avg_price ?? pos.avgEntryPrice ?? current.avg_entry_price);
-        current.current_price = Number(pos.current_price ?? pos.currentPrice ?? current.current_price);
-        current.pnl += Number(pos.pnl ?? 0);
-
-        this.positions.set(tokenId, current);
+      } else if (!this.warnedNoPositionSync) {
+        console.log('⚠️  当前交易所不支持获取仓位，库存模型将以 0 作为基线');
+        this.warnedNoPositionSync = true;
       }
 
       this.sessionPnL = Array.from(this.positions.values()).reduce((sum, p) => sum + p.pnl, 0);

@@ -28,6 +28,12 @@
 - `API_KEY=...`
 - `PRIVATE_KEY=...`
 - `JWT_TOKEN=...`
+
+Probable 做市（可选）：
+- `MM_VENUE=probable`
+- `PROBABLE_ENABLED=true`
+- `PROBABLE_PRIVATE_KEY=...`
+- `MM_REQUIRE_JWT=false`
 - `ENABLE_TRADING=false`（先用模拟模式）
 
 ## 4. 先用“模拟模式”

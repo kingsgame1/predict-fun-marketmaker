@@ -34,6 +34,12 @@
 - `CROSS_PLATFORM_AUTO_EXECUTE=true`
 - 配置 Polymarket / Opinion / Probable 的密钥
 - 使用 Probable 时设置 `PROBABLE_ENABLED=true`
+
+Probable 做市商：
+- `MM_VENUE=probable`
+- `PROBABLE_ENABLED=true`
+- `PROBABLE_PRIVATE_KEY=...`
+- 如需 WS：`PROBABLE_WS_ENABLED=true`
 - 可选：`CROSS_PLATFORM_ADAPTIVE_SIZE=true`（按深度缩小下单量）
 - 可选：`CROSS_PLATFORM_DEPTH_USAGE=0.5`（使用深度的最大比例）
 - 可选：`CROSS_PLATFORM_MAX_NOTIONAL=200`（名义金额上限）

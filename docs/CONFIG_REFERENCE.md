@@ -12,6 +12,8 @@
 
 ## 2. 做市商参数
 
+- `MM_VENUE`：做市商交易所（`predict` 或 `probable`）。
+- `MM_REQUIRE_JWT`：是否强制需要 JWT（Probable 可设为 `false`）。
 - `SPREAD`：基础价差（如 0.02 = 2%）。
 - `MIN_SPREAD` / `MAX_SPREAD`：价差上下限。
 - `USE_VALUE_SIGNAL`：是否用价值信号调整挂单。

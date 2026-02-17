@@ -443,6 +443,11 @@ Required before live mode:
 1. `npm run auth:jwt`
 2. `npm run setup:approvals`
 
+Probable market making:
+- Set `MM_VENUE=probable`
+- Set `PROBABLE_ENABLED=true` and `PROBABLE_PRIVATE_KEY`
+- Optional: `MM_REQUIRE_JWT=false` (Probable does not use JWT)
+
 ### Development Mode
 
 Auto-restart on file changes:
