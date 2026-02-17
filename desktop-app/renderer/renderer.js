@@ -150,6 +150,10 @@ const mmOpenOrders = document.getElementById('mmOpenOrders');
 const mmPositions = document.getElementById('mmPositions');
 const mmWsHealth = document.getElementById('mmWsHealth');
 const mmWsHealthHint = document.getElementById('mmWsHealthHint');
+const mmHealthScore = document.getElementById('mmHealthScore');
+const mmHealthBar = document.getElementById('mmHealthBar');
+const mmRiskHint = document.getElementById('mmRiskHint');
+const mmSafetyStatus = document.getElementById('mmSafetyStatus');
 const mmMarketsList = document.getElementById('mmMarketsList');
 const mmEventList = document.getElementById('mmEventList');
 const mmEventHint = document.getElementById('mmEventHint');
@@ -4279,6 +4283,7 @@ async function loadMmMetrics() {
     const data = JSON.parse(raw);
     setMmStatus('已更新', true);
     const wsHealth = data.wsHealth || {};
+    const markets = Array.isArray(data.markets) ? data.markets : [];
     const emergencyActive = wsHealth.wsEmergencyActive === true;
     const halted = data.tradingHalted ? '已熔断' : emergencyActive ? '急撤冷却中' : '运行中';
     setMetricText(mmTradingStatus, halted);
@@ -4400,9 +4405,52 @@ async function loadMmMetrics() {
       }
     }
 
+    if (mmHealthScore || mmSafetyStatus || mmHealthBar || mmRiskHint) {
+      const wsScore = Number.isFinite(wsHealth.score) ? Number(wsHealth.score) : 100;
+      const throttleFactors = markets
+        .map((m) => Number(m.riskThrottleFactor))
+        .filter((value) => Number.isFinite(value));
+      const minThrottle = throttleFactors.length ? Math.max(0, Math.min(...throttleFactors)) : 1;
+      const burstCount = markets.filter((m) => m.cancelBurstActive).length;
+      const emergencyOn = wsHealth.wsEmergencyActive === true;
+      const recoveryOn = wsHealth.wsEmergencyRecovery === true;
+      const ultraSafe = wsHealth.wsUltraSafe === true;
+      const forceSafe = wsHealth.wsForceSafe === true;
+      const readOnly = wsHealth.wsReadOnly === true;
+
+      let penalty = 0;
+      if (data.tradingHalted) penalty += 40;
+      if (emergencyOn) penalty += 30;
+      if (recoveryOn) penalty += 20;
+      if (ultraSafe) penalty += 15;
+      if (forceSafe) penalty += 10;
+      if (readOnly) penalty += 20;
+      if (burstCount > 0) penalty += Math.min(15, burstCount * 3);
+      penalty += Math.round((1 - Math.max(0, Math.min(1, minThrottle))) * 20);
+
+      const health = Math.max(0, Math.min(100, Math.round(wsScore - penalty)));
+      if (mmHealthScore) setMetricText(mmHealthScore, `${health}`);
+      if (mmHealthBar) mmHealthBar.style.width = `${health}%`;
+      if (mmRiskHint) {
+        const throttleHint = Number.isFinite(minThrottle) ? `节流x${minThrottle.toFixed(2)}` : '节流--';
+        const burstHint = burstCount > 0 ? `burst=${burstCount}` : 'burst=0';
+        const mode = emergencyOn ? '急撤' : recoveryOn ? '恢复' : forceSafe || ultraSafe ? '安全' : '常规';
+        mmRiskHint.textContent = `WS=${Math.round(wsScore)} ${throttleHint} ${burstHint} ${mode}`;
+      }
+      if (mmSafetyStatus) {
+        const parts = [];
+        if (data.tradingHalted) parts.push('熔断');
+        if (emergencyOn) parts.push('急撤');
+        if (recoveryOn) parts.push('恢复');
+        if (ultraSafe) parts.push('极限');
+        else if (forceSafe) parts.push('安全');
+        if (readOnly) parts.push('只读');
+        mmSafetyStatus.textContent = parts.length ? parts.join(' / ') : '常规';
+      }
+    }
+
     if (mmMarketsList) {
       mmMarketsList.innerHTML = '';
-      const markets = Array.isArray(data.markets) ? data.markets : [];
       const top = markets.slice(0, 8);
       if (top.length === 0) {
         const item = document.createElement('div');
