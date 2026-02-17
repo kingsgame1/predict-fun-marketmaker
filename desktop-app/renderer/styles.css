@@ -158,6 +158,30 @@ body::after {
   accent-color: var(--accent);
 }
 
+.select-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(11, 14, 29, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.select-row select {
+  min-width: 140px;
+  background: rgba(9, 12, 26, 0.9);
+  color: var(--text);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .button-row {
   display: flex;
   gap: 12px;

@@ -80,6 +80,16 @@
               <label class="toggle"><input type="checkbox" data-env="CROSS_PLATFORM_REQUIRE_WS" />跨平台强制 WS</label>
               <label class="toggle"><input type="checkbox" data-env="CROSS_PLATFORM_WS_REALTIME_FALLBACK_ENABLED" />跨平台 WS 回退扫描</label>
               <label class="toggle"><input type="checkbox" data-env="OPINION_WS_ENABLED" />Opinion WS</label>
+              <label class="toggle"><input type="checkbox" data-env="PROBABLE_ENABLED" />Probable 数据</label>
+              <label class="toggle"><input type="checkbox" data-env="PROBABLE_WS_ENABLED" />Probable WS</label>
+              <label class="toggle"><input type="checkbox" data-env="MM_REQUIRE_JWT" />做市强制 JWT</label>
+            </div>
+            <div class="select-row">
+              <label for="mmVenueSelect">做市平台</label>
+              <select id="mmVenueSelect">
+                <option value="predict">Predict</option>
+                <option value="probable">Probable</option>
+              </select>
             </div>
             <div class="button-row">
               <button class="btn subtle" id="applyToggles">应用到配置</button>

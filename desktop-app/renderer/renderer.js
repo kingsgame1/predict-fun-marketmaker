@@ -30,6 +30,7 @@ const consistencyBadge = document.getElementById('consistencyBadge');
 const statusMM = document.getElementById('statusMM');
 const statusArb = document.getElementById('statusArb');
 const toggleInputs = Array.from(document.querySelectorAll('.toggle input[data-env]'));
+const mmVenueSelect = document.getElementById('mmVenueSelect');
 const applyMmPassiveBtn = document.getElementById('applyMmPassive');
 const applyArbSafeBtn = document.getElementById('applyArbSafe');
 const tabButtons = Array.from(document.querySelectorAll('.tab-button'));
@@ -820,6 +821,14 @@ function parseEnv(text) {
   return map;
 }
 
+function syncSelectsFromEnv(text) {
+  const env = parseEnv(text);
+  if (mmVenueSelect) {
+    const raw = String(env.get('MM_VENUE') || 'predict').toLowerCase();
+    mmVenueSelect.value = raw === 'probable' ? 'probable' : 'predict';
+  }
+}
+
 function updateMetricsPaths() {
   const env = parseEnv(envEditor.value || '');
   const metricsPath = env.get('CROSS_PLATFORM_METRICS_PATH') || 'data/cross-platform-metrics.json';
@@ -836,6 +845,7 @@ function syncTogglesFromEnv(text) {
     const value = env.get(key) || 'false';
     input.checked = value.toLowerCase() === 'true';
   }
+  syncSelectsFromEnv(text);
 }
 
 function renderLogs() {
@@ -1492,6 +1502,9 @@ function applyToggles() {
     const key = input.dataset.env;
     if (!key) continue;
     text = setEnvValue(text, key, input.checked ? 'true' : 'false');
+  }
+  if (mmVenueSelect && mmVenueSelect.value) {
+    text = setEnvValue(text, 'MM_VENUE', mmVenueSelect.value);
   }
   envEditor.value = text;
   detectTradingMode(text);
@@ -4280,6 +4293,9 @@ document.getElementById('applyToggles').addEventListener('click', applyToggles);
 toggleInputs.forEach((input) => {
   input.addEventListener('change', applyToggles);
 });
+if (mmVenueSelect) {
+  mmVenueSelect.addEventListener('change', applyToggles);
+}
 
 envEditor.addEventListener('input', () => {
   syncTogglesFromEnv(envEditor.value);
