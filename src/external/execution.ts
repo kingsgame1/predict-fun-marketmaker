@@ -1011,6 +1011,7 @@ export class CrossPlatformExecutionRouter {
         preparedLegs = await this.prepareLegs(plannedLegs);
         preflightMs = Date.now() - preflightStart;
         this.assertMinNotionalAndProfit(preparedLegs);
+        await this.shadowProfitCheck(preparedLegs);
         if (this.config.crossPlatformPreSubmitGlobal) {
           await this.preSubmitCheck(preparedLegs);
         }
@@ -1244,6 +1245,74 @@ export class CrossPlatformExecutionRouter {
     if (recheckMs > 0) {
       await this.sleep(recheckMs);
       await this.preSubmitCheckOnce(legs);
+    }
+  }
+
+  private async shadowProfitCheck(legs: PlatformLeg[]): Promise<void> {
+    const minUsd = Math.max(0, this.config.crossPlatformShadowMinProfitUsd || 0);
+    const minBps = Math.max(0, this.config.crossPlatformShadowMinProfitBps || 0);
+    if (!minUsd && !minBps) {
+      return;
+    }
+    const slippageBps = this.getSlippageBps();
+    const depthLevels = Math.max(0, this.config.crossPlatformDepthLevels || 0);
+    const transfer = Math.max(0, this.config.crossPlatformTransferCost || 0);
+    let totalCostPerShare = 0;
+    let totalProceedsPerShare = 0;
+    let hasBuy = false;
+    let hasSell = false;
+
+    for (const leg of legs) {
+      const book = await this.fetchOrderbookInternal(leg);
+      if (!book) {
+        throw new Error(`Shadow check failed: missing orderbook for ${leg.platform}:${leg.tokenId}`);
+      }
+      const feeBps = this.getFeeBps(leg.platform);
+      const { curveRate, curveExponent } = this.getFeeCurve(leg.platform);
+      const vwap =
+        leg.side === 'BUY'
+          ? estimateBuy(book.asks, leg.shares, feeBps, curveRate, curveExponent, slippageBps, depthLevels)
+          : estimateSell(book.bids, leg.shares, feeBps, curveRate, curveExponent, slippageBps, depthLevels);
+      if (!vwap) {
+        throw new Error(`Shadow check failed: insufficient depth for ${leg.platform}:${leg.tokenId}`);
+      }
+      const vwapAllIn = Number.isFinite(vwap.avgAllIn) ? vwap.avgAllIn : vwap.avgPrice;
+      if (!Number.isFinite(vwapAllIn) || vwapAllIn <= 0) {
+        throw new Error(`Shadow check failed: invalid VWAP for ${leg.platform}:${leg.tokenId}`);
+      }
+      if (leg.side === 'BUY') {
+        hasBuy = true;
+        totalCostPerShare += vwapAllIn;
+      } else {
+        hasSell = true;
+        totalProceedsPerShare += vwapAllIn;
+      }
+    }
+
+    const shares = Math.min(...legs.map((leg) => leg.shares));
+    if (!Number.isFinite(shares) || shares <= 0) {
+      return;
+    }
+    let profit = 0;
+    let notional = 0;
+    if (hasBuy && !hasSell) {
+      notional = totalCostPerShare * shares;
+      profit = (1 - totalCostPerShare - transfer) * shares;
+    } else if (hasSell && !hasBuy) {
+      notional = totalProceedsPerShare * shares;
+      profit = (totalProceedsPerShare - 1 - transfer) * shares;
+    } else {
+      notional = Math.max(totalCostPerShare, totalProceedsPerShare) * shares;
+      profit = (totalProceedsPerShare - totalCostPerShare - transfer) * shares;
+    }
+    if (minUsd > 0 && profit < minUsd) {
+      throw new Error(`Shadow check failed: profit $${profit.toFixed(2)} < min $${minUsd}`);
+    }
+    if (minBps > 0 && notional > 0) {
+      const pct = (profit / notional) * 10000;
+      if (pct < minBps) {
+        throw new Error(`Shadow check failed: profit ${pct.toFixed(1)} bps < min ${minBps} bps`);
+      }
     }
   }
 

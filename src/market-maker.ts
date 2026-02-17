@@ -10,7 +10,7 @@ import { ValueMismatchDetector } from './arbitrage/value-detector.js';
 import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
 import { CrossPlatformAggregator } from './external/aggregator.js';
 import { CrossPlatformExecutionRouter } from './external/execution.js';
-import { findBestMatch } from './external/match.js';
+import { findBestMatch, similarityScore } from './external/match.js';
 import type { PlatformLeg, PlatformMarket } from './external/types.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -4648,6 +4648,50 @@ export class MarketMaker {
 
     const platformMap = await this.crossAggregator.getPlatformMarkets([], new Map());
     const mappingStore = this.crossAggregator.getMappingStore();
+    const outcome = delta > 0 ? 'NO' : 'YES';
+    const simWeight = Number.isFinite(this.config.crossHedgeSimilarityWeight)
+      ? this.config.crossHedgeSimilarityWeight!
+      : 0.7;
+    const depthWeight = Number.isFinite(this.config.crossHedgeDepthWeight)
+      ? this.config.crossHedgeDepthWeight!
+      : 0.3;
+    const minDepthUsd = Math.max(0, this.config.crossHedgeMinDepthUsd ?? 0);
+
+    const pickBest = (candidates: PlatformMarket[]): PlatformMarket | null => {
+      const minSimilarity = this.config.crossPlatformMinSimilarity ?? 0.78;
+      let best: PlatformMarket | null = null;
+      let bestScore = 0;
+      for (const candidate of candidates) {
+        const similarity = similarityScore(question, candidate.question);
+        if (similarity < minSimilarity) continue;
+        const token = outcome === 'YES' ? candidate.yesTokenId : candidate.noTokenId;
+        const price = outcome === 'YES' ? candidate.yesAsk : candidate.noAsk;
+        if (!token || !price || price <= 0) continue;
+        const levels = outcome === 'YES' ? candidate.yesAsks : candidate.noAsks;
+        const topSize = outcome === 'YES' ? candidate.yesAskSize : candidate.noAskSize;
+        let depthShares = 0;
+        if (levels && levels.length > 0) {
+          for (const level of levels) {
+            const shares = Number(level.shares);
+            if (Number.isFinite(shares) && shares > 0) {
+              depthShares += shares;
+            }
+          }
+        } else if (Number.isFinite(topSize) && topSize! > 0) {
+          depthShares = topSize!;
+        }
+        const depthUsd = depthShares * price;
+        if (minDepthUsd > 0 && depthUsd < minDepthUsd) continue;
+        const depthScore = Math.log10(depthUsd + 1);
+        const score = similarity * simWeight + depthScore * depthWeight;
+        if (!best || score > bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+      return best;
+    };
+
     if (mappingStore && this.config.crossPlatformUseMapping !== false) {
       try {
         const marketMeta = await this.api.getMarket(tokenId);
@@ -4663,19 +4707,20 @@ export class MarketMaker {
         };
         const mapped = mappingStore.resolveMatches(predictMarket, platformMap);
         if (mapped.length > 0) {
-          const match = mapped[0];
-          const outcome = delta > 0 ? 'NO' : 'YES';
-          const token = outcome === 'YES' ? match.yesTokenId : match.noTokenId;
-          const price = outcome === 'YES' ? match.yesAsk : match.noAsk;
-          if (token && price) {
-            return {
-              platform: match.platform,
-              tokenId: token,
-              side: 'BUY',
-              price,
-              shares,
-              outcome,
-            };
+          const match = pickBest(mapped);
+          if (match) {
+            const token = outcome === 'YES' ? match.yesTokenId : match.noTokenId;
+            const price = outcome === 'YES' ? match.yesAsk : match.noAsk;
+            if (token && price) {
+              return {
+                platform: match.platform,
+                tokenId: token,
+                side: 'BUY',
+                price,
+                shares,
+                outcome,
+              };
+            }
           }
         }
       } catch (error) {
@@ -4692,22 +4737,20 @@ export class MarketMaker {
       return null;
     }
 
-    const minSimilarity = this.config.crossPlatformMinSimilarity ?? 0.78;
-    const { match } = findBestMatch(question, candidates, minSimilarity);
-    if (!match) {
+    const best = pickBest(candidates);
+    if (!best) {
       return null;
     }
 
-    const outcome = delta > 0 ? 'NO' : 'YES';
-    const matchTokenId = outcome === 'YES' ? match.yesTokenId : match.noTokenId;
-    const price = outcome === 'YES' ? match.yesAsk : match.noAsk;
+    const matchTokenId = outcome === 'YES' ? best.yesTokenId : best.noTokenId;
+    const price = outcome === 'YES' ? best.yesAsk : best.noAsk;
 
     if (!matchTokenId || !price) {
       return null;
     }
 
     return {
-      platform: match.platform,
+      platform: best.platform,
       tokenId: matchTokenId,
       side: 'BUY',
       price,

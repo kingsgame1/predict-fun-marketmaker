@@ -597,6 +597,11 @@
 - `CROSS_PLATFORM_PRE_SUBMIT_LEG_COST_SPREAD_BPS`：提交前腿间 VWAP 成本差阈值（bps，0=关闭）。
 - `CROSS_PLATFORM_PRE_SUBMIT_RECHECK_MS`：提交前二次快照确认等待时间（毫秒，0=关闭）。
 - `CROSS_PLATFORM_PRE_SUBMIT_GLOBAL`：是否在分平台执行前做一次“全腿预提交校验”（影子执行）。
+- `CROSS_PLATFORM_SHADOW_MIN_PROFIT_USD`：影子执行最低利润（USD）。
+- `CROSS_PLATFORM_SHADOW_MIN_PROFIT_BPS`：影子执行最低利润（bps）。
+- `CROSS_HEDGE_SIMILARITY_WEIGHT`：跨平台对冲匹配时问题相似度权重。
+- `CROSS_HEDGE_DEPTH_WEIGHT`：跨平台对冲匹配时深度权重。
+- `CROSS_HEDGE_MIN_DEPTH_USD`：跨平台对冲最低深度（USD）。
 - `CROSS_PLATFORM_ADAPTIVE_SIZE`：执行前根据订单簿深度自动缩小下单份额。
 - `CROSS_PLATFORM_MIN_DEPTH_SHARES`：深度不足时的最小下单份额门槛。
 - `CROSS_PLATFORM_MIN_DEPTH_USD`：跨平台套利时要求的最低深度美元值（基于盘口深度估算）。
