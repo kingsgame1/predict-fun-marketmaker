@@ -3225,6 +3225,15 @@ export class MarketMaker {
     if (wsTouchAdd > 0) {
       touchBufferBps += wsTouchAdd;
     }
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneTouchBufferWeight ?? 0);
+      if (autoWeight > 0) {
+        const mult = this.getAutoTuneMultiplier(market.token_id);
+        if (mult !== 1) {
+          touchBufferBps *= 1 + (mult - 1) * autoWeight;
+        }
+      }
+    }
     if (touchBufferBps > 0) {
       const buffer = touchBufferBps / 10000;
       const maxBid = bestBid * (1 - buffer);
@@ -3333,6 +3342,15 @@ export class MarketMaker {
     } else {
       sizeFactor *= 1 + inventoryBias * sizeInvWeight;
       sizeFactor *= 1 - imbalance * sizeImbWeight;
+    }
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneSizeWeight ?? 0);
+      if (autoWeight > 0) {
+        const mult = this.getAutoTuneMultiplier(market.token_id);
+        if (mult !== 1) {
+          sizeFactor *= 1 / Math.max(0.1, 1 + (mult - 1) * autoWeight);
+        }
+      }
     }
     const volWeight = Math.max(0, this.config.mmSizeVolWeight ?? 0);
     if (volWeight > 0) {

@@ -193,6 +193,11 @@ WS 健康日志：
 
 - `HEDGE_ON_FILL=true` + `HEDGE_MODE=FLATTEN`
 
+自适应微调（让“挂单不成交”更稳定）：
+
+- `MM_AUTO_TUNE_TOUCH_BUFFER_WEIGHT=0.6`
+- `MM_AUTO_TUNE_SIZE_WEIGHT=0.5`
+
 ## 一键模板（推荐）
 
 桌面端策略开关区提供两套模板：
