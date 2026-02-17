@@ -1011,6 +1011,9 @@ export class CrossPlatformExecutionRouter {
         preparedLegs = await this.prepareLegs(plannedLegs);
         preflightMs = Date.now() - preflightStart;
         this.assertMinNotionalAndProfit(preparedLegs);
+        if (this.config.crossPlatformPreSubmitGlobal) {
+          await this.preSubmitCheck(preparedLegs);
+        }
 
         const execStart = Date.now();
         const chunkResult = await this.executeChunks(preparedLegs, attempt);

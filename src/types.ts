@@ -473,6 +473,7 @@ export interface Config {
   crossPlatformPreSubmitTotalCostBps?: number;
   crossPlatformPreSubmitLegCostSpreadBps?: number;
   crossPlatformPreSubmitRecheckMs?: number;
+  crossPlatformPreSubmitGlobal?: boolean;
   crossPlatformAdaptiveSize?: boolean;
   crossPlatformMinDepthShares?: number;
   crossPlatformMinDepthUsd?: number;

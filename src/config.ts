@@ -570,6 +570,7 @@ export function loadConfig(): Config {
     crossPlatformPreSubmitTotalCostBps: parseFloat(process.env.CROSS_PLATFORM_PRE_SUBMIT_TOTAL_COST_BPS || '0'),
     crossPlatformPreSubmitLegCostSpreadBps: parseFloat(process.env.CROSS_PLATFORM_PRE_SUBMIT_LEG_COST_SPREAD_BPS || '0'),
     crossPlatformPreSubmitRecheckMs: parseInt(process.env.CROSS_PLATFORM_PRE_SUBMIT_RECHECK_MS || '0'),
+    crossPlatformPreSubmitGlobal: process.env.CROSS_PLATFORM_PRE_SUBMIT_GLOBAL === 'true',
     crossPlatformAdaptiveSize: process.env.CROSS_PLATFORM_ADAPTIVE_SIZE !== 'false',
     crossPlatformMinDepthShares: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_SHARES || '1'),
     crossPlatformMinDepthUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_USD || '0'),

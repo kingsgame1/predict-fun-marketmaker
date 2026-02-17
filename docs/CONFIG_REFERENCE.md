@@ -594,6 +594,7 @@
 - `CROSS_PLATFORM_PRE_SUBMIT_TOTAL_COST_BPS`：提交前总 VWAP 成本缓冲（bps，0=关闭）。
 - `CROSS_PLATFORM_PRE_SUBMIT_LEG_COST_SPREAD_BPS`：提交前腿间 VWAP 成本差阈值（bps，0=关闭）。
 - `CROSS_PLATFORM_PRE_SUBMIT_RECHECK_MS`：提交前二次快照确认等待时间（毫秒，0=关闭）。
+- `CROSS_PLATFORM_PRE_SUBMIT_GLOBAL`：是否在分平台执行前做一次“全腿预提交校验”（影子执行）。
 - `CROSS_PLATFORM_ADAPTIVE_SIZE`：执行前根据订单簿深度自动缩小下单份额。
 - `CROSS_PLATFORM_MIN_DEPTH_SHARES`：深度不足时的最小下单份额门槛。
 - `CROSS_PLATFORM_MIN_DEPTH_USD`：跨平台套利时要求的最低深度美元值（基于盘口深度估算）。

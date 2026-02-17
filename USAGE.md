@@ -191,7 +191,8 @@ WS 健康日志：
 
 若想在成交后自动降低持仓风险，可用“Probable 对冲模板”，它会默认开启：
 
-- `HEDGE_ON_FILL=true` + `HEDGE_MODE=FLATTEN`
+- `HEDGE_ON_FILL=true` + `HEDGE_MODE=CROSS`（跨平台对冲）
+- `CROSS_PLATFORM_ENABLED=true` + `CROSS_PLATFORM_WS_REALTIME=true`
 
 自适应微调（让“挂单不成交”更稳定）：
 
@@ -227,6 +228,7 @@ WS 健康日志：
 - `CROSS_PLATFORM_MAX_VWAP_DEVIATION_BPS=40`
 - `CROSS_PLATFORM_MAX_VWAP_LEVELS=3`
 - `CROSS_PLATFORM_PRE_SUBMIT_RECHECK_MS=200`
+- `CROSS_PLATFORM_PRE_SUBMIT_GLOBAL=true`
 
 成交后漂移回撤（残差风控）：
 
