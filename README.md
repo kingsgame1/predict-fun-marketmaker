@@ -18,6 +18,13 @@ Automated market making bot for [Predict.fun](https://predict.fun/) - the BNB Ch
 - **Dependency Arbitrage**: OR-Tools based combinatorial arbitrage via logical constraints
 - **Multi-Outcome Arbitrage**: Sum of outcomes < $1 opportunities
 
+## Desktop App (v0.1.1)
+
+- Releases: https://github.com/ccjingeth/predict-fun-marketmaker/releases/tag/v0.1.1
+- macOS ARM64 DMG: `Predict.fun.Console-0.1.1-arm64.dmg`
+- macOS ARM64 ZIP: `Predict.fun.Console-0.1.1-arm64-mac.zip`
+- 首次启动被拦截时：右键应用 → 打开
+
 ## Architecture
 
 ```

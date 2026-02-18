@@ -2,6 +2,12 @@
 
 本指南适合第一次使用做市商/套利脚本的用户。按顺序操作即可。
 
+## 0. 桌面端快速开始（可选）
+
+1. 下载桌面端：`Predict.fun.Console-0.1.1-arm64.dmg` 或 `Predict.fun.Console-0.1.1-arm64-mac.zip`
+2. Releases 地址：https://github.com/ccjingeth/predict-fun-marketmaker/releases/tag/v0.1.1
+3. 首次启动被拦截时：右键应用 → 打开
+
 ## 1. 安装与准备
 
 1. 安装 Node.js（建议 18+）

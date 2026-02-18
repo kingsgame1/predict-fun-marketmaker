@@ -2,12 +2,12 @@
 
 ## 下载安装
 
-1. 打开 GitHub Releases 页面，下载 macOS 版本：
-   - `Predict.fun Console-0.1.0-arm64.dmg`
+1. 打开 GitHub Releases 页面，下载 macOS 版本：`Predict.fun.Console-0.1.1-arm64.dmg` 与 `Predict.fun.Console-0.1.1-arm64-mac.zip`。
 2. 双击 `.dmg`，拖动到 Applications。
 3. 首次启动如果被系统拦截：右键应用 → 打开。
 
 提示：打包版依赖系统已安装 Node.js（建议 18+）。如 `node` 不在默认路径，可设置环境变量 `NODE_BINARY` 指向 Node 可执行文件。
+提示：Releases 地址：https://github.com/ccjingeth/predict-fun-marketmaker/releases/tag/v0.1.1
 
 ## 配置文件位置
 
@@ -18,6 +18,28 @@
 
 桌面端 UI 内可直接编辑 `.env`。
 套利机会面板会读取 `ARB_OPPORTUNITIES_PATH`，点击“执行”会写入 `ARB_COMMAND_PATH`。请确保套利机器人在运行中。
+
+## 桌面端字段说明（新手必看）
+
+做市健康评分（做市指标面板）：
+- 健康评分：综合 WS 健康度、节流、急撤/恢复、burst 的风险评分。越低越危险。
+- 安全档位：显示是否进入 熔断 / 急撤 / 恢复 / 安全 / 极限 / 只读。
+- WS 健康度：实时 WS 行情健康分数。
+
+套利机会列表（套利机会面板）：
+- VWAP 成本：按订单簿深度计算的真实成交均价（买入）。
+- VWAP 回收：按订单簿深度计算的真实成交均价（卖出）。
+- 费 / 滑点：按单份额折算的手续费与滑点成本。
+- VWAP 偏离：VWAP 与最优价的偏离（bps），越高越危险。
+- 深度层：计算 VWAP 时使用的深度层数，越多说明吃了更深盘口。
+- 总成本 / 总回收：基于推荐仓位的名义金额。
+
+做市自动降级（可选）：
+- `MM_UI_AUTO_APPLY_RECOVERY_TEMPLATE=true`
+- `MM_UI_AUTO_SAFE_THRESHOLD=55`
+- `MM_UI_AUTO_ULTRA_THRESHOLD=35`
+- `MM_UI_AUTO_COOLDOWN_MS=600000`
+说明：当健康评分低于阈值，自动套用“保守/极保守”恢复模板。
 
 ## 必要配置
 
