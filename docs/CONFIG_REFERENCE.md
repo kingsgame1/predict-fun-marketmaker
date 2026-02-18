@@ -275,6 +275,8 @@
 - `MM_FAST_CANCEL_WINDOW_MS`：极速变化判定窗口（毫秒）。
 - `MM_FAST_CANCEL_DEPTH_SPEED_BPS`：快速撤单需要的盘口深度速度阈值（bps），用于防止误触发。
 - `MM_FAST_CANCEL_SPREAD_JUMP_BPS`：快速撤单需要的价差跳变阈值（bps），用于防止误触发。
+- `MM_DEPTH_SPEED_PAUSE_BPS`：深度消耗速度超过阈值时直接暂停做市（bps）。
+- `MM_DEPTH_SPEED_PAUSE_MS`：深度速度触发后的暂停时长（毫秒，0 则复用波动暂停时长）。
 - `MM_LAYER_RESTORE_NEAR_TOUCH_BPS`：恢复期近触碰额外缓冲（bps）。
 - `MM_LAYER_RESTORE_FORCE_REFRESH`：恢复期强制撤单后重挂。
 - `MM_LAYER_RESTORE_FORCE_CLEANUP`：恢复期强制清理历史挂单后再重挂。

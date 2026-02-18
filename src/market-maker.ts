@@ -844,6 +844,24 @@ export class MarketMaker {
     return deltaBps >= thresholdBps;
   }
 
+  private checkDepthSpeedSpike(tokenId: string): boolean {
+    const thresholdBps = Math.max(0, this.config.mmDepthSpeedPauseBps ?? 0);
+    if (!thresholdBps) {
+      return false;
+    }
+    const depthSpeed = this.lastDepthSpeedBps.get(tokenId) ?? 0;
+    if (!Number.isFinite(depthSpeed) || depthSpeed < thresholdBps) {
+      return false;
+    }
+    const pauseMs = Math.max(0, this.config.mmDepthSpeedPauseMs ?? 0);
+    if (pauseMs > 0) {
+      this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    } else {
+      this.pauseForVolatility(tokenId);
+    }
+    return true;
+  }
+
   private evaluateOrderRisk(
     order: Order,
     orderbook: Orderbook
@@ -3975,6 +3993,13 @@ export class MarketMaker {
 
     let prices = this.calculatePrices(market, orderbook);
     if (!prices) {
+      return;
+    }
+
+    if (this.checkDepthSpeedSpike(tokenId)) {
+      console.log(`⚠️ Depth speed spike for ${tokenId}, pausing quoting...`);
+      await this.cancelOrdersForMarket(tokenId);
+      this.markCooldown(tokenId, this.config.cooldownAfterCancelMs ?? 4000);
       return;
     }
 
