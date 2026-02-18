@@ -2984,6 +2984,11 @@ function applyMmProbableHedgeTemplate() {
 function applyArbSafeTemplate() {
   applyTemplate(
     {
+      PREDICT_WS_ENABLED: 'true',
+      POLYMARKET_WS_ENABLED: 'true',
+      OPINION_WS_ENABLED: 'true',
+      PROBABLE_WS_ENABLED: 'true',
+      CROSS_PLATFORM_ENABLED: 'true',
       ARB_PREFLIGHT_ENABLED: 'true',
       ARB_REQUIRE_WS: 'true',
       ARB_WS_REALTIME: 'true',

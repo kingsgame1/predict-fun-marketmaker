@@ -9,6 +9,7 @@ import { createClobClient, OrderSide, LimitTimeInForce } from '@prob/clob';
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { bsc, bscTestnet } from 'viem/chains';
+import { ensureProbableApiBase } from './external/probable-utils.js';
 
 interface ProbableOrderManagerConfig {
   orderbookApiUrl: string;
@@ -29,7 +30,7 @@ export class ProbableOrderManager implements MakerOrderManager {
     const transport = config.rpcUrl ? http(config.rpcUrl) : http();
     const wallet = createWalletClient({ account, chain, transport });
     this.client = createClobClient({
-      baseUrl: config.orderbookApiUrl,
+      baseUrl: ensureProbableApiBase(config.orderbookApiUrl),
       wsUrl: config.wsUrl,
       chainId: config.chainId,
       wallet,

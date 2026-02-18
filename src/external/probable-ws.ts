@@ -1,5 +1,6 @@
 import type { PlatformOrderbook } from './types.js';
 import { createClobClient } from '@prob/clob';
+import { ensureProbableApiBase } from './probable-utils.js';
 
 export interface ProbableWsConfig {
   baseUrl: string;
@@ -42,7 +43,7 @@ export class ProbableWebSocketFeed {
     this.config = config;
     this.reconnectDelay = config.reconnectMinMs ?? 1000;
     this.client = createClobClient({
-      baseUrl: config.baseUrl,
+      baseUrl: ensureProbableApiBase(config.baseUrl),
       wsUrl: config.wsUrl,
       chainId: config.chainId,
     } as any);

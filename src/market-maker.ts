@@ -1148,6 +1148,70 @@ export class MarketMaker {
     return { cancel: false, panic: false, reason: '' };
   }
 
+  private precheckNewOrderVwapRisk(
+    orderbook: Orderbook,
+    side: 'BUY' | 'SELL',
+    price: number,
+    shares: number
+  ): { skip: boolean; distanceBps?: number; vwap?: number } {
+    const thresholdBps = Math.max(0, this.config.mmOrderRiskVwapBps ?? 0);
+    if (!thresholdBps) {
+      return { skip: false };
+    }
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(shares) || shares <= 0) {
+      return { skip: false };
+    }
+    const vwapLevels = Math.max(0, this.config.mmOrderRiskVwapLevels ?? 0);
+    const vwapFeeBps = Math.max(0, this.config.mmOrderRiskVwapFeeBps ?? 0);
+    const vwapSlippageBps = Math.max(0, this.config.mmOrderRiskVwapSlippageBps ?? 0);
+    const baseShares = Math.max(0, this.config.mmOrderRiskVwapShares ?? 0);
+    const mult = Math.max(0, this.config.mmOrderRiskVwapMult ?? 0);
+    let targetShares = baseShares;
+    if (mult > 0) {
+      targetShares = Math.max(targetShares, shares * mult);
+    }
+    if (!targetShares) {
+      targetShares = shares;
+    }
+    if (targetShares <= 0) {
+      return { skip: false };
+    }
+    if (side === 'BUY') {
+      const vwap = estimateSell(
+        orderbook.bids,
+        targetShares,
+        vwapFeeBps,
+        undefined,
+        undefined,
+        vwapSlippageBps,
+        vwapLevels
+      );
+      if (vwap && Number.isFinite(vwap.avgAllIn) && vwap.avgAllIn > 0 && vwap.avgAllIn <= price) {
+        const distanceBps = ((price - vwap.avgAllIn) / price) * 10000;
+        if (distanceBps <= thresholdBps) {
+          return { skip: true, distanceBps, vwap: vwap.avgAllIn };
+        }
+      }
+    } else {
+      const vwap = estimateBuy(
+        orderbook.asks,
+        targetShares,
+        vwapFeeBps,
+        undefined,
+        undefined,
+        vwapSlippageBps,
+        vwapLevels
+      );
+      if (vwap && Number.isFinite(vwap.avgAllIn) && vwap.avgAllIn > 0 && vwap.avgAllIn >= price) {
+        const distanceBps = ((vwap.avgAllIn - price) / price) * 10000;
+        if (distanceBps <= thresholdBps) {
+          return { skip: true, distanceBps, vwap: vwap.avgAllIn };
+        }
+      }
+    }
+    return { skip: false };
+  }
+
   private clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
   }
@@ -4419,6 +4483,12 @@ export class MarketMaker {
           continue;
         }
         const shares = this.applyIceberg(size, recoveryIcebergRatio);
+        const vwapRisk = this.precheckNewOrderVwapRisk(orderbook, 'BUY', bidTargets[i], shares);
+        if (vwapRisk.skip) {
+          const msg = `BUY vwap=${vwapRisk.vwap?.toFixed(4) ?? 'n/a'} dist=${vwapRisk.distanceBps?.toFixed(1) ?? 'n/a'}bps`;
+          this.recordMmEvent('SKIP_VWAP', msg, tokenId);
+          continue;
+        }
         await this.placeLimitOrder(market, 'BUY', bidTargets[i], shares);
         placed = true;
         if (forceSingle) {
@@ -4441,6 +4511,12 @@ export class MarketMaker {
           continue;
         }
         const shares = this.applyIceberg(size, recoveryIcebergRatio);
+        const vwapRisk = this.precheckNewOrderVwapRisk(orderbook, 'SELL', askTargets[i], shares);
+        if (vwapRisk.skip) {
+          const msg = `SELL vwap=${vwapRisk.vwap?.toFixed(4) ?? 'n/a'} dist=${vwapRisk.distanceBps?.toFixed(1) ?? 'n/a'}bps`;
+          this.recordMmEvent('SKIP_VWAP', msg, tokenId);
+          continue;
+        }
         await this.placeLimitOrder(market, 'SELL', askTargets[i], shares);
         placed = true;
         if (forceSingle) {

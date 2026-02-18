@@ -5,6 +5,7 @@ import { createClobClient } from '@prob/clob';
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { bsc, bscTestnet } from 'viem/chains';
+import { joinProbablePath, ensureProbableApiBase } from '../external/probable-utils.js';
 
 interface ProbableConfig {
   marketApiUrl: string;
@@ -41,12 +42,6 @@ function toArray<T>(value: T[] | string | undefined): T[] {
   } catch {
     return [];
   }
-}
-
-function joinUrl(base: string, path: string): string {
-  const trimmed = base.replace(/\/+$/, '');
-  const suffix = path.startsWith('/') ? path : `/${path}`;
-  return `${trimmed}${suffix}`;
 }
 
 function parseOrderbook(data: any): Orderbook {
@@ -99,7 +94,7 @@ export class ProbableAPI implements MakerApi {
     const transport = config.rpcUrl ? http(config.rpcUrl) : http();
     const wallet = createWalletClient({ account, chain, transport });
     this.client = createClobClient({
-      baseUrl: config.orderbookApiUrl,
+      baseUrl: ensureProbableApiBase(config.orderbookApiUrl),
       wsUrl: config.wsUrl,
       chainId: config.chainId,
       wallet,
@@ -134,7 +129,7 @@ export class ProbableAPI implements MakerApi {
       return this.cachedMarkets.slice();
     }
     const limit = Math.max(1, this.config.maxMarkets || 30);
-    const url = joinUrl(this.config.marketApiUrl, '/public/api/v1/markets/');
+    const url = joinProbablePath(this.config.marketApiUrl, '/markets/');
     const response = await axios.get(url, {
       params: { active: true, closed: false, limit },
       timeout: 10000,
@@ -204,7 +199,7 @@ export class ProbableAPI implements MakerApi {
   }
 
   async getOrderbook(tokenId: string): Promise<Orderbook> {
-    const url = joinUrl(this.config.orderbookApiUrl, '/book');
+    const url = joinProbablePath(this.config.orderbookApiUrl, '/book');
     const response = await axios.get(url, { params: { token_id: tokenId }, timeout: 8000 });
     const book = parseOrderbook(response.data);
     book.token_id = tokenId;
