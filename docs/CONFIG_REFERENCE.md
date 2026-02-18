@@ -267,6 +267,10 @@
 - `MM_LAYER_RESTORE_ONLY_FAR`：恢复期仅挂最远一层。
 - `MM_LAYER_RESTORE_TOUCH_BUFFER_BPS`：恢复期额外避免靠近盘口的缓冲（bps）。
 - `MM_LAYER_RESTORE_NO_NEAR_TOUCH`：恢复期禁止靠近盘口挂单。
+- `MM_LAYER_GUARD_NEAR_BPS`：贴近盘口层的保护阈值（bps），近层满足触发条件时跳过挂单。
+- `MM_LAYER_GUARD_MIN_DEPTH_SHARES`：触发近层保护所需的最小深度（shares）。
+- `MM_LAYER_GUARD_MIN_DEPTH_USD`：触发近层保护所需的最小深度（USD）。
+- `MM_LAYER_GUARD_DEPTH_SPEED_BPS`：深度消耗速度超过该值时，近层直接跳过。
 - `MM_LAYER_RESTORE_NEAR_TOUCH_BPS`：恢复期近触碰额外缓冲（bps）。
 - `MM_LAYER_RESTORE_FORCE_REFRESH`：恢复期强制撤单后重挂。
 - `MM_LAYER_RESTORE_FORCE_CLEANUP`：恢复期强制清理历史挂单后再重挂。

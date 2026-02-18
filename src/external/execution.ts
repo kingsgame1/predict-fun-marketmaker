@@ -982,6 +982,32 @@ export class CrossPlatformExecutionRouter {
     }
   }
 
+  async preflightOnly(legs: PlatformLeg[]): Promise<{ ok: boolean; reason?: string; legs?: PlatformLeg[] }> {
+    try {
+      this.assertAvoidHours();
+      this.assertCircuitHealthy();
+      this.assertGlobalCooldown();
+      const planned = this.adjustLegsForAttempt(legs, 0);
+      if (!planned.length) {
+        return { ok: false, reason: 'No executable legs after scaling' };
+      }
+      this.assertAllowlist(planned);
+      this.assertTokenHealthy(planned);
+      this.assertPlatformScore(planned);
+      this.assertPlatformHealthy(planned);
+      const prepared = await this.prepareLegs(planned);
+      this.assertMinNotionalAndProfit(prepared);
+      await this.shadowProfitCheck(prepared);
+      if (this.config.crossPlatformPreSubmitGlobal) {
+        await this.preSubmitCheck(prepared);
+      }
+      return { ok: true, legs: prepared };
+    } catch (error: any) {
+      const message = error?.message || 'Preflight failed';
+      return { ok: false, reason: message };
+    }
+  }
+
   async execute(legs: PlatformLeg[]): Promise<void> {
     this.assertAvoidHours();
     this.assertCircuitHealthy();

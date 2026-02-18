@@ -387,6 +387,10 @@ export interface Config {
   mmLayerRestoreOnlyFar?: boolean;
   mmLayerRestoreTouchBufferBps?: number;
   mmLayerRestoreNoNearTouch?: boolean;
+  mmLayerGuardNearBps?: number;
+  mmLayerGuardMinDepthShares?: number;
+  mmLayerGuardMinDepthUsd?: number;
+  mmLayerGuardDepthSpeedBps?: number;
   mmLayerRestoreNearTouchBps?: number;
   mmLayerRestoreForceRefresh?: boolean;
   mmLayerRestoreForceCleanup?: boolean;

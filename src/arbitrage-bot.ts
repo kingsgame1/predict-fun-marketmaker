@@ -1210,9 +1210,37 @@ class ArbitrageBot {
         return this.preflightInPlatform(opp, markets);
       case 'MULTI_OUTCOME':
         return this.preflightMultiOutcome(opp, markets);
+      case 'CROSS_PLATFORM':
+        return this.preflightCrossPlatform(opp);
       default:
         return true;
     }
+  }
+
+  private async preflightCrossPlatform(opp: any): Promise<boolean> {
+    if (!this.crossExecutionRouter) {
+      return true;
+    }
+    const legs: any[] = Array.isArray(opp?.legs) ? opp.legs : [];
+    const normalized = legs
+      .filter((leg: any) => leg && leg.tokenId && leg.platform && leg.side && leg.shares > 0)
+      .map((leg: any) => ({
+        platform: leg.platform,
+        tokenId: leg.tokenId,
+        side: leg.side,
+        price: leg.price,
+        shares: leg.shares,
+        outcome: leg.outcome,
+      }));
+    if (normalized.length === 0) {
+      return true;
+    }
+    const result = await this.crossExecutionRouter.preflightOnly(normalized);
+    if (!result.ok) {
+      console.log(`⚠️ Cross-platform preflight failed: ${result.reason || 'unknown'}`);
+      return false;
+    }
+    return true;
   }
 
   private async preflightInPlatform(opp: any, markets: Market[]): Promise<boolean> {

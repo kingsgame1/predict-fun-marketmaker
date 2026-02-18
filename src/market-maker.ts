@@ -1212,6 +1212,47 @@ export class MarketMaker {
     return { skip: false };
   }
 
+  private shouldSkipLayerDueToGuard(
+    metrics: {
+      topDepth: number;
+      topDepthUsd: number;
+      depthSpeedBps: number;
+      bidDepthSpeedBps: number;
+      askDepthSpeedBps: number;
+    },
+    side: 'BUY' | 'SELL',
+    price: number,
+    orderbook: Orderbook
+  ): { skip: boolean; reason?: string; distanceBps?: number } {
+    const guardBps = Math.max(0, this.config.mmLayerGuardNearBps ?? 0);
+    if (!guardBps) {
+      return { skip: false };
+    }
+    const best = side === 'BUY' ? orderbook.best_bid : orderbook.best_ask;
+    if (!best || best <= 0 || !Number.isFinite(price) || price <= 0) {
+      return { skip: false };
+    }
+    const distanceBps =
+      side === 'BUY' ? ((best - price) / best) * 10000 : ((price - best) / best) * 10000;
+    if (!Number.isFinite(distanceBps) || distanceBps < 0) {
+      return { skip: false };
+    }
+    if (distanceBps > guardBps) {
+      return { skip: false };
+    }
+    const minShares = Math.max(0, this.config.mmLayerGuardMinDepthShares ?? 0);
+    const minUsd = Math.max(0, this.config.mmLayerGuardMinDepthUsd ?? 0);
+    if ((minShares > 0 && metrics.topDepth < minShares) || (minUsd > 0 && metrics.topDepthUsd < minUsd)) {
+      return { skip: true, reason: 'guard-depth', distanceBps };
+    }
+    const speedBps = Math.max(0, this.config.mmLayerGuardDepthSpeedBps ?? 0);
+    const sideSpeed = side === 'BUY' ? metrics.bidDepthSpeedBps : metrics.askDepthSpeedBps;
+    if (speedBps > 0 && sideSpeed >= speedBps) {
+      return { skip: true, reason: 'guard-speed', distanceBps };
+    }
+    return { skip: false };
+  }
+
   private clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
   }
@@ -4521,6 +4562,12 @@ export class MarketMaker {
           continue;
         }
         const shares = this.applyIceberg(size, recoveryIcebergRatio);
+        const guard = this.shouldSkipLayerDueToGuard(metrics, 'BUY', bidTargets[i], orderbook);
+        if (guard.skip) {
+          const msg = `BUY near=${guard.distanceBps?.toFixed(1) ?? 'n/a'}bps ${guard.reason || 'guard'}`;
+          this.recordMmEvent('SKIP_GUARD', msg, tokenId);
+          continue;
+        }
         const vwapRisk = this.precheckNewOrderVwapRisk(orderbook, 'BUY', bidTargets[i], shares);
         if (vwapRisk.skip) {
           const msg = `BUY vwap=${vwapRisk.vwap?.toFixed(4) ?? 'n/a'} dist=${vwapRisk.distanceBps?.toFixed(1) ?? 'n/a'}bps`;
@@ -4549,6 +4596,12 @@ export class MarketMaker {
           continue;
         }
         const shares = this.applyIceberg(size, recoveryIcebergRatio);
+        const guard = this.shouldSkipLayerDueToGuard(metrics, 'SELL', askTargets[i], orderbook);
+        if (guard.skip) {
+          const msg = `SELL near=${guard.distanceBps?.toFixed(1) ?? 'n/a'}bps ${guard.reason || 'guard'}`;
+          this.recordMmEvent('SKIP_GUARD', msg, tokenId);
+          continue;
+        }
         const vwapRisk = this.precheckNewOrderVwapRisk(orderbook, 'SELL', askTargets[i], shares);
         if (vwapRisk.skip) {
           const msg = `SELL vwap=${vwapRisk.vwap?.toFixed(4) ?? 'n/a'} dist=${vwapRisk.distanceBps?.toFixed(1) ?? 'n/a'}bps`;

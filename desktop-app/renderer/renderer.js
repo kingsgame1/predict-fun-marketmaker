@@ -139,6 +139,10 @@ const healthFailureCategories = document.getElementById('healthFailureCategories
 const fixPreviewList = document.getElementById('fixPreviewList');
 const fixSelectList = document.getElementById('fixSelectList');
 const healthExportHint = document.getElementById('healthExportHint');
+const runNewbieCheckBtn = document.getElementById('runNewbieCheck');
+const applyBeginnerTemplateBtn = document.getElementById('applyBeginnerTemplate');
+const newbieChecklist = document.getElementById('newbieChecklist');
+const newbieHint = document.getElementById('newbieHint');
 const runDiagnosticsBtn = document.getElementById('runDiagnostics');
 const exportDiagnosticsBtn = document.getElementById('exportDiagnostics');
 const copyFailuresBtn = document.getElementById('copyFailures');
@@ -2873,6 +2877,12 @@ function applyMmPassiveTemplate() {
       MM_NO_FILL_CANCEL_MAX_BPS: '0.0025',
       MM_SOFT_CANCEL_BPS: '0.0012',
       MM_HARD_CANCEL_BPS: '0.0025',
+      MM_ORDER_RISK_VWAP_BPS: '15',
+      MM_ORDER_RISK_VWAP_SHARES: '40',
+      MM_ORDER_RISK_VWAP_LEVELS: '4',
+      MM_LAYER_GUARD_NEAR_BPS: '12',
+      MM_LAYER_GUARD_MIN_DEPTH_SHARES: '20',
+      MM_LAYER_GUARD_DEPTH_SPEED_BPS: '60',
       MM_HOLD_NEAR_TOUCH_MS: '800',
       MM_DYNAMIC_CANCEL_ON_FILL: 'true',
       MM_DYNAMIC_CANCEL_BOOST: '0.5',
@@ -2900,6 +2910,12 @@ function applyMmProbablePointsTemplate() {
       MM_POINTS_MIN_SHARES: '100',
       MM_POINTS_MAX_SPREAD_CENTS: '6',
       MM_ORDER_DEPTH_USAGE: '0.2',
+      MM_ORDER_RISK_VWAP_BPS: '12',
+      MM_ORDER_RISK_VWAP_SHARES: '30',
+      MM_ORDER_RISK_VWAP_LEVELS: '4',
+      MM_LAYER_GUARD_NEAR_BPS: '10',
+      MM_LAYER_GUARD_MIN_DEPTH_SHARES: '12',
+      MM_LAYER_GUARD_DEPTH_SPEED_BPS: '50',
       MM_TOUCH_BUFFER_BPS: '0.0012',
       MM_FILL_RISK_SPREAD_BPS: '0.0020',
       MM_NEAR_TOUCH_PENALTY_BPS: '10',
@@ -2944,6 +2960,12 @@ function applyMmProbableHedgeTemplate() {
       MM_POINTS_MIN_SHARES: '100',
       MM_POINTS_MAX_SPREAD_CENTS: '6',
       MM_ORDER_DEPTH_USAGE: '0.2',
+      MM_ORDER_RISK_VWAP_BPS: '12',
+      MM_ORDER_RISK_VWAP_SHARES: '30',
+      MM_ORDER_RISK_VWAP_LEVELS: '4',
+      MM_LAYER_GUARD_NEAR_BPS: '10',
+      MM_LAYER_GUARD_MIN_DEPTH_SHARES: '12',
+      MM_LAYER_GUARD_DEPTH_SPEED_BPS: '50',
       HEDGE_ON_FILL: 'true',
       HEDGE_MODE: 'CROSS',
       CROSS_PLATFORM_ENABLED: 'true',
@@ -3643,6 +3665,138 @@ function renderAdvice(items, metricsSnapshot) {
     row.textContent = text;
     healthAdviceList.appendChild(row);
   });
+}
+
+function renderNewbieChecklist(items) {
+  if (!newbieChecklist) return;
+  newbieChecklist.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'health-item ok';
+    empty.textContent = '未发现问题。';
+    newbieChecklist.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = `health-item ${item.level || 'warn'}`;
+    const title = document.createElement('span');
+    title.textContent = item.title;
+    const message = document.createElement('span');
+    message.textContent = item.message || '';
+    row.appendChild(title);
+    row.appendChild(message);
+    newbieChecklist.appendChild(row);
+  });
+}
+
+function runNewbieCheck() {
+  const env = parseEnv(envEditor.value || '');
+  const items = [];
+  const get = (key) => String(env.get(key) || '').trim();
+  const isTrue = (key) => get(key).toLowerCase() === 'true';
+  const mmVenue = (get('MM_VENUE') || 'predict').toLowerCase();
+  const enableTrading = isTrue('ENABLE_TRADING');
+  const arbAuto = isTrue('ARB_AUTO_EXECUTE') || isTrue('CROSS_PLATFORM_AUTO_EXECUTE');
+  const requireJwt = get('MM_REQUIRE_JWT').toLowerCase() !== 'false';
+  const apiKey = get('API_KEY');
+  const privateKey = get('PRIVATE_KEY');
+  const jwtToken = get('JWT_TOKEN');
+  const probableKey = get('PROBABLE_PRIVATE_KEY');
+  const polymarketKey = get('POLYMARKET_PRIVATE_KEY');
+  const opinionKey = get('OPINION_PRIVATE_KEY');
+  const opinionApiKey = get('OPINION_API_KEY');
+
+  if (!apiKey) {
+    items.push({ level: 'error', title: 'API_KEY', message: '缺失，无法获取 Predict 数据' });
+  } else {
+    items.push({ level: 'ok', title: 'API_KEY', message: '已配置' });
+  }
+
+  if (!privateKey && !probableKey) {
+    items.push({ level: 'error', title: 'PRIVATE_KEY', message: '缺失，无法签名/下单' });
+  } else {
+    items.push({ level: 'ok', title: 'PRIVATE_KEY', message: '已配置' });
+  }
+
+  if ((enableTrading || arbAuto) && !jwtToken && requireJwt) {
+    items.push({ level: 'error', title: 'JWT_TOKEN', message: '实盘/自动执行需要 JWT' });
+  } else if (jwtToken) {
+    items.push({ level: 'ok', title: 'JWT_TOKEN', message: '已配置' });
+  } else {
+    items.push({ level: 'warn', title: 'JWT_TOKEN', message: '当前模式可选' });
+  }
+
+  if (mmVenue === 'probable') {
+    if (!isTrue('PROBABLE_ENABLED')) {
+      items.push({ level: 'warn', title: 'PROBABLE_ENABLED', message: 'Probable 做市需启用' });
+    }
+    if (!probableKey && !privateKey) {
+      items.push({ level: 'error', title: 'PROBABLE_PRIVATE_KEY', message: '未配置 Probable 私钥' });
+    } else {
+      items.push({ level: 'ok', title: 'PROBABLE_PRIVATE_KEY', message: '已配置/复用 PRIVATE_KEY' });
+    }
+  }
+
+  if (isTrue('CROSS_PLATFORM_ENABLED')) {
+    if (!get('CROSS_PLATFORM_MAPPING_PATH')) {
+      items.push({ level: 'warn', title: '映射文件', message: '建议检查 cross-platform-mapping.json' });
+    } else {
+      items.push({ level: 'ok', title: '映射文件', message: '已配置路径' });
+    }
+  }
+
+  if (isTrue('CROSS_PLATFORM_AUTO_EXECUTE')) {
+    if (!polymarketKey) {
+      items.push({ level: 'warn', title: 'POLYMARKET_PRIVATE_KEY', message: '跨平台自动执行建议配置' });
+    }
+    if (!opinionKey || !opinionApiKey) {
+      items.push({ level: 'warn', title: 'OPINION 密钥', message: 'Opinion 自动执行需要 API_KEY + PRIVATE_KEY' });
+    }
+  }
+
+  if (isTrue('ARB_REQUIRE_WS') && !isTrue('PREDICT_WS_ENABLED')) {
+    items.push({ level: 'error', title: 'PREDICT_WS_ENABLED', message: '套利强制 WS 需开启' });
+  }
+  if (isTrue('CROSS_PLATFORM_REQUIRE_WS')) {
+    const hasWs =
+      isTrue('POLYMARKET_WS_ENABLED') || isTrue('OPINION_WS_ENABLED') || isTrue('PROBABLE_WS_ENABLED');
+    if (!hasWs) {
+      items.push({ level: 'error', title: '跨平台 WS', message: '需至少开启一个平台 WS' });
+    }
+  }
+
+  renderNewbieChecklist(items);
+  if (newbieHint) {
+    const hasError = items.some((item) => item.level === 'error');
+    newbieHint.textContent = hasError ? '存在必填项缺失，请补齐后再实盘。' : '检查完成，可继续下一步。';
+  }
+}
+
+function applyBeginnerTemplate() {
+  applyTemplate(
+    {
+      ENABLE_TRADING: 'false',
+      AUTO_CONFIRM: 'false',
+      ARB_AUTO_EXECUTE: 'false',
+      ARB_AUTO_EXECUTE_VALUE: 'false',
+      CROSS_PLATFORM_AUTO_EXECUTE: 'false',
+      MM_WS_ENABLED: 'true',
+      PREDICT_WS_ENABLED: 'true',
+      POLYMARKET_WS_ENABLED: 'true',
+      OPINION_WS_ENABLED: 'true',
+      PROBABLE_WS_ENABLED: 'true',
+      ARB_PREFLIGHT_ENABLED: 'true',
+      ARB_REQUIRE_WS: 'true',
+      ARB_WS_REALTIME: 'true',
+      CROSS_PLATFORM_ENABLED: 'true',
+      CROSS_PLATFORM_REQUIRE_WS: 'true',
+      CROSS_PLATFORM_WS_REALTIME: 'true',
+      CROSS_PLATFORM_WS_REALTIME_FALLBACK_ENABLED: 'true',
+      MM_POINTS_ASSUME_ACTIVE: 'true',
+    },
+    '新手完整模板'
+  );
 }
 
 async function runDiagnostics() {
@@ -4697,6 +4851,12 @@ tabButtons.forEach((btn) => {
 });
 
 refreshMetrics.addEventListener('click', loadMetrics);
+if (runNewbieCheckBtn) {
+  runNewbieCheckBtn.addEventListener('click', runNewbieCheck);
+}
+if (applyBeginnerTemplateBtn) {
+  applyBeginnerTemplateBtn.addEventListener('click', applyBeginnerTemplate);
+}
 runDiagnosticsBtn.addEventListener('click', runDiagnostics);
 exportDiagnosticsBtn.addEventListener('click', exportDiagnostics);
 exportMmEventsBtn?.addEventListener('click', exportMmEvents);
