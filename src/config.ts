@@ -491,6 +491,13 @@ export function loadConfig(): Config {
     mmFastCancelSpreadJumpBps: parseFloat(process.env.MM_FAST_CANCEL_SPREAD_JUMP_BPS || '0'),
     mmDepthSpeedPauseBps: parseFloat(process.env.MM_DEPTH_SPEED_PAUSE_BPS || '0'),
     mmDepthSpeedPauseMs: parseInt(process.env.MM_DEPTH_SPEED_PAUSE_MS || '0'),
+    mmProtectiveDepthSpeedBps: parseFloat(process.env.MM_PROTECTIVE_DEPTH_SPEED_BPS || '0'),
+    mmProtectiveSpreadJumpBps: parseFloat(process.env.MM_PROTECTIVE_SPREAD_JUMP_BPS || '0'),
+    mmProtectiveHoldMs: parseInt(process.env.MM_PROTECTIVE_HOLD_MS || '0'),
+    mmProtectiveMinIntervalMs: parseInt(process.env.MM_PROTECTIVE_MIN_INTERVAL_MS || '0'),
+    mmProtectiveLayerCountCap: parseInt(process.env.MM_PROTECTIVE_LAYER_COUNT_CAP || '0'),
+    mmProtectiveOnlyFar: process.env.MM_PROTECTIVE_ONLY_FAR === 'true',
+    mmProtectiveForceSingle: process.env.MM_PROTECTIVE_FORCE_SINGLE === 'true',
     mmLayerRestoreNearTouchBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_BPS || '0'),
     mmLayerRestoreForceRefresh: process.env.MM_LAYER_RESTORE_FORCE_REFRESH === 'true',
     mmLayerRestoreForceCleanup: process.env.MM_LAYER_RESTORE_FORCE_CLEANUP === 'true',
@@ -635,6 +642,10 @@ export function loadConfig(): Config {
     crossPlatformFailurePauseMs: parseInt(process.env.CROSS_PLATFORM_FAILURE_PAUSE_MS || '0'),
     crossPlatformFailurePauseMaxMs: parseInt(process.env.CROSS_PLATFORM_FAILURE_PAUSE_MAX_MS || '0'),
     crossPlatformFailurePauseBackoff: parseFloat(process.env.CROSS_PLATFORM_FAILURE_PAUSE_BACKOFF || '1.5'),
+    crossPlatformFailureRateWindowMs: parseInt(process.env.CROSS_PLATFORM_FAILURE_RATE_WINDOW_MS || '0'),
+    crossPlatformFailureRateMinAttempts: parseInt(process.env.CROSS_PLATFORM_FAILURE_RATE_MIN_ATTEMPTS || '0'),
+    crossPlatformFailureRateThreshold: parseFloat(process.env.CROSS_PLATFORM_FAILURE_RATE_THRESHOLD || '0'),
+    crossPlatformFailureRateTightenMax: parseFloat(process.env.CROSS_PLATFORM_FAILURE_RATE_TIGHTEN_MAX || '1'),
     crossPlatformReasonPreflightPenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_PREFLIGHT_PENALTY || '0.4'),
     crossPlatformReasonExecutionPenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_EXECUTION_PENALTY || '0.7'),
     crossPlatformReasonPostTradePenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_POSTTRADE_PENALTY || '1.2'),
@@ -1405,6 +1416,21 @@ export function loadConfig(): Config {
   }
   if ((config.crossPlatformFailurePauseBackoff ?? 0) < 1) {
     config.crossPlatformFailurePauseBackoff = 1.2;
+  }
+  if ((config.crossPlatformFailureRateWindowMs ?? 0) < 0) {
+    config.crossPlatformFailureRateWindowMs = 0;
+  }
+  if ((config.crossPlatformFailureRateMinAttempts ?? 0) < 0) {
+    config.crossPlatformFailureRateMinAttempts = 0;
+  }
+  if ((config.crossPlatformFailureRateThreshold ?? 0) < 0) {
+    config.crossPlatformFailureRateThreshold = 0;
+  }
+  if ((config.crossPlatformFailureRateThreshold ?? 0) > 100) {
+    config.crossPlatformFailureRateThreshold = 100;
+  }
+  if ((config.crossPlatformFailureRateTightenMax ?? 0) < 1) {
+    config.crossPlatformFailureRateTightenMax = 1;
   }
   if ((config.crossPlatformReasonPreflightPenalty ?? 0) < 0) {
     config.crossPlatformReasonPreflightPenalty = 0.4;

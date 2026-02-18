@@ -64,6 +64,7 @@ export class MarketMaker {
   private lastBookSpread: Map<string, number> = new Map();
   private lastBookSpreadAt: Map<string, number> = new Map();
   private lastBookSpreadDeltaBps: Map<string, number> = new Map();
+  private protectiveUntil: Map<string, number> = new Map();
   private volatilityEma: Map<string, number> = new Map();
   private depthEma: Map<string, number> = new Map();
   private totalDepthEma: Map<string, number> = new Map();
@@ -553,6 +554,12 @@ export class MarketMaker {
         minInterval = safeMin;
       }
     }
+    if (this.isProtectiveActive(tokenId)) {
+      const protectiveMin = Math.max(0, this.config.mmProtectiveMinIntervalMs ?? 0);
+      if (protectiveMin > minInterval) {
+        minInterval = protectiveMin;
+      }
+    }
     const lastAt = this.lastActionAt.get(tokenId) || 0;
     const cooldownUntil = this.cooldownUntil.get(tokenId) || 0;
     return now - lastAt >= minInterval && now >= cooldownUntil;
@@ -820,7 +827,8 @@ export class MarketMaker {
 
   private checkSpreadJump(tokenId: string, orderbook: Orderbook): boolean {
     const thresholdBps = Math.max(0, this.config.mmSpreadJumpBps ?? 0);
-    if (!thresholdBps) {
+    const protectiveThreshold = Math.max(0, this.config.mmProtectiveSpreadJumpBps ?? 0);
+    if (!thresholdBps && !protectiveThreshold) {
       return false;
     }
     const bestBid = orderbook.best_bid;
@@ -841,7 +849,7 @@ export class MarketMaker {
     }
     const deltaBps = Math.abs(spread - last) * 10000;
     this.lastBookSpreadDeltaBps.set(tokenId, deltaBps);
-    return deltaBps >= thresholdBps;
+    return thresholdBps > 0 && deltaBps >= thresholdBps;
   }
 
   private checkDepthSpeedSpike(tokenId: string): boolean {
@@ -860,6 +868,44 @@ export class MarketMaker {
       this.pauseForVolatility(tokenId);
     }
     return true;
+  }
+
+  private isProtectiveActive(tokenId: string): boolean {
+    const until = this.protectiveUntil.get(tokenId) || 0;
+    if (!until) {
+      return false;
+    }
+    if (until > Date.now()) {
+      return true;
+    }
+    this.protectiveUntil.delete(tokenId);
+    return false;
+  }
+
+  private activateProtectiveMode(tokenId: string): boolean {
+    const holdMs = Math.max(0, this.config.mmProtectiveHoldMs ?? 0);
+    if (!holdMs) {
+      return false;
+    }
+    const now = Date.now();
+    const until = now + holdMs;
+    const current = this.protectiveUntil.get(tokenId) || 0;
+    this.protectiveUntil.set(tokenId, Math.max(current, until));
+    return current <= now;
+  }
+
+  private checkProtectiveMode(tokenId: string): boolean {
+    const depthSpeedThreshold = Math.max(0, this.config.mmProtectiveDepthSpeedBps ?? 0);
+    const spreadJumpThreshold = Math.max(0, this.config.mmProtectiveSpreadJumpBps ?? 0);
+    if (!depthSpeedThreshold || !spreadJumpThreshold) {
+      return false;
+    }
+    const depthSpeed = this.lastDepthSpeedBps.get(tokenId) ?? 0;
+    const spreadJump = this.lastBookSpreadDeltaBps.get(tokenId) ?? 0;
+    if (depthSpeed >= depthSpeedThreshold && spreadJump >= spreadJumpThreshold) {
+      return this.activateProtectiveMode(tokenId);
+    }
+    return false;
   }
 
   private evaluateOrderRisk(
@@ -2603,6 +2649,7 @@ export class MarketMaker {
       askDepthSpeedBps: metrics.askDepthSpeedBps,
       topDepth: metrics.topDepth,
       topDepthUsd: metrics.topDepthUsd,
+      protectiveActive: this.isProtectiveActive(market.token_id),
       imbalance,
       pressure: prices.pressure,
       inventoryBias: prices.inventoryBias,
@@ -2850,10 +2897,13 @@ export class MarketMaker {
   }
 
   private shouldForceSingleLayer(tokenId: string): boolean {
-    if (this.config.mmLayerRetreatForceSingle !== true) {
-      return false;
+    if (this.config.mmLayerRetreatForceSingle === true && this.isLayerRetreatActive(tokenId)) {
+      return true;
     }
-    return this.isLayerRetreatActive(tokenId);
+    if (this.config.mmProtectiveForceSingle === true && this.isProtectiveActive(tokenId)) {
+      return true;
+    }
+    return false;
   }
 
   private getEffectiveLayerCount(
@@ -2937,6 +2987,12 @@ export class MarketMaker {
     });
     if (safeModeActive) {
       const cap = Math.max(0, Math.floor(this.config.mmSafeModeLayerCountCap ?? 0));
+      if (cap > 0) {
+        effective = Math.min(effective, cap);
+      }
+    }
+    if (this.isProtectiveActive(tokenId)) {
+      const cap = Math.max(0, Math.floor(this.config.mmProtectiveLayerCountCap ?? 0));
       if (cap > 0) {
         effective = Math.min(effective, cap);
       }
@@ -3969,15 +4025,10 @@ export class MarketMaker {
       return;
     }
 
+    const spreadJump = this.checkSpreadJump(tokenId, orderbook);
+
     if (this.checkVolatility(tokenId, orderbook)) {
       console.log(`⚠️ Volatility spike detected for ${tokenId}, pausing quoting...`);
-      await this.cancelOrdersForMarket(tokenId);
-      this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
-      return;
-    }
-
-    if (this.checkSpreadJump(tokenId, orderbook)) {
-      console.log(`⚠️ Spread jump detected for ${tokenId}, pausing quoting...`);
       await this.cancelOrdersForMarket(tokenId);
       this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
       return;
@@ -3993,6 +4044,11 @@ export class MarketMaker {
 
     let prices = this.calculatePrices(market, orderbook);
     if (!prices) {
+      if (spreadJump) {
+        console.log(`⚠️ Spread jump detected for ${tokenId}, pausing quoting...`);
+        await this.cancelOrdersForMarket(tokenId);
+        this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
+      }
       return;
     }
 
@@ -4000,6 +4056,21 @@ export class MarketMaker {
       console.log(`⚠️ Depth speed spike for ${tokenId}, pausing quoting...`);
       await this.cancelOrdersForMarket(tokenId);
       this.markCooldown(tokenId, this.config.cooldownAfterCancelMs ?? 4000);
+      return;
+    }
+
+    if (this.checkProtectiveMode(tokenId)) {
+      console.log(`🛡️ Protective mode triggered for ${tokenId}, retreating quotes...`);
+      await this.cancelOrdersForMarket(tokenId);
+      this.markAction(tokenId);
+      this.recordMmEvent('PROTECTIVE_MODE', 'depth+spread spike', tokenId);
+      return;
+    }
+
+    if (spreadJump && !this.isProtectiveActive(tokenId)) {
+      console.log(`⚠️ Spread jump detected for ${tokenId}, pausing quoting...`);
+      await this.cancelOrdersForMarket(tokenId);
+      this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
       return;
     }
 
@@ -4530,6 +4601,7 @@ export class MarketMaker {
     } else if (wsSingle.side === 'SELL') {
       targetBidShares = 0;
     }
+    const protectiveOnlyFar = this.isProtectiveActive(tokenId) && this.config.mmProtectiveOnlyFar === true;
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
         ? Math.max(1, this.config.mmLayerRestoreMaxShares)
@@ -4570,6 +4642,7 @@ export class MarketMaker {
       panicOnlyFar ||
       panicRemoteOnly ||
       safeRemoteOnly ||
+      protectiveOnlyFar ||
       safeModeOnlyFar ||
       wsRemoteOnly ||
       riskOnlyFar ||

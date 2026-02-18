@@ -397,6 +397,13 @@ export interface Config {
   mmFastCancelSpreadJumpBps?: number;
   mmDepthSpeedPauseBps?: number;
   mmDepthSpeedPauseMs?: number;
+  mmProtectiveDepthSpeedBps?: number;
+  mmProtectiveSpreadJumpBps?: number;
+  mmProtectiveHoldMs?: number;
+  mmProtectiveMinIntervalMs?: number;
+  mmProtectiveLayerCountCap?: number;
+  mmProtectiveOnlyFar?: boolean;
+  mmProtectiveForceSingle?: boolean;
   mmLayerRestoreNearTouchBps?: number;
   mmLayerRestoreForceRefresh?: boolean;
   mmLayerRestoreForceCleanup?: boolean;
@@ -538,6 +545,10 @@ export interface Config {
   crossPlatformFailurePauseMs?: number;
   crossPlatformFailurePauseMaxMs?: number;
   crossPlatformFailurePauseBackoff?: number;
+  crossPlatformFailureRateWindowMs?: number;
+  crossPlatformFailureRateMinAttempts?: number;
+  crossPlatformFailureRateThreshold?: number;
+  crossPlatformFailureRateTightenMax?: number;
   crossPlatformReasonPreflightPenalty?: number;
   crossPlatformReasonExecutionPenalty?: number;
   crossPlatformReasonPostTradePenalty?: number;

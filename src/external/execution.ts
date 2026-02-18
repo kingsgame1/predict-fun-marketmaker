@@ -890,6 +890,7 @@ export class CrossPlatformExecutionRouter {
   private failureMinDepthSharesExtra = 0;
   private forceFokUntil = 0;
   private failureTotalCostBpsExtra = 0;
+  private failureRateWindow = { attempts: 0, failures: 0, windowStart: 0 };
   private allowlistTokens?: Set<string>;
   private blocklistTokens?: Set<string>;
   private allowlistPlatforms?: Set<string>;
@@ -3139,6 +3140,56 @@ export class CrossPlatformExecutionRouter {
     this.qualityScore = Math.max(minFactor, this.qualityScore - down * Math.max(0, multiplier));
   }
 
+  private updateFailureRateWindow(success: boolean, now: number = Date.now()): void {
+    const windowMs = Math.max(0, this.config.crossPlatformFailureRateWindowMs || 0);
+    if (!windowMs) {
+      return;
+    }
+    if (!this.failureRateWindow.windowStart || now - this.failureRateWindow.windowStart > windowMs) {
+      this.failureRateWindow.windowStart = now;
+      this.failureRateWindow.attempts = 0;
+      this.failureRateWindow.failures = 0;
+    }
+    this.failureRateWindow.attempts += 1;
+    if (!success) {
+      this.failureRateWindow.failures += 1;
+    }
+  }
+
+  private getFailureRateStats(now: number = Date.now()): { attempts: number; failures: number; rate: number } {
+    const windowMs = Math.max(0, this.config.crossPlatformFailureRateWindowMs || 0);
+    if (!windowMs) {
+      return { attempts: 0, failures: 0, rate: 0 };
+    }
+    const windowStart = this.failureRateWindow.windowStart || 0;
+    if (!windowStart || now - windowStart > windowMs) {
+      return { attempts: 0, failures: 0, rate: 0 };
+    }
+    const attempts = Math.max(0, this.failureRateWindow.attempts || 0);
+    const failures = Math.max(0, this.failureRateWindow.failures || 0);
+    const rate = attempts > 0 ? (failures / attempts) * 100 : 0;
+    return { attempts, failures, rate };
+  }
+
+  private getFailureRateFactor(now: number = Date.now()): number {
+    const maxFactor = Math.max(1, this.config.crossPlatformFailureRateTightenMax || 1);
+    const threshold = Math.max(0, this.config.crossPlatformFailureRateThreshold || 0);
+    const minAttempts = Math.max(0, this.config.crossPlatformFailureRateMinAttempts || 0);
+    if (maxFactor <= 1 || threshold <= 0) {
+      return 1;
+    }
+    const stats = this.getFailureRateStats(now);
+    if (minAttempts > 0 && stats.attempts < minAttempts) {
+      return 1;
+    }
+    if (stats.rate <= threshold) {
+      return 1;
+    }
+    const denom = Math.max(1, 100 - threshold);
+    const ratio = Math.min(1, (stats.rate - threshold) / denom);
+    return 1 + ratio * (maxFactor - 1);
+  }
+
   private updateConsistencyPressure(now: number): void {
     if (!this.consistencyPressure) {
       this.lastConsistencyPressureAt = now;
@@ -3516,6 +3567,7 @@ export class CrossPlatformExecutionRouter {
     reason?: 'preflight' | 'execution' | 'postTrade' | 'hedge' | 'unknown';
   }): void {
     const alpha = 0.2;
+    this.updateFailureRateWindow(input.success);
     this.metrics.attempts += 1;
     if (input.success) {
       this.metrics.successes += 1;
@@ -3572,12 +3624,15 @@ export class CrossPlatformExecutionRouter {
     }
     this.lastMetricsLogAt = now;
     const reasons = this.metrics.failureReasons;
+    const failureRate = this.getFailureRateStats();
+    const failureRateText =
+      failureRate.attempts > 0 ? ` failRate=${failureRate.rate.toFixed(1)}%(${failureRate.failures}/${failureRate.attempts})` : '';
     console.log(
       `[CrossExec] attempts=${this.metrics.attempts} success=${this.metrics.successes} fail=${this.metrics.failures} ` +
         `preflight=${this.metrics.emaPreflightMs.toFixed(0)}ms exec=${this.metrics.emaExecMs.toFixed(0)}ms ` +
         `total=${this.metrics.emaTotalMs.toFixed(0)}ms postDrift=${this.metrics.emaPostTradeDriftBps.toFixed(1)}bps ` +
         `alerts=${this.metrics.postTradeAlerts} softBlocks=${this.metrics.softBlocks} quality=${this.qualityScore.toFixed(2)} ` +
-        `depthPenalty=${this.depthRatioPenalty.toFixed(2)} ` +
+        `depthPenalty=${this.depthRatioPenalty.toFixed(2)}${failureRateText} ` +
         `failures=preflight:${reasons.preflight} exec:${reasons.execution} post:${reasons.postTrade} hedge:${reasons.hedge} ` +
         `lastError=${this.metrics.lastError || 'none'}`
     );
@@ -3620,6 +3675,8 @@ export class CrossPlatformExecutionRouter {
   }
 
   private buildMetricsSnapshot(): Record<string, unknown> {
+    const failureRateWindow = this.getFailureRateStats();
+    const failureRateFactor = this.getFailureRateFactor();
     return {
       version: 1,
       ts: Date.now(),
@@ -3628,6 +3685,8 @@ export class CrossPlatformExecutionRouter {
       depthRatioPenalty: this.depthRatioPenalty,
       chunkFactor: this.chunkFactor,
       chunkDelayMs: this.chunkDelayMs,
+      failureRateWindow,
+      failureRateFactor,
       globalCooldownUntil: this.globalCooldownUntil,
       lastConsistencyFailureAt: this.lastConsistencyFailureAt,
       lastConsistencyFailureReason: this.lastConsistencyFailureReason,
@@ -4666,6 +4725,10 @@ export class CrossPlatformExecutionRouter {
     }
     if (qualityFactor > 1) {
       required *= qualityFactor;
+    }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      required *= failureRateFactor;
     }
     if (hasMissingVwap) {
       const penaltyBps = Math.max(0, this.config.crossPlatformMissingVwapPenaltyBps || 0);
