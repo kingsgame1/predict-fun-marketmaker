@@ -493,6 +493,7 @@ export function loadConfig(): Config {
     mmDepthSpeedPauseMs: parseInt(process.env.MM_DEPTH_SPEED_PAUSE_MS || '0'),
     mmProtectiveDepthSpeedBps: parseFloat(process.env.MM_PROTECTIVE_DEPTH_SPEED_BPS || '0'),
     mmProtectiveSpreadJumpBps: parseFloat(process.env.MM_PROTECTIVE_SPREAD_JUMP_BPS || '0'),
+    mmProtectiveTemplateEnabled: process.env.MM_PROTECTIVE_TEMPLATE_ENABLED === 'true',
     mmProtectiveHoldMs: parseInt(process.env.MM_PROTECTIVE_HOLD_MS || '0'),
     mmProtectiveMinIntervalMs: parseInt(process.env.MM_PROTECTIVE_MIN_INTERVAL_MS || '0'),
     mmProtectiveLayerCountCap: parseInt(process.env.MM_PROTECTIVE_LAYER_COUNT_CAP || '0'),

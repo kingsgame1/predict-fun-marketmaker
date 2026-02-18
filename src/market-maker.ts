@@ -555,7 +555,7 @@ export class MarketMaker {
       }
     }
     if (this.isProtectiveActive(tokenId)) {
-      const protectiveMin = Math.max(0, this.config.mmProtectiveMinIntervalMs ?? 0);
+      const protectiveMin = Math.max(0, this.getProtectiveConfig().minIntervalMs);
       if (protectiveMin > minInterval) {
         minInterval = protectiveMin;
       }
@@ -882,8 +882,52 @@ export class MarketMaker {
     return false;
   }
 
+  private getProtectiveConfig(): {
+    holdMs: number;
+    minIntervalMs: number;
+    layerCountCap: number;
+    onlyFar: boolean;
+    forceSingle: boolean;
+    sizeScale: number;
+    touchBufferAddBps: number;
+    singleSideAuto: boolean;
+    singleSideMode: 'NORMAL' | 'REMOTE';
+    singleSideOffsetBps: number;
+  } {
+    const templateEnabled = this.config.mmProtectiveTemplateEnabled === true;
+    const holdMs = Math.max(0, this.config.mmProtectiveHoldMs ?? 0) || (templateEnabled ? 9000 : 0);
+    const minIntervalMs =
+      Math.max(0, this.config.mmProtectiveMinIntervalMs ?? 0) || (templateEnabled ? 4500 : 0);
+    const layerCountCap =
+      Math.max(0, Math.floor(this.config.mmProtectiveLayerCountCap ?? 0)) || (templateEnabled ? 1 : 0);
+    const onlyFar = this.config.mmProtectiveOnlyFar === true || templateEnabled;
+    const forceSingle = this.config.mmProtectiveForceSingle === true || templateEnabled;
+    const sizeScale = this.config.mmProtectiveSizeScale ?? 0;
+    const resolvedSizeScale = sizeScale > 0 ? sizeScale : templateEnabled ? 0.7 : 0;
+    const touchBufferAdd = this.config.mmProtectiveTouchBufferAddBps ?? 0;
+    const resolvedTouchBuffer = touchBufferAdd > 0 ? touchBufferAdd : templateEnabled ? 6 : 0;
+    const singleSideAuto = this.config.mmProtectiveSingleSideAuto === true || templateEnabled;
+    const singleSideMode = (templateEnabled
+      ? 'REMOTE'
+      : (this.config.mmProtectiveSingleSideMode || 'NORMAL').toUpperCase()) as 'NORMAL' | 'REMOTE';
+    const singleSideOffset = this.config.mmProtectiveSingleSideOffsetBps ?? 0;
+    const resolvedOffset = singleSideOffset > 0 ? singleSideOffset : templateEnabled ? 8 : 0;
+    return {
+      holdMs,
+      minIntervalMs,
+      layerCountCap,
+      onlyFar,
+      forceSingle,
+      sizeScale: resolvedSizeScale,
+      touchBufferAddBps: resolvedTouchBuffer,
+      singleSideAuto,
+      singleSideMode,
+      singleSideOffsetBps: resolvedOffset,
+    };
+  }
+
   private activateProtectiveMode(tokenId: string): boolean {
-    const holdMs = Math.max(0, this.config.mmProtectiveHoldMs ?? 0);
+    const holdMs = this.getProtectiveConfig().holdMs;
     if (!holdMs) {
       return false;
     }
@@ -2900,7 +2944,7 @@ export class MarketMaker {
     if (this.config.mmLayerRetreatForceSingle === true && this.isLayerRetreatActive(tokenId)) {
       return true;
     }
-    if (this.config.mmProtectiveForceSingle === true && this.isProtectiveActive(tokenId)) {
+    if (this.isProtectiveActive(tokenId) && this.getProtectiveConfig().forceSingle) {
       return true;
     }
     return false;
@@ -2992,7 +3036,7 @@ export class MarketMaker {
       }
     }
     if (this.isProtectiveActive(tokenId)) {
-      const cap = Math.max(0, Math.floor(this.config.mmProtectiveLayerCountCap ?? 0));
+      const cap = Math.max(0, Math.floor(this.getProtectiveConfig().layerCountCap));
       if (cap > 0) {
         effective = Math.min(effective, cap);
       }
@@ -4129,7 +4173,7 @@ export class MarketMaker {
       panicSingleSide === 'NONE' && protectiveActive
         ? (this.config.mmProtectiveSingleSide || 'NONE').toUpperCase()
         : 'NONE';
-    if (protectiveActive && this.config.mmProtectiveSingleSideAuto) {
+    if (protectiveActive && this.getProtectiveConfig().singleSideAuto) {
       const inventoryBias = this.calculateInventoryBias(tokenId);
       const imbalance = this.calculateOrderbookImbalance(orderbook);
       const threshold = Math.max(0, this.config.mmProtectiveSingleSideImbalanceThreshold ?? 0.15);
@@ -4145,7 +4189,7 @@ export class MarketMaker {
     const effectiveSingleSide =
       panicSingleSide !== 'NONE' ? panicSingleSide : protectiveSingleSide !== 'NONE' ? protectiveSingleSide : safeSingleSide;
     const panicSingleSideOffsetBps = Math.max(0, this.config.mmPanicSingleSideOffsetBps ?? 0);
-    const protectiveSingleSideOffsetBps = Math.max(0, this.config.mmProtectiveSingleSideOffsetBps ?? 0);
+    const protectiveSingleSideOffsetBps = Math.max(0, this.getProtectiveConfig().singleSideOffsetBps);
     const safeSingleSideOffsetBps = Math.max(0, this.config.mmSafeModeSingleSideOffsetBps ?? 0);
     const singleSideOffsetBps =
       panicSingleSide !== 'NONE'
@@ -4154,7 +4198,7 @@ export class MarketMaker {
           ? protectiveSingleSideOffsetBps
           : safeSingleSideOffsetBps;
     if (protectiveSingleSide === 'NONE' && protectiveActive) {
-      const add = Math.max(0, this.config.mmProtectiveTouchBufferAddBps ?? 0);
+      const add = Math.max(0, this.getProtectiveConfig().touchBufferAddBps);
       if (add > 0) {
         bidPriceBase = Math.max(0.01, bidPriceBase * (1 - add / 10000));
         askPriceBase = Math.min(0.99, askPriceBase * (1 + add / 10000));
@@ -4591,7 +4635,7 @@ export class MarketMaker {
       }
     }
     if (this.isProtectiveActive(tokenId)) {
-      const scale = this.config.mmProtectiveSizeScale ?? 0;
+      const scale = this.getProtectiveConfig().sizeScale;
       if (scale > 0 && scale < 1) {
         targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
         targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
@@ -4636,7 +4680,7 @@ export class MarketMaker {
     } else if (wsSingle.side === 'SELL') {
       targetBidShares = 0;
     }
-    const protectiveOnlyFar = this.isProtectiveActive(tokenId) && this.config.mmProtectiveOnlyFar === true;
+    const protectiveOnlyFar = this.isProtectiveActive(tokenId) && this.getProtectiveConfig().onlyFar;
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
         ? Math.max(1, this.config.mmLayerRestoreMaxShares)
@@ -4655,7 +4699,7 @@ export class MarketMaker {
     const panicOnlyFar = this.config.mmLayerPanicOnlyFar === true && this.isLayerPanicActive(tokenId);
     const panicSingleSideMode = (this.config.mmPanicSingleSideMode || 'NORMAL').toUpperCase();
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
-    const protectiveSingleSideMode = (this.config.mmProtectiveSingleSideMode || 'NORMAL').toUpperCase();
+    const protectiveSingleSideMode = this.getProtectiveConfig().singleSideMode;
     const protectiveRemoteOnly = protectiveSingleSide !== 'NONE' && protectiveSingleSideMode === 'REMOTE';
     const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
     const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';

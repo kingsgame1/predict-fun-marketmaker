@@ -279,6 +279,7 @@
 - `MM_DEPTH_SPEED_PAUSE_MS`：深度速度触发后的暂停时长（毫秒，0 则复用波动暂停时长）。
 - `MM_PROTECTIVE_DEPTH_SPEED_BPS`：触发保护档所需的深度消耗速度（bps）。
 - `MM_PROTECTIVE_SPREAD_JUMP_BPS`：触发保护档所需的价差跳变（bps）。
+- `MM_PROTECTIVE_TEMPLATE_ENABLED`：保护档启用内置极限模板（自动远层/单边/降频/缩量）。
 - `MM_PROTECTIVE_HOLD_MS`：保护档持续时间（毫秒）。
 - `MM_PROTECTIVE_MIN_INTERVAL_MS`：保护档下的最小下单间隔（毫秒）。
 - `MM_PROTECTIVE_LAYER_COUNT_CAP`：保护档下最大挂单层数。

@@ -4475,6 +4475,10 @@ export class CrossPlatformExecutionRouter {
       const factor = Math.max(0.05, Math.min(1, this.config.crossPlatformFailureDepthUsageFactor || 1));
       usage = Math.max(0.05, Math.min(1, usage * factor));
     }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      usage = Math.max(0.05, Math.min(1, usage / failureRateFactor));
+    }
     if (this.isConsistencyTemplateActive()) {
       const templateUsage = Math.max(0, this.config.crossPlatformConsistencyTemplateDepthUsage || 0);
       if (templateUsage > 0) {

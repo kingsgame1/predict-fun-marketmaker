@@ -399,6 +399,7 @@ export interface Config {
   mmDepthSpeedPauseMs?: number;
   mmProtectiveDepthSpeedBps?: number;
   mmProtectiveSpreadJumpBps?: number;
+  mmProtectiveTemplateEnabled?: boolean;
   mmProtectiveHoldMs?: number;
   mmProtectiveMinIntervalMs?: number;
   mmProtectiveLayerCountCap?: number;
