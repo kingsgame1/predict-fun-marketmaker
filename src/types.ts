@@ -393,6 +393,8 @@ export interface Config {
   mmLayerGuardDepthSpeedBps?: number;
   mmFastCancelBps?: number;
   mmFastCancelWindowMs?: number;
+  mmFastCancelDepthSpeedBps?: number;
+  mmFastCancelSpreadJumpBps?: number;
   mmLayerRestoreNearTouchBps?: number;
   mmLayerRestoreForceRefresh?: boolean;
   mmLayerRestoreForceCleanup?: boolean;

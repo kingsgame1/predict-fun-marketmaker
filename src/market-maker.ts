@@ -63,6 +63,7 @@ export class MarketMaker {
   private prevAskDeltaBps: Map<string, number> = new Map();
   private lastBookSpread: Map<string, number> = new Map();
   private lastBookSpreadAt: Map<string, number> = new Map();
+  private lastBookSpreadDeltaBps: Map<string, number> = new Map();
   private volatilityEma: Map<string, number> = new Map();
   private depthEma: Map<string, number> = new Map();
   private totalDepthEma: Map<string, number> = new Map();
@@ -835,9 +836,11 @@ export class MarketMaker {
     this.lastBookSpreadAt.set(tokenId, now);
     const windowMs = Math.max(0, this.config.mmSpreadJumpWindowMs ?? 0);
     if (!last || (windowMs > 0 && now - lastAt > windowMs)) {
+      this.lastBookSpreadDeltaBps.set(tokenId, 0);
       return false;
     }
     const deltaBps = Math.abs(spread - last) * 10000;
+    this.lastBookSpreadDeltaBps.set(tokenId, deltaBps);
     return deltaBps >= thresholdBps;
   }
 
@@ -980,14 +983,28 @@ export class MarketMaker {
     if (fastCancelBps > 0) {
       const windowMs = fastWindow > 0 ? fastWindow : aggressiveWindow;
       if (elapsed > 0 && elapsed <= windowMs) {
+        const fastDepthThreshold = Math.max(0, this.config.mmFastCancelDepthSpeedBps ?? 0);
+        const fastSpreadThreshold = Math.max(0, this.config.mmFastCancelSpreadJumpBps ?? 0);
+        let fastGuardOk = true;
+        if (fastDepthThreshold > 0 || fastSpreadThreshold > 0) {
+          fastGuardOk = false;
+          const depthSpeed = this.lastDepthSpeedBps.get(order.token_id) ?? 0;
+          const spreadJump = this.lastBookSpreadDeltaBps.get(order.token_id) ?? 0;
+          if (fastDepthThreshold > 0 && depthSpeed >= fastDepthThreshold) {
+            fastGuardOk = true;
+          }
+          if (fastSpreadThreshold > 0 && spreadJump >= fastSpreadThreshold) {
+            fastGuardOk = true;
+          }
+        }
         if (order.side === 'BUY') {
           const delta = this.lastAskDeltaBps.get(order.token_id) ?? 0;
-          if (delta < 0 && Math.abs(delta) >= fastCancelBps) {
+          if (fastGuardOk && delta < 0 && Math.abs(delta) >= fastCancelBps) {
             return { cancel: true, panic: true, reason: 'fast-move' };
           }
         } else {
           const delta = this.lastBidDeltaBps.get(order.token_id) ?? 0;
-          if (delta > 0 && delta >= fastCancelBps) {
+          if (fastGuardOk && delta > 0 && delta >= fastCancelBps) {
             return { cancel: true, panic: true, reason: 'fast-move' };
           }
         }

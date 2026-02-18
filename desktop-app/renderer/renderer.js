@@ -143,6 +143,10 @@ const runNewbieCheckBtn = document.getElementById('runNewbieCheck');
 const applyBeginnerTemplateBtn = document.getElementById('applyBeginnerTemplate');
 const newbieChecklist = document.getElementById('newbieChecklist');
 const newbieHint = document.getElementById('newbieHint');
+const runPreflightCheckBtn = document.getElementById('runPreflightCheck');
+const copyPreflightChecklistBtn = document.getElementById('copyPreflightChecklist');
+const preflightChecklist = document.getElementById('preflightChecklist');
+const preflightHint = document.getElementById('preflightHint');
 const runDiagnosticsBtn = document.getElementById('runDiagnostics');
 const exportDiagnosticsBtn = document.getElementById('exportDiagnostics');
 const copyFailuresBtn = document.getElementById('copyFailures');
@@ -189,6 +193,8 @@ let arbSnapshot = null;
 let arbCommandState = null;
 let mmAutoDowngradeUntil = 0;
 let lastAutoFailureFixAt = 0;
+let latestMetrics = null;
+let lastPreflightChecklist = [];
 const FIX_HINTS = {
   CROSS_PLATFORM_ADAPTIVE_SIZE: '根据深度自动缩放下单量',
   CROSS_PLATFORM_DEPTH_USAGE: '使用的盘口深度比例',
@@ -280,6 +286,8 @@ const FIX_HINTS = {
   MM_CANCEL_MAX_PER_CYCLE_PANIC_BYPASS: '紧急撤单绕过单轮上限',
   MM_FAST_CANCEL_BPS: '盘口极速变化撤单阈值（bps）',
   MM_FAST_CANCEL_WINDOW_MS: '极速变化判定窗口（ms）',
+  MM_FAST_CANCEL_DEPTH_SPEED_BPS: '极速撤单需要的深度速度阈值（bps）',
+  MM_FAST_CANCEL_SPREAD_JUMP_BPS: '极速撤单需要的价差跳变阈值（bps）',
   ARB_MAX_VWAP_DEVIATION_BPS: 'VWAP 最大允许偏离（bps）',
   ARB_RECHECK_DEVIATION_BPS: '偏离过大时需要二次确认（bps）',
   ARB_MAX_VWAP_LEVELS: '限制 VWAP 使用的档位数',
@@ -1543,6 +1551,20 @@ async function copyFixTemplate() {
   try {
     await navigator.clipboard.writeText(template);
     if (healthExportHint) healthExportHint.textContent = '修复模板已复制到剪贴板。';
+  } catch {
+    if (healthExportHint) healthExportHint.textContent = '复制失败，请手动选择。';
+  }
+}
+
+async function copyPreflightChecklist() {
+  const text = buildPreflightText(lastPreflightChecklist || []);
+  if (!text) {
+    if (healthExportHint) healthExportHint.textContent = '暂无清单可复制。';
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    if (healthExportHint) healthExportHint.textContent = '执行前清单已复制到剪贴板。';
   } catch {
     if (healthExportHint) healthExportHint.textContent = '复制失败，请手动选择。';
   }
@@ -2882,6 +2904,8 @@ function applyMmPassiveTemplate() {
       MM_HARD_CANCEL_BPS: '0.0025',
       MM_FAST_CANCEL_BPS: '12',
       MM_FAST_CANCEL_WINDOW_MS: '1000',
+      MM_FAST_CANCEL_DEPTH_SPEED_BPS: '60',
+      MM_FAST_CANCEL_SPREAD_JUMP_BPS: '8',
       MM_ORDER_RISK_VWAP_BPS: '15',
       MM_ORDER_RISK_VWAP_SHARES: '40',
       MM_ORDER_RISK_VWAP_LEVELS: '4',
@@ -2920,6 +2944,8 @@ function applyMmProbablePointsTemplate() {
       MM_ORDER_RISK_VWAP_LEVELS: '4',
       MM_FAST_CANCEL_BPS: '10',
       MM_FAST_CANCEL_WINDOW_MS: '1000',
+      MM_FAST_CANCEL_DEPTH_SPEED_BPS: '50',
+      MM_FAST_CANCEL_SPREAD_JUMP_BPS: '8',
       MM_LAYER_GUARD_NEAR_BPS: '10',
       MM_LAYER_GUARD_MIN_DEPTH_SHARES: '12',
       MM_LAYER_GUARD_DEPTH_SPEED_BPS: '50',
@@ -2972,6 +2998,8 @@ function applyMmProbableHedgeTemplate() {
       MM_ORDER_RISK_VWAP_LEVELS: '4',
       MM_FAST_CANCEL_BPS: '10',
       MM_FAST_CANCEL_WINDOW_MS: '1000',
+      MM_FAST_CANCEL_DEPTH_SPEED_BPS: '50',
+      MM_FAST_CANCEL_SPREAD_JUMP_BPS: '8',
       MM_LAYER_GUARD_NEAR_BPS: '10',
       MM_LAYER_GUARD_MIN_DEPTH_SHARES: '12',
       MM_LAYER_GUARD_DEPTH_SPEED_BPS: '50',
@@ -3280,6 +3308,41 @@ function notifyAvoidHourStatus() {
   }
 }
 
+function getLatestErrorHint() {
+  const raw =
+    (latestMetrics && latestMetrics.metrics && latestMetrics.metrics.lastError) ||
+    (latestMetrics && latestMetrics.lastError) ||
+    '';
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  return text.length > 160 ? `${text.slice(0, 160)}...` : text;
+}
+
+function buildExecutionErrorHints() {
+  const hint = getLatestErrorHint();
+  if (!hint) return [];
+  const msg = hint.toLowerCase();
+  const lines = [`# 最近错误: ${hint}`];
+  if (msg.includes('rate') || msg.includes('429') || msg.includes('too many')) {
+    lines.push('# 可能被限速：建议降低并发/提高冷却时间');
+    lines.push('CROSS_PLATFORM_GLOBAL_COOLDOWN_MS=180000');
+  }
+  if (msg.includes('timeout') || msg.includes('timed out')) {
+    lines.push('# 可能网络超时：建议提高重试间隔或开启 WS 实时行情');
+    lines.push('CROSS_PLATFORM_RETRY_DELAY_MS=800');
+  }
+  if (msg.includes('insufficient') || msg.includes('balance') || msg.includes('margin')) {
+    lines.push('# 可能余额不足：请检查 USDC/保证金余额与授权额度');
+  }
+  if (msg.includes('nonce') || msg.includes('replacement')) {
+    lines.push('# 可能 nonce 冲突：避免多进程同时使用同一私钥');
+  }
+  if (msg.includes('signature') || msg.includes('jwt') || msg.includes('auth')) {
+    lines.push('# 可能签名/鉴权问题：检查 JWT_TOKEN 与 API 密钥');
+  }
+  return lines;
+}
+
 function buildFixTemplate() {
   const categories = new Map();
   for (const [line, count] of failureCounts.entries()) {
@@ -3346,13 +3409,17 @@ function buildFixTemplate() {
     } else if (category === '硬门控') {
       appendLines(category, getHardGateFixLines());
     } else if (category === '执行失败') {
-      appendLines(category, [
-        'CROSS_PLATFORM_MAX_RETRIES=1',
-        'CROSS_PLATFORM_RETRY_DELAY_MS=500',
-        'CROSS_PLATFORM_ABORT_COOLDOWN_MS=120000',
-        'CROSS_PLATFORM_MIN_PROFIT_USD=0.03',
-        'CROSS_PLATFORM_MIN_DEPTH_USD=8',
-      ]);
+      appendLines(
+        category,
+        [
+          'CROSS_PLATFORM_MAX_RETRIES=1',
+          'CROSS_PLATFORM_RETRY_DELAY_MS=500',
+          'CROSS_PLATFORM_ABORT_COOLDOWN_MS=120000',
+          'CROSS_PLATFORM_MIN_PROFIT_USD=0.03',
+          'CROSS_PLATFORM_MIN_DEPTH_USD=8',
+          ...buildExecutionErrorHints(),
+        ].flat()
+      );
     } else if (category === '高波动') {
       appendLines(category, [
         'CROSS_PLATFORM_VOLATILITY_BPS=80',
@@ -3786,6 +3853,131 @@ function runNewbieCheck() {
   }
 }
 
+function renderPreflightChecklist(items) {
+  if (!preflightChecklist) return;
+  preflightChecklist.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'health-item ok';
+    empty.textContent = '未发现问题。';
+    preflightChecklist.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = `health-item ${item.level || 'warn'}`;
+    const title = document.createElement('span');
+    title.textContent = item.title;
+    const message = document.createElement('span');
+    message.textContent = item.message || '';
+    row.appendChild(title);
+    row.appendChild(message);
+    preflightChecklist.appendChild(row);
+  });
+}
+
+function buildPreflightText(items) {
+  const lines = ['# 执行前最后检查清单'];
+  if (!items.length) {
+    lines.push('- 未发现问题');
+    return lines.join('\n');
+  }
+  items.forEach((item) => {
+    const label = item.level === 'error' ? '必须' : item.level === 'warn' ? '建议' : '确认';
+    const message = item.message ? `：${item.message}` : '';
+    lines.push(`- [${label}] ${item.title}${message}`);
+  });
+  return lines.join('\n');
+}
+
+function runPreflightCheck() {
+  const env = parseEnv(envEditor.value || '');
+  const items = [];
+  const get = (key) => String(env.get(key) || '').trim();
+  const isTrue = (key) => get(key).toLowerCase() === 'true';
+  const num = (key) => Number(get(key) || 0);
+  const mmEnabled = isTrue('MM_ENABLED') || isTrue('ENABLE_MM') || isTrue('ENABLE_TRADING');
+  const arbEnabled = isTrue('ARB_ENABLED') || isTrue('CROSS_PLATFORM_ENABLED') || isTrue('ARB_AUTO_EXECUTE');
+  const autoExec = isTrue('ARB_AUTO_EXECUTE') || isTrue('CROSS_PLATFORM_AUTO_EXECUTE');
+  const wsOk =
+    isTrue('PREDICT_WS_ENABLED') ||
+    isTrue('POLYMARKET_WS_ENABLED') ||
+    isTrue('OPINION_WS_ENABLED') ||
+    isTrue('PROBABLE_WS_ENABLED');
+
+  if (!isTrue('ENABLE_TRADING')) {
+    items.push({ level: 'warn', title: 'ENABLE_TRADING', message: '当前为模拟模式' });
+  } else {
+    items.push({ level: 'ok', title: 'ENABLE_TRADING', message: '已开启' });
+  }
+
+  if (autoExec && !isTrue('AUTO_CONFIRM')) {
+    items.push({ level: 'error', title: 'AUTO_CONFIRM', message: '自动执行时必须开启' });
+  } else if (autoExec) {
+    items.push({ level: 'ok', title: 'AUTO_CONFIRM', message: '自动执行已确认' });
+  } else {
+    items.push({ level: 'warn', title: 'AUTO_CONFIRM', message: '未开启自动执行' });
+  }
+
+  if (mmEnabled && !isTrue('MM_WS_ENABLED')) {
+    items.push({ level: 'warn', title: 'MM_WS_ENABLED', message: '做市建议开启 WS 实时行情' });
+  } else if (mmEnabled) {
+    items.push({ level: 'ok', title: 'MM_WS_ENABLED', message: '已开启' });
+  }
+
+  if (arbEnabled && !wsOk) {
+    items.push({ level: 'warn', title: '行情 WS', message: '套利建议至少开启一个 WS 行情源' });
+  } else if (arbEnabled) {
+    items.push({ level: 'ok', title: '行情 WS', message: '已开启' });
+  }
+
+  if (arbEnabled && !isTrue('ARB_PREFLIGHT_ENABLED')) {
+    items.push({ level: 'warn', title: 'ARB_PREFLIGHT_ENABLED', message: '建议开启预检，防止误下单' });
+  } else if (arbEnabled) {
+    items.push({ level: 'ok', title: 'ARB_PREFLIGHT_ENABLED', message: '已开启' });
+  }
+
+  if (arbEnabled && !isTrue('CROSS_PLATFORM_EXECUTION_VWAP_CHECK')) {
+    items.push({ level: 'warn', title: 'CROSS_PLATFORM_EXECUTION_VWAP_CHECK', message: '建议开启 VWAP 保护' });
+  } else if (arbEnabled) {
+    items.push({ level: 'ok', title: 'CROSS_PLATFORM_EXECUTION_VWAP_CHECK', message: '已开启' });
+  }
+
+  if (arbEnabled) {
+    const minProfit = num('CROSS_PLATFORM_MIN_PROFIT_USD');
+    if (!Number.isFinite(minProfit) || minProfit <= 0) {
+      items.push({ level: 'warn', title: 'CROSS_PLATFORM_MIN_PROFIT_USD', message: '建议设置最低利润门槛' });
+    } else {
+      items.push({ level: 'ok', title: 'CROSS_PLATFORM_MIN_PROFIT_USD', message: `${minProfit}` });
+    }
+  }
+
+  if (mmEnabled) {
+    const fastCancel = num('MM_FAST_CANCEL_BPS');
+    if (!Number.isFinite(fastCancel) || fastCancel <= 0) {
+      items.push({ level: 'warn', title: 'MM_FAST_CANCEL_BPS', message: '建议设置快速撤单阈值' });
+    } else {
+      items.push({ level: 'ok', title: 'MM_FAST_CANCEL_BPS', message: `${fastCancel}` });
+    }
+  }
+
+  if (autoExec) {
+    const circuit = num('CROSS_PLATFORM_CIRCUIT_MAX_FAILURES');
+    if (!Number.isFinite(circuit) || circuit <= 0) {
+      items.push({ level: 'warn', title: 'CROSS_PLATFORM_CIRCUIT_MAX_FAILURES', message: '建议设置熔断阈值' });
+    } else {
+      items.push({ level: 'ok', title: 'CROSS_PLATFORM_CIRCUIT_MAX_FAILURES', message: `${circuit}` });
+    }
+  }
+
+  lastPreflightChecklist = items;
+  renderPreflightChecklist(items);
+  if (preflightHint) {
+    const hasError = items.some((item) => item.level === 'error');
+    preflightHint.textContent = hasError ? '存在必须项未满足，请先修复。' : '检查完成。';
+  }
+}
+
 function applyBeginnerTemplate() {
   applyTemplate(
     {
@@ -4207,6 +4399,7 @@ async function loadMetrics() {
       setMetricsStatus('解析失败', false);
       return;
     }
+    latestMetrics = data;
 
     const metrics = data.metrics || {};
     const attempts = Number(metrics.attempts || 0);
@@ -4811,6 +5004,7 @@ async function init() {
   await loadArbCommandStatus();
   await runDiagnostics();
   runNewbieCheck();
+  runPreflightCheck();
 }
 
 window.predictBot.onLog((payload) => {
@@ -4876,6 +5070,7 @@ envEditor.addEventListener('input', () => {
   syncTogglesFromEnv(envEditor.value);
   updateMetricsPaths();
   updateFixPreview();
+  runPreflightCheck();
 });
 
 tabButtons.forEach((btn) => {
@@ -4888,6 +5083,12 @@ if (runNewbieCheckBtn) {
 }
 if (applyBeginnerTemplateBtn) {
   applyBeginnerTemplateBtn.addEventListener('click', applyBeginnerTemplate);
+}
+if (runPreflightCheckBtn) {
+  runPreflightCheckBtn.addEventListener('click', runPreflightCheck);
+}
+if (copyPreflightChecklistBtn) {
+  copyPreflightChecklistBtn.addEventListener('click', copyPreflightChecklist);
 }
 runDiagnosticsBtn.addEventListener('click', runDiagnostics);
 exportDiagnosticsBtn.addEventListener('click', exportDiagnostics);

@@ -273,6 +273,8 @@
 - `MM_LAYER_GUARD_DEPTH_SPEED_BPS`：深度消耗速度超过该值时，近层直接跳过。
 - `MM_FAST_CANCEL_BPS`：盘口极速变化阈值（bps），触发后立刻撤单。
 - `MM_FAST_CANCEL_WINDOW_MS`：极速变化判定窗口（毫秒）。
+- `MM_FAST_CANCEL_DEPTH_SPEED_BPS`：快速撤单需要的盘口深度速度阈值（bps），用于防止误触发。
+- `MM_FAST_CANCEL_SPREAD_JUMP_BPS`：快速撤单需要的价差跳变阈值（bps），用于防止误触发。
 - `MM_LAYER_RESTORE_NEAR_TOUCH_BPS`：恢复期近触碰额外缓冲（bps）。
 - `MM_LAYER_RESTORE_FORCE_REFRESH`：恢复期强制撤单后重挂。
 - `MM_LAYER_RESTORE_FORCE_CLEANUP`：恢复期强制清理历史挂单后再重挂。

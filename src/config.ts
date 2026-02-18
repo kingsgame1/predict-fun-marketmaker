@@ -487,6 +487,8 @@ export function loadConfig(): Config {
     mmLayerGuardDepthSpeedBps: parseFloat(process.env.MM_LAYER_GUARD_DEPTH_SPEED_BPS || '0'),
     mmFastCancelBps: parseFloat(process.env.MM_FAST_CANCEL_BPS || '0'),
     mmFastCancelWindowMs: parseInt(process.env.MM_FAST_CANCEL_WINDOW_MS || '0'),
+    mmFastCancelDepthSpeedBps: parseFloat(process.env.MM_FAST_CANCEL_DEPTH_SPEED_BPS || '0'),
+    mmFastCancelSpreadJumpBps: parseFloat(process.env.MM_FAST_CANCEL_SPREAD_JUMP_BPS || '0'),
     mmLayerRestoreNearTouchBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_BPS || '0'),
     mmLayerRestoreForceRefresh: process.env.MM_LAYER_RESTORE_FORCE_REFRESH === 'true',
     mmLayerRestoreForceCleanup: process.env.MM_LAYER_RESTORE_FORCE_CLEANUP === 'true',
