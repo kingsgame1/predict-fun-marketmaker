@@ -368,6 +368,30 @@ class ArbitrageBot {
 
     const opp = opportunities[index];
 
+    if (opp?.type === 'CROSS_PLATFORM' && this.config.arbPreflightEnabled !== false) {
+      if (!this.crossExecutionRouter) {
+        console.log('⚠️ Cross-platform preflight skipped: router not initialized');
+      } else if (Array.isArray(opp?.legs) && opp.legs.length > 0) {
+        const normalized = opp.legs
+          .filter((leg: any) => leg && leg.tokenId && leg.platform && leg.side && leg.shares > 0)
+          .map((leg: any) => ({
+            platform: leg.platform,
+            tokenId: leg.tokenId,
+            side: leg.side,
+            price: leg.price,
+            shares: leg.shares,
+            outcome: leg.outcome,
+          }));
+        if (normalized.length > 0) {
+          const result = await this.crossExecutionRouter.preflightOnly(normalized);
+          if (!result.ok) {
+            console.log(`⚠️ Cross-platform preflight failed: ${result.reason || 'unknown'}`);
+            return;
+          }
+        }
+      }
+    }
+
     switch (opp.type) {
       case 'VALUE_MISMATCH':
         await this.executor.executeValueMismatch(opp);

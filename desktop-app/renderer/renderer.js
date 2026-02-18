@@ -4779,6 +4779,7 @@ async function init() {
   await loadArbSnapshot();
   await loadArbCommandStatus();
   await runDiagnostics();
+  runNewbieCheck();
 }
 
 window.predictBot.onLog((payload) => {
