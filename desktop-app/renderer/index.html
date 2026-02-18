@@ -82,6 +82,7 @@
               <label class="toggle"><input type="checkbox" data-env="OPINION_WS_ENABLED" />Opinion WS</label>
               <label class="toggle"><input type="checkbox" data-env="PROBABLE_ENABLED" />Probable 数据</label>
               <label class="toggle"><input type="checkbox" data-env="PROBABLE_WS_ENABLED" />Probable WS</label>
+              <label class="toggle"><input type="checkbox" data-env="MM_POINTS_ASSUME_ACTIVE" />Probable 积分兜底</label>
               <label class="toggle"><input type="checkbox" data-env="MM_REQUIRE_JWT" />做市强制 JWT</label>
             </div>
             <div class="select-row">
@@ -104,6 +105,8 @@
               做市模板：`MM_TOUCH_BUFFER_BPS`、`MM_FILL_RISK_SPREAD_BPS`、`MM_NEAR_TOUCH_PENALTY_BPS` 等
               <br />
               Probable 模板：`MM_VENUE=probable` + `MM_POINTS_MIN_ONLY=true` + `MM_ONLY_POINTS_MARKETS=true`
+              <br />
+              Probable 兜底：`MM_POINTS_ASSUME_ACTIVE=true` + `MM_POINTS_MIN_SHARES=100` + `MM_POINTS_MAX_SPREAD_CENTS=6`
               <br />
               套利模板：`ARB_PREFLIGHT_ENABLED`、`ARB_WS_REALTIME`、`ARB_MAX_VWAP_DEVIATION_BPS` 等
             </div>
