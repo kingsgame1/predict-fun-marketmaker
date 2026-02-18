@@ -296,6 +296,9 @@ const FIX_HINTS = {
   MM_FAST_CANCEL_WINDOW_MS: '极速变化判定窗口（ms）',
   MM_FAST_CANCEL_DEPTH_SPEED_BPS: '极速撤单需要的深度速度阈值（bps）',
   MM_FAST_CANCEL_SPREAD_JUMP_BPS: '极速撤单需要的价差跳变阈值（bps）',
+  MM_PROTECTIVE_TEMPLATE_ENABLED: '保护档自动进入极限模板',
+  MM_PROTECTIVE_SIZE_SCALE: '保护档缩量',
+  MM_PROTECTIVE_TOUCH_BUFFER_ADD_BPS: '保护档额外缓冲',
   MM_DEPTH_SPEED_PAUSE_BPS: '深度速度超过阈值直接暂停做市（bps）',
   MM_DEPTH_SPEED_PAUSE_MS: '深度速度触发后的暂停时长（ms）',
   MM_PROTECTIVE_DEPTH_SPEED_BPS: '保护档触发所需深度速度（bps）',
@@ -311,6 +314,8 @@ const FIX_HINTS = {
   MM_PROTECTIVE_SINGLE_SIDE_OFFSET_BPS: '保护档单边偏移（bps）',
   MM_PROTECTIVE_SINGLE_SIDE_AUTO: '保护档自动单边',
   MM_PROTECTIVE_SINGLE_SIDE_IMBALANCE_THRESHOLD: '保护档自动单边阈值',
+  MM_PROTECTIVE_SIZE_SCALE: '保护档挂单份额缩放',
+  MM_PROTECTIVE_TOUCH_BUFFER_ADD_BPS: '保护档额外盘口缓冲（bps）',
   ARB_MAX_VWAP_DEVIATION_BPS: 'VWAP 最大允许偏离（bps）',
   ARB_RECHECK_DEVIATION_BPS: '偏离过大时需要二次确认（bps）',
   ARB_MAX_VWAP_LEVELS: '限制 VWAP 使用的档位数',
@@ -4927,6 +4932,7 @@ async function loadMmMetrics() {
         .filter((value) => Number.isFinite(value));
       const minThrottle = throttleFactors.length ? Math.max(0, Math.min(...throttleFactors)) : 1;
       const burstCount = markets.filter((m) => m.cancelBurstActive).length;
+      const protectiveCount = markets.filter((m) => m.protectiveActive).length;
       const emergencyOn = wsHealth.wsEmergencyActive === true;
       const recoveryOn = wsHealth.wsEmergencyRecovery === true;
       const ultraSafe = wsHealth.wsUltraSafe === true;
@@ -4949,8 +4955,9 @@ async function loadMmMetrics() {
       if (mmRiskHint) {
         const throttleHint = Number.isFinite(minThrottle) ? `节流x${minThrottle.toFixed(2)}` : '节流--';
         const burstHint = burstCount > 0 ? `burst=${burstCount}` : 'burst=0';
+        const protectHint = protectiveCount > 0 ? `protect=${protectiveCount}` : 'protect=0';
         const mode = emergencyOn ? '急撤' : recoveryOn ? '恢复' : forceSafe || ultraSafe ? '安全' : '常规';
-        mmRiskHint.textContent = `WS=${Math.round(wsScore)} ${throttleHint} ${burstHint} ${mode}`;
+        mmRiskHint.textContent = `WS=${Math.round(wsScore)} ${throttleHint} ${burstHint} ${protectHint} ${mode}`;
       }
       if (mmSafetyStatus) {
         const parts = [];
@@ -4959,6 +4966,7 @@ async function loadMmMetrics() {
         if (recoveryOn) parts.push('恢复');
         if (ultraSafe) parts.push('极限');
         else if (forceSafe) parts.push('安全');
+        if (protectiveCount > 0) parts.push('保护');
         if (readOnly) parts.push('只读');
         mmSafetyStatus.textContent = parts.length ? parts.join(' / ') : '常规';
       }
@@ -4994,8 +5002,9 @@ async function loadMmMetrics() {
           const riskThrottle = Number.isFinite(m.riskThrottleFactor) ? `rt=${m.riskThrottleFactor.toFixed(2)}` : '';
           const riskFar = m.riskOnlyFarActive ? 'riskFar' : '';
           const burst = m.cancelBurstActive ? 'burst=on' : '';
+          const protect = m.protectiveActive ? 'protect=on' : '';
           hint.textContent =
-            `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle} ${wsCap} ${wsEmergency} ${riskThrottle} ${riskFar} ${burst}`.trim();
+            `spread=${spreadPct}% vol=${vol} depth=${depth} ws=${wsScore} ${wsOnlyFar} ${wsSparse} single=${wsSingle} ${wsCap} ${wsEmergency} ${riskThrottle} ${riskFar} ${burst} ${protect}`.trim();
           row.appendChild(label);
           row.appendChild(hint);
           mmMarketsList.appendChild(row);

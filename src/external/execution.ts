@@ -1395,6 +1395,8 @@ export class CrossPlatformExecutionRouter {
       if (totalCostBps > 0) totalCostBps = Math.max(0, totalCostBps / failureRateFactor);
       if (legSpreadBps > 0) legSpreadBps = Math.max(0, legSpreadBps / failureRateFactor);
       if (legCostSpreadBps > 0) legCostSpreadBps = Math.max(0, legCostSpreadBps / failureRateFactor);
+      if (minProfitBps > 0) minProfitBps = Math.max(0, minProfitBps * failureRateFactor);
+      if (minProfitUsd > 0) minProfitUsd = Math.max(0, minProfitUsd * failureRateFactor);
     }
     if (this.consecutiveFailures > 0) {
       const tighten = Math.max(0, this.config.crossPlatformFailureDriftTightenBps || 0);
