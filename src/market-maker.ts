@@ -975,6 +975,25 @@ export class MarketMaker {
       }
     }
 
+    const fastCancelBps = Math.max(0, this.config.mmFastCancelBps ?? 0);
+    const fastWindow = Math.max(0, this.config.mmFastCancelWindowMs ?? 0);
+    if (fastCancelBps > 0) {
+      const windowMs = fastWindow > 0 ? fastWindow : aggressiveWindow;
+      if (elapsed > 0 && elapsed <= windowMs) {
+        if (order.side === 'BUY') {
+          const delta = this.lastAskDeltaBps.get(order.token_id) ?? 0;
+          if (delta < 0 && Math.abs(delta) >= fastCancelBps) {
+            return { cancel: true, panic: true, reason: 'fast-move' };
+          }
+        } else {
+          const delta = this.lastBidDeltaBps.get(order.token_id) ?? 0;
+          if (delta > 0 && delta >= fastCancelBps) {
+            return { cancel: true, panic: true, reason: 'fast-move' };
+          }
+        }
+      }
+    }
+
     const accelBps = Math.max(0, this.config.mmPriceAccelBps ?? 0);
     const accelWindow = Math.max(0, this.config.mmPriceAccelWindowMs ?? 0);
     if (accelBps > 0 && accelWindow > 0 && elapsed > 0 && elapsed <= accelWindow) {

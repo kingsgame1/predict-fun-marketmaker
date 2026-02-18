@@ -271,6 +271,8 @@
 - `MM_LAYER_GUARD_MIN_DEPTH_SHARES`：触发近层保护所需的最小深度（shares）。
 - `MM_LAYER_GUARD_MIN_DEPTH_USD`：触发近层保护所需的最小深度（USD）。
 - `MM_LAYER_GUARD_DEPTH_SPEED_BPS`：深度消耗速度超过该值时，近层直接跳过。
+- `MM_FAST_CANCEL_BPS`：盘口极速变化阈值（bps），触发后立刻撤单。
+- `MM_FAST_CANCEL_WINDOW_MS`：极速变化判定窗口（毫秒）。
 - `MM_LAYER_RESTORE_NEAR_TOUCH_BPS`：恢复期近触碰额外缓冲（bps）。
 - `MM_LAYER_RESTORE_FORCE_REFRESH`：恢复期强制撤单后重挂。
 - `MM_LAYER_RESTORE_FORCE_CLEANUP`：恢复期强制清理历史挂单后再重挂。
@@ -747,6 +749,8 @@
 - `CROSS_PLATFORM_HARD_GATE_RATE_LIMIT_MS`：硬门控触发后额外限速时长（毫秒）。
 - `CROSS_PLATFORM_HARD_GATE_AUTO_APPLY_FIX`：硬门控触发后自动应用修复模板（true/false）。
 - `CROSS_PLATFORM_HARD_GATE_AUTO_ULTRA`：硬门控触发后自动切换极保守模板（true/false）。
+- `CROSS_PLATFORM_AUTO_APPLY_FAILURE_FIX`：执行失败率过高时自动套用修复模板（true/false）。
+- `CROSS_PLATFORM_AUTO_APPLY_FAILURE_RATE`：触发自动修复的失败率阈值（百分比）。
 - `CROSS_PLATFORM_CONSISTENCY_COOLDOWN_MS`：一致性失败触发全局冷却时长（毫秒）。
 - `CROSS_PLATFORM_CONSISTENCY_COOLDOWN_THRESHOLD`：一致性失败冷却阈值次数。
 - `CROSS_PLATFORM_CONSISTENCY_COOLDOWN_WINDOW_MS`：一致性冷却统计窗口（毫秒）。

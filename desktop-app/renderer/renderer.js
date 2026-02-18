@@ -188,6 +188,7 @@ const riskWeights = {
 let arbSnapshot = null;
 let arbCommandState = null;
 let mmAutoDowngradeUntil = 0;
+let lastAutoFailureFixAt = 0;
 const FIX_HINTS = {
   CROSS_PLATFORM_ADAPTIVE_SIZE: '根据深度自动缩放下单量',
   CROSS_PLATFORM_DEPTH_USAGE: '使用的盘口深度比例',
@@ -277,6 +278,8 @@ const FIX_HINTS = {
   MM_CANCEL_BURST_LAYER_CAP: '撤单爆发分层上限',
   MM_CANCEL_MAX_PER_CYCLE: '单轮撤单数量上限',
   MM_CANCEL_MAX_PER_CYCLE_PANIC_BYPASS: '紧急撤单绕过单轮上限',
+  MM_FAST_CANCEL_BPS: '盘口极速变化撤单阈值（bps）',
+  MM_FAST_CANCEL_WINDOW_MS: '极速变化判定窗口（ms）',
   ARB_MAX_VWAP_DEVIATION_BPS: 'VWAP 最大允许偏离（bps）',
   ARB_RECHECK_DEVIATION_BPS: '偏离过大时需要二次确认（bps）',
   ARB_MAX_VWAP_LEVELS: '限制 VWAP 使用的档位数',
@@ -2877,6 +2880,8 @@ function applyMmPassiveTemplate() {
       MM_NO_FILL_CANCEL_MAX_BPS: '0.0025',
       MM_SOFT_CANCEL_BPS: '0.0012',
       MM_HARD_CANCEL_BPS: '0.0025',
+      MM_FAST_CANCEL_BPS: '12',
+      MM_FAST_CANCEL_WINDOW_MS: '1000',
       MM_ORDER_RISK_VWAP_BPS: '15',
       MM_ORDER_RISK_VWAP_SHARES: '40',
       MM_ORDER_RISK_VWAP_LEVELS: '4',
@@ -2913,6 +2918,8 @@ function applyMmProbablePointsTemplate() {
       MM_ORDER_RISK_VWAP_BPS: '12',
       MM_ORDER_RISK_VWAP_SHARES: '30',
       MM_ORDER_RISK_VWAP_LEVELS: '4',
+      MM_FAST_CANCEL_BPS: '10',
+      MM_FAST_CANCEL_WINDOW_MS: '1000',
       MM_LAYER_GUARD_NEAR_BPS: '10',
       MM_LAYER_GUARD_MIN_DEPTH_SHARES: '12',
       MM_LAYER_GUARD_DEPTH_SPEED_BPS: '50',
@@ -2963,6 +2970,8 @@ function applyMmProbableHedgeTemplate() {
       MM_ORDER_RISK_VWAP_BPS: '12',
       MM_ORDER_RISK_VWAP_SHARES: '30',
       MM_ORDER_RISK_VWAP_LEVELS: '4',
+      MM_FAST_CANCEL_BPS: '10',
+      MM_FAST_CANCEL_WINDOW_MS: '1000',
       MM_LAYER_GUARD_NEAR_BPS: '10',
       MM_LAYER_GUARD_MIN_DEPTH_SHARES: '12',
       MM_LAYER_GUARD_DEPTH_SPEED_BPS: '50',
@@ -3341,6 +3350,8 @@ function buildFixTemplate() {
         'CROSS_PLATFORM_MAX_RETRIES=1',
         'CROSS_PLATFORM_RETRY_DELAY_MS=500',
         'CROSS_PLATFORM_ABORT_COOLDOWN_MS=120000',
+        'CROSS_PLATFORM_MIN_PROFIT_USD=0.03',
+        'CROSS_PLATFORM_MIN_DEPTH_USD=8',
       ]);
     } else if (category === '高波动') {
       appendLines(category, [
@@ -3378,7 +3389,7 @@ function buildFixTemplate() {
   return template.join('\n');
 }
 
-function applyFixTemplate() {
+function applyFixTemplate(quiet = false) {
   const template = buildFixTemplate();
   let text = envEditor.value || '';
   const lines = template.split('\n').filter(Boolean);
@@ -3396,7 +3407,9 @@ function applyFixTemplate() {
   detectTradingMode(text);
   syncTogglesFromEnv(text);
   updateMetricsPaths();
-  pushLog({ type: 'system', level: 'system', message: '已应用修复建议模板（请保存生效）' });
+  if (!quiet) {
+    pushLog({ type: 'system', level: 'system', message: '已应用修复建议模板（请保存生效）' });
+  }
 }
 
 function renderRiskBreakdown(breakdown) {
@@ -4208,9 +4221,9 @@ async function loadMetrics() {
     const failureRate = attempts > 0 ? (failures / attempts) * 100 : 0;
     const preflightFailRate = attempts > 0 ? (preflightFailures / attempts) * 100 : 0;
     const postFailRate = attempts > 0 ? (postFailures / attempts) * 100 : 0;
-    const postTradeDriftBps = Number(metrics.emaPostTradeDriftBps || 0);
-    const updatedAt = Number(data.ts || 0);
-    const metricsAgeMs = updatedAt ? Date.now() - updatedAt : Infinity;
+  const postTradeDriftBps = Number(metrics.emaPostTradeDriftBps || 0);
+  const updatedAt = Number(data.ts || 0);
+  const metricsAgeMs = updatedAt ? Date.now() - updatedAt : Infinity;
 
     setMetricText(metricSuccessRate, `${formatNumber(successRate, 1)}%`);
     setMetricText(metricSuccessRaw, `${successes}/${attempts} 成功`);
@@ -4275,6 +4288,24 @@ async function loadMetrics() {
         factor = Math.min(factor, Math.max(0.05, Math.min(1, hardFactor)));
       }
       metricConsistencySize.textContent = `x${formatNumber(factor, 2)}`;
+    }
+    const env = parseEnv(envEditor.value || '');
+    const autoFailureFix = String(env.get('CROSS_PLATFORM_AUTO_APPLY_FAILURE_FIX') || '').toLowerCase() === 'true';
+    const autoFailureRate = parseFloat(env.get('CROSS_PLATFORM_AUTO_APPLY_FAILURE_RATE') || '25');
+    const autoCooldownMs = 5 * 60 * 1000;
+    if (
+      autoFailureFix &&
+      hasAdvice &&
+      Number.isFinite(autoFailureRate) &&
+      failureRate >= autoFailureRate &&
+      Date.now() - lastAutoFailureFixAt > autoCooldownMs
+    ) {
+      lastAutoFailureFixAt = Date.now();
+      applyFixTemplate(true);
+      if (healthExportHint) {
+        healthExportHint.textContent = '失败率偏高，已自动套用修复模板，请点击“保存配置”生效。';
+      }
+      pushLog({ type: 'system', level: 'system', message: '失败率偏高，已自动套用修复模板（请保存生效）' });
     }
     if (metricHardGate) {
       const until = Number(data.hardGateActiveUntil || 0);
