@@ -404,6 +404,11 @@ export interface Config {
   mmProtectiveLayerCountCap?: number;
   mmProtectiveOnlyFar?: boolean;
   mmProtectiveForceSingle?: boolean;
+  mmProtectiveSingleSide?: 'BUY' | 'SELL' | 'NONE';
+  mmProtectiveSingleSideMode?: 'NORMAL' | 'REMOTE';
+  mmProtectiveSingleSideOffsetBps?: number;
+  mmProtectiveSingleSideAuto?: boolean;
+  mmProtectiveSingleSideImbalanceThreshold?: number;
   mmLayerRestoreNearTouchBps?: number;
   mmLayerRestoreForceRefresh?: boolean;
   mmLayerRestoreForceCleanup?: boolean;

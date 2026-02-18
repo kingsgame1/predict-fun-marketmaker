@@ -498,6 +498,18 @@ export function loadConfig(): Config {
     mmProtectiveLayerCountCap: parseInt(process.env.MM_PROTECTIVE_LAYER_COUNT_CAP || '0'),
     mmProtectiveOnlyFar: process.env.MM_PROTECTIVE_ONLY_FAR === 'true',
     mmProtectiveForceSingle: process.env.MM_PROTECTIVE_FORCE_SINGLE === 'true',
+    mmProtectiveSingleSide: (process.env.MM_PROTECTIVE_SINGLE_SIDE || 'NONE').toUpperCase() as
+      | 'BUY'
+      | 'SELL'
+      | 'NONE',
+    mmProtectiveSingleSideMode: (process.env.MM_PROTECTIVE_SINGLE_SIDE_MODE || 'NORMAL').toUpperCase() as
+      | 'NORMAL'
+      | 'REMOTE',
+    mmProtectiveSingleSideOffsetBps: parseFloat(process.env.MM_PROTECTIVE_SINGLE_SIDE_OFFSET_BPS || '0'),
+    mmProtectiveSingleSideAuto: process.env.MM_PROTECTIVE_SINGLE_SIDE_AUTO === 'true',
+    mmProtectiveSingleSideImbalanceThreshold: parseFloat(
+      process.env.MM_PROTECTIVE_SINGLE_SIDE_IMBALANCE_THRESHOLD || '0.15'
+    ),
     mmLayerRestoreNearTouchBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_BPS || '0'),
     mmLayerRestoreForceRefresh: process.env.MM_LAYER_RESTORE_FORCE_REFRESH === 'true',
     mmLayerRestoreForceCleanup: process.env.MM_LAYER_RESTORE_FORCE_CLEANUP === 'true',

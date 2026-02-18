@@ -1388,6 +1388,14 @@ export class CrossPlatformExecutionRouter {
         minProfitUsd += profitUsdBump;
       }
     }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      if (driftBps > 0) driftBps = Math.max(0, driftBps / failureRateFactor);
+      if (vwapBps > 0) vwapBps = Math.max(0, vwapBps / failureRateFactor);
+      if (totalCostBps > 0) totalCostBps = Math.max(0, totalCostBps / failureRateFactor);
+      if (legSpreadBps > 0) legSpreadBps = Math.max(0, legSpreadBps / failureRateFactor);
+      if (legCostSpreadBps > 0) legCostSpreadBps = Math.max(0, legCostSpreadBps / failureRateFactor);
+    }
     if (this.consecutiveFailures > 0) {
       const tighten = Math.max(0, this.config.crossPlatformFailureDriftTightenBps || 0);
       if (tighten > 0) {
@@ -4397,7 +4405,11 @@ export class CrossPlatformExecutionRouter {
     if (maxInterval > 0) {
       intervalMs = Math.min(intervalMs, maxInterval);
     }
-    const threshold = Math.max(0, this.getStabilityBps() * this.getAutoTuneFactor());
+    const failureRateFactor = this.getFailureRateFactor();
+    let threshold = Math.max(0, this.getStabilityBps() * this.getAutoTuneFactor());
+    if (failureRateFactor > 1 && threshold > 0) {
+      threshold = Math.max(0, threshold / failureRateFactor);
+    }
     if (samples <= 1 || threshold <= 0) {
       return;
     }

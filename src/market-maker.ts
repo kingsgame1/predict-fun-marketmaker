@@ -4124,14 +4124,35 @@ export class MarketMaker {
     const panicSingleSide = this.isLayerPanicActive(tokenId)
       ? (this.config.mmPanicSingleSide || 'NONE').toUpperCase()
       : 'NONE';
+    const protectiveActive = this.isProtectiveActive(tokenId);
+    let protectiveSingleSide =
+      panicSingleSide === 'NONE' && protectiveActive
+        ? (this.config.mmProtectiveSingleSide || 'NONE').toUpperCase()
+        : 'NONE';
+    if (protectiveActive && this.config.mmProtectiveSingleSideAuto) {
+      const inventoryBias = this.calculateInventoryBias(tokenId);
+      const imbalance = this.calculateOrderbookImbalance(orderbook);
+      const threshold = Math.max(0, this.config.mmProtectiveSingleSideImbalanceThreshold ?? 0.15);
+      const signal = inventoryBias - imbalance;
+      if (Math.abs(signal) >= threshold) {
+        protectiveSingleSide = signal > 0 ? 'SELL' : 'BUY';
+      }
+    }
     const safeSingleSide =
-      panicSingleSide === 'NONE' && safeModeActive
+      panicSingleSide === 'NONE' && !protectiveActive && safeModeActive
         ? (this.config.mmSafeModeSingleSide || 'NONE').toUpperCase()
         : 'NONE';
-    const effectiveSingleSide = panicSingleSide !== 'NONE' ? panicSingleSide : safeSingleSide;
+    const effectiveSingleSide =
+      panicSingleSide !== 'NONE' ? panicSingleSide : protectiveSingleSide !== 'NONE' ? protectiveSingleSide : safeSingleSide;
     const panicSingleSideOffsetBps = Math.max(0, this.config.mmPanicSingleSideOffsetBps ?? 0);
+    const protectiveSingleSideOffsetBps = Math.max(0, this.config.mmProtectiveSingleSideOffsetBps ?? 0);
     const safeSingleSideOffsetBps = Math.max(0, this.config.mmSafeModeSingleSideOffsetBps ?? 0);
-    const singleSideOffsetBps = panicSingleSide !== 'NONE' ? panicSingleSideOffsetBps : safeSingleSideOffsetBps;
+    const singleSideOffsetBps =
+      panicSingleSide !== 'NONE'
+        ? panicSingleSideOffsetBps
+        : protectiveSingleSide !== 'NONE'
+          ? protectiveSingleSideOffsetBps
+          : safeSingleSideOffsetBps;
     if (singleSideOffsetBps > 0 && effectiveSingleSide !== 'NONE') {
       const offset = singleSideOffsetBps / 10000;
       if (effectiveSingleSide === 'BUY') {
@@ -4620,6 +4641,8 @@ export class MarketMaker {
     const panicOnlyFar = this.config.mmLayerPanicOnlyFar === true && this.isLayerPanicActive(tokenId);
     const panicSingleSideMode = (this.config.mmPanicSingleSideMode || 'NORMAL').toUpperCase();
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
+    const protectiveSingleSideMode = (this.config.mmProtectiveSingleSideMode || 'NORMAL').toUpperCase();
+    const protectiveRemoteOnly = protectiveSingleSide !== 'NONE' && protectiveSingleSideMode === 'REMOTE';
     const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
     const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';
     const riskOnlyFarLayers = riskOnlyFarActive ? Math.max(0, this.config.mmRiskThrottleOnlyFarLayers ?? 0) : 0;
@@ -4641,6 +4664,7 @@ export class MarketMaker {
       restoreOnlyFar ||
       panicOnlyFar ||
       panicRemoteOnly ||
+      protectiveRemoteOnly ||
       safeRemoteOnly ||
       protectiveOnlyFar ||
       safeModeOnlyFar ||
