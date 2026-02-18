@@ -4397,6 +4397,11 @@ export class CrossPlatformExecutionRouter {
       samples += Math.max(0, this.config.crossPlatformFailureStabilitySamplesAdd || 0);
       intervalMs += Math.max(0, this.config.crossPlatformFailureStabilityIntervalAddMs || 0);
     }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      samples += Math.max(0, this.config.crossPlatformFailureRateStabilitySamplesAdd || 0);
+      intervalMs += Math.max(0, this.config.crossPlatformFailureRateStabilityIntervalAddMs || 0);
+    }
     const maxSamples = Math.max(0, this.config.crossPlatformFailureStabilitySamplesMax || 0);
     if (maxSamples > 0) {
       samples = Math.min(samples, maxSamples);
@@ -4405,7 +4410,16 @@ export class CrossPlatformExecutionRouter {
     if (maxInterval > 0) {
       intervalMs = Math.min(intervalMs, maxInterval);
     }
-    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      const maxSamplesRate = Math.max(0, this.config.crossPlatformFailureRateStabilityMaxSamples || 0);
+      if (maxSamplesRate > 0) {
+        samples = Math.min(samples, maxSamplesRate);
+      }
+      const maxIntervalRate = Math.max(0, this.config.crossPlatformFailureRateStabilityMaxIntervalMs || 0);
+      if (maxIntervalRate > 0) {
+        intervalMs = Math.min(intervalMs, maxIntervalRate);
+      }
+    }
     let threshold = Math.max(0, this.getStabilityBps() * this.getAutoTuneFactor());
     if (failureRateFactor > 1 && threshold > 0) {
       threshold = Math.max(0, threshold / failureRateFactor);

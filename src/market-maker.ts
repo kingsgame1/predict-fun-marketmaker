@@ -4153,6 +4153,13 @@ export class MarketMaker {
         : protectiveSingleSide !== 'NONE'
           ? protectiveSingleSideOffsetBps
           : safeSingleSideOffsetBps;
+    if (protectiveSingleSide === 'NONE' && protectiveActive) {
+      const add = Math.max(0, this.config.mmProtectiveTouchBufferAddBps ?? 0);
+      if (add > 0) {
+        bidPriceBase = Math.max(0.01, bidPriceBase * (1 - add / 10000));
+        askPriceBase = Math.min(0.99, askPriceBase * (1 + add / 10000));
+      }
+    }
     if (singleSideOffsetBps > 0 && effectiveSingleSide !== 'NONE') {
       const offset = singleSideOffsetBps / 10000;
       if (effectiveSingleSide === 'BUY') {
@@ -4578,6 +4585,13 @@ export class MarketMaker {
     }
     if (safeModeActive) {
       const scale = this.config.mmSafeModeSizeScale ?? 0;
+      if (scale > 0 && scale < 1) {
+        targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
+        targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+      }
+    }
+    if (this.isProtectiveActive(tokenId)) {
+      const scale = this.config.mmProtectiveSizeScale ?? 0;
       if (scale > 0 && scale < 1) {
         targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
         targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));

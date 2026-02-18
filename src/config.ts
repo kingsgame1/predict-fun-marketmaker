@@ -510,6 +510,8 @@ export function loadConfig(): Config {
     mmProtectiveSingleSideImbalanceThreshold: parseFloat(
       process.env.MM_PROTECTIVE_SINGLE_SIDE_IMBALANCE_THRESHOLD || '0.15'
     ),
+    mmProtectiveSizeScale: parseFloat(process.env.MM_PROTECTIVE_SIZE_SCALE || '0'),
+    mmProtectiveTouchBufferAddBps: parseFloat(process.env.MM_PROTECTIVE_TOUCH_BUFFER_ADD_BPS || '0'),
     mmLayerRestoreNearTouchBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_BPS || '0'),
     mmLayerRestoreForceRefresh: process.env.MM_LAYER_RESTORE_FORCE_REFRESH === 'true',
     mmLayerRestoreForceCleanup: process.env.MM_LAYER_RESTORE_FORCE_CLEANUP === 'true',
@@ -658,6 +660,18 @@ export function loadConfig(): Config {
     crossPlatformFailureRateMinAttempts: parseInt(process.env.CROSS_PLATFORM_FAILURE_RATE_MIN_ATTEMPTS || '0'),
     crossPlatformFailureRateThreshold: parseFloat(process.env.CROSS_PLATFORM_FAILURE_RATE_THRESHOLD || '0'),
     crossPlatformFailureRateTightenMax: parseFloat(process.env.CROSS_PLATFORM_FAILURE_RATE_TIGHTEN_MAX || '1'),
+    crossPlatformFailureRateStabilitySamplesAdd: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_SAMPLES_ADD || '0'
+    ),
+    crossPlatformFailureRateStabilityIntervalAddMs: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_INTERVAL_ADD_MS || '0'
+    ),
+    crossPlatformFailureRateStabilityMaxSamples: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_MAX_SAMPLES || '0'
+    ),
+    crossPlatformFailureRateStabilityMaxIntervalMs: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_MAX_INTERVAL_MS || '0'
+    ),
     crossPlatformReasonPreflightPenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_PREFLIGHT_PENALTY || '0.4'),
     crossPlatformReasonExecutionPenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_EXECUTION_PENALTY || '0.7'),
     crossPlatformReasonPostTradePenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_POSTTRADE_PENALTY || '1.2'),
@@ -1443,6 +1457,18 @@ export function loadConfig(): Config {
   }
   if ((config.crossPlatformFailureRateTightenMax ?? 0) < 1) {
     config.crossPlatformFailureRateTightenMax = 1;
+  }
+  if ((config.crossPlatformFailureRateStabilitySamplesAdd ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilitySamplesAdd = 0;
+  }
+  if ((config.crossPlatformFailureRateStabilityIntervalAddMs ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilityIntervalAddMs = 0;
+  }
+  if ((config.crossPlatformFailureRateStabilityMaxSamples ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilityMaxSamples = 0;
+  }
+  if ((config.crossPlatformFailureRateStabilityMaxIntervalMs ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilityMaxIntervalMs = 0;
   }
   if ((config.crossPlatformReasonPreflightPenalty ?? 0) < 0) {
     config.crossPlatformReasonPreflightPenalty = 0.4;

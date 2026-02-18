@@ -409,6 +409,8 @@ export interface Config {
   mmProtectiveSingleSideOffsetBps?: number;
   mmProtectiveSingleSideAuto?: boolean;
   mmProtectiveSingleSideImbalanceThreshold?: number;
+  mmProtectiveSizeScale?: number;
+  mmProtectiveTouchBufferAddBps?: number;
   mmLayerRestoreNearTouchBps?: number;
   mmLayerRestoreForceRefresh?: boolean;
   mmLayerRestoreForceCleanup?: boolean;
@@ -554,6 +556,10 @@ export interface Config {
   crossPlatformFailureRateMinAttempts?: number;
   crossPlatformFailureRateThreshold?: number;
   crossPlatformFailureRateTightenMax?: number;
+  crossPlatformFailureRateStabilitySamplesAdd?: number;
+  crossPlatformFailureRateStabilityIntervalAddMs?: number;
+  crossPlatformFailureRateStabilityMaxSamples?: number;
+  crossPlatformFailureRateStabilityMaxIntervalMs?: number;
   crossPlatformReasonPreflightPenalty?: number;
   crossPlatformReasonExecutionPenalty?: number;
   crossPlatformReasonPostTradePenalty?: number;
