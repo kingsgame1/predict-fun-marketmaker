@@ -183,6 +183,7 @@ const riskWeights = {
 };
 let arbSnapshot = null;
 let arbCommandState = null;
+let mmAutoDowngradeUntil = 0;
 const FIX_HINTS = {
   CROSS_PLATFORM_ADAPTIVE_SIZE: '根据深度自动缩放下单量',
   CROSS_PLATFORM_DEPTH_USAGE: '使用的盘口深度比例',
@@ -936,6 +937,23 @@ function renderArbList() {
     meta.className = 'arb-item-meta';
     const returnPct = Number(item.expectedReturn || 0);
     const profitUsd = Number(item.profitUsd || 0);
+    const perShareCost = Number(item.perShareCost || 0);
+    const perShareProceeds = Number(item.perShareProceeds || 0);
+    const totalCostUsd = Number(item.totalCostUsd || 0);
+    const totalProceedsUsd = Number(item.totalProceedsUsd || 0);
+    const feesPerShare = Number(item.feesPerShare || 0);
+    const slippagePerShare = Number(item.slippagePerShare || 0);
+    const vwapLevels = Number(item.vwapLevels || 0);
+    const vwapDeviationBps = Number(item.vwapDeviationBps || 0);
+    const vwapPieces = [];
+    if (perShareCost > 0) vwapPieces.push(`VWAP成本=${perShareCost.toFixed(4)}`);
+    if (perShareProceeds > 0) vwapPieces.push(`VWAP回收=${perShareProceeds.toFixed(4)}`);
+    if (feesPerShare > 0) vwapPieces.push(`费=${feesPerShare.toFixed(4)}`);
+    if (slippagePerShare > 0) vwapPieces.push(`滑点=${slippagePerShare.toFixed(4)}`);
+    if (totalCostUsd > 0) vwapPieces.push(`总成本≈$${totalCostUsd.toFixed(2)}`);
+    if (totalProceedsUsd > 0) vwapPieces.push(`总回收≈$${totalProceedsUsd.toFixed(2)}`);
+    if (vwapDeviationBps !== 0) vwapPieces.push(`VWAP偏离=${formatBps(vwapDeviationBps)}`);
+    if (vwapLevels > 0) vwapPieces.push(`深度层=${vwapLevels}`);
     meta.innerHTML = [
       item.recommendedAction ? `动作：${item.recommendedAction}` : '',
       Number.isFinite(returnPct) ? `收益：${returnPct.toFixed(2)}%` : '',
@@ -943,6 +961,7 @@ function renderArbList() {
       item.positionSize ? `建议量：${item.positionSize}` : '',
       item.platformA && item.platformB ? `${item.platformA} vs ${item.platformB}` : '',
       item.spread ? `Spread=${Number(item.spread).toFixed(4)}` : '',
+      vwapPieces.length ? vwapPieces.join(' | ') : '',
     ]
       .filter(Boolean)
       .map((text) => `<span>${text}</span>`)
@@ -3372,6 +3391,31 @@ function renderRiskBreakdown(breakdown) {
   });
 }
 
+function maybeAutoDowngradeMaker(healthScore) {
+  if (!Number.isFinite(healthScore)) return;
+  const env = parseEnv(envEditor.value || '');
+  const enabled = String(env.get('MM_UI_AUTO_APPLY_RECOVERY_TEMPLATE') || '').toLowerCase() === 'true';
+  if (!enabled) return;
+  const safeThreshold = Number(env.get('MM_UI_AUTO_SAFE_THRESHOLD') || 55);
+  const ultraThreshold = Number(env.get('MM_UI_AUTO_ULTRA_THRESHOLD') || 35);
+  const cooldownMs = Number(env.get('MM_UI_AUTO_COOLDOWN_MS') || 10 * 60 * 1000);
+  const now = Date.now();
+  if (mmAutoDowngradeUntil && now < mmAutoDowngradeUntil) {
+    return;
+  }
+  if (ultraThreshold > 0 && healthScore <= ultraThreshold) {
+    applyRecoveryTemplatePreset('ultra');
+    mmAutoDowngradeUntil = now + cooldownMs;
+    pushLog({ type: 'system', level: 'system', message: `做市健康评分 ${healthScore} 触发自动极保守模板` });
+    return;
+  }
+  if (safeThreshold > 0 && healthScore <= safeThreshold) {
+    applyRecoveryTemplatePreset('safe');
+    mmAutoDowngradeUntil = now + cooldownMs;
+    pushLog({ type: 'system', level: 'system', message: `做市健康评分 ${healthScore} 触发自动保守模板` });
+  }
+}
+
 function renderConsistencyFailures() {
   if (!metricConsistencyList) return;
   const counts = new Map();
@@ -4447,6 +4491,7 @@ async function loadMmMetrics() {
         if (readOnly) parts.push('只读');
         mmSafetyStatus.textContent = parts.length ? parts.join(' / ') : '常规';
       }
+      maybeAutoDowngradeMaker(health);
     }
 
     if (mmMarketsList) {

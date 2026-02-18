@@ -1004,3 +1004,10 @@
 
 - `MARKET_TOKEN_IDS`：只交易指定 token（逗号分隔）。
 - `REFRESH_INTERVAL`：做市商刷新频率。
+
+## 16. Desktop UI 自动降级
+
+- `MM_UI_AUTO_APPLY_RECOVERY_TEMPLATE`：是否允许桌面端自动应用恢复模板。
+- `MM_UI_AUTO_SAFE_THRESHOLD`：做市健康评分低于该值时自动应用“保守”模板。
+- `MM_UI_AUTO_ULTRA_THRESHOLD`：做市健康评分低于该值时自动应用“极保守”模板。
+- `MM_UI_AUTO_COOLDOWN_MS`：自动降级触发冷却时间（毫秒）。

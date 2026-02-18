@@ -60,6 +60,16 @@ export interface ArbitrageOpportunity {
   totalCost?: number;
   totalFees?: number;
   totalSlippage?: number;
+  perShareCost?: number;
+  perShareProceeds?: number;
+  totalCostUsd?: number;
+  totalProceedsUsd?: number;
+  feesPerShare?: number;
+  slippagePerShare?: number;
+  vwapYes?: number;
+  vwapNo?: number;
+  vwapLevels?: number;
+  vwapDeviationBps?: number;
   legs?: {
     platform?: string;
     tokenId: string;
@@ -128,6 +138,16 @@ export interface InPlatformArbitrage {
   profitPercentage: number;
   maxProfit: number; // 考虑手续费后的最大利润
   depthShares: number;
+  perShareCost?: number;
+  perShareProceeds?: number;
+  totalCostUsd?: number;
+  totalProceedsUsd?: number;
+  feesPerShare?: number;
+  slippagePerShare?: number;
+  vwapYes?: number;
+  vwapNo?: number;
+  vwapLevels?: number;
+  vwapDeviationBps?: number;
 
   // 执行策略
   action: 'SELL_BOTH' | 'BUY_BOTH' | 'NONE';
@@ -204,6 +224,16 @@ export interface CrossPlatformArbitrage {
     shares: number;
     outcome?: 'YES' | 'NO';
   }[];
+  perShareCost?: number;
+  perShareProceeds?: number;
+  totalCostUsd?: number;
+  totalProceedsUsd?: number;
+  feesPerShare?: number;
+  slippagePerShare?: number;
+  vwapYes?: number;
+  vwapNo?: number;
+  vwapLevels?: number;
+  vwapDeviationBps?: number;
 
   // 风险评估
   risks: string[];

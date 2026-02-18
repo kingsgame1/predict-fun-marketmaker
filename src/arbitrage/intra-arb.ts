@@ -288,6 +288,12 @@ export class InPlatformArbitrageDetector {
     if (useSell && sellCandidate) {
       const { yes: sellYes, no: sellNo, size: recommendedSize } = sellCandidate;
       const proceedsUsd = sellYes.totalAllIn + sellNo.totalAllIn;
+      const sellFees = sellYes.totalFees + sellNo.totalFees;
+      const sellSlippage = sellYes.totalSlippage + sellNo.totalSlippage;
+      const perShareProceeds = (sellYes.avgAllIn + sellNo.avgAllIn) || 0;
+      const totalProceedsUsd = perShareProceeds * recommendedSize;
+      const sellRef = yesTop.bid + noTop.bid;
+      const sellDeviationBps = sellRef > 0 ? ((perShareProceeds / sellRef) - 1) * 10000 : 0;
       const profitUsd = Math.max(0, sellNetEdge * recommendedSize);
       if (this.minNotionalUsd > 0 && proceedsUsd < this.minNotionalUsd) {
         return null;
@@ -315,6 +321,14 @@ export class InPlatformArbitrageDetector {
         action: 'SELL_BOTH',
         recommendedSize: Math.max(1, recommendedSize),
         breakEvenFee: Math.abs(sellYes.avgAllIn + sellNo.avgAllIn - 1) * 100,
+        perShareProceeds,
+        totalProceedsUsd,
+        feesPerShare: recommendedSize > 0 ? sellFees / recommendedSize : 0,
+        slippagePerShare: recommendedSize > 0 ? sellSlippage / recommendedSize : 0,
+        vwapYes: sellYes.avgAllIn,
+        vwapNo: sellNo.avgAllIn,
+        vwapLevels: (sellYes.levelsUsed || 0) + (sellNo.levelsUsed || 0),
+        vwapDeviationBps: sellDeviationBps,
       };
     }
 
@@ -324,6 +338,11 @@ export class InPlatformArbitrageDetector {
 
     const { yes: buyYes, no: buyNo, size: recommendedSize } = buyCandidate;
     const totalCostUsd = buyYes.totalAllIn + buyNo.totalAllIn;
+    const totalFees = buyYes.totalFees + buyNo.totalFees;
+    const totalSlippage = buyYes.totalSlippage + buyNo.totalSlippage;
+    const perShareCost = (buyYes.avgAllIn + buyNo.avgAllIn) || 0;
+    const buyRef = yesTop.ask + noTop.ask;
+    const buyDeviationBps = buyRef > 0 ? ((perShareCost / buyRef) - 1) * 10000 : 0;
     const profitUsd = Math.max(0, buyNetEdge * recommendedSize);
     if (this.minNotionalUsd > 0 && totalCostUsd < this.minNotionalUsd) {
       return null;
@@ -351,6 +370,14 @@ export class InPlatformArbitrageDetector {
       action: 'BUY_BOTH',
       recommendedSize: Math.max(1, recommendedSize),
       breakEvenFee: Math.abs(buyYes.avgAllIn + buyNo.avgAllIn - 1) * 100,
+      perShareCost,
+      totalCostUsd,
+      feesPerShare: recommendedSize > 0 ? totalFees / recommendedSize : 0,
+      slippagePerShare: recommendedSize > 0 ? totalSlippage / recommendedSize : 0,
+      vwapYes: buyYes.avgAllIn,
+      vwapNo: buyNo.avgAllIn,
+      vwapLevels: (buyYes.levelsUsed || 0) + (buyNo.levelsUsed || 0),
+      vwapDeviationBps: buyDeviationBps,
     };
   }
 
@@ -462,6 +489,16 @@ export class InPlatformArbitrageDetector {
       recommendedAction: arb.action === 'NONE' ? 'HOLD' : arb.action,
       positionSize: arb.recommendedSize,
       expectedReturn: arb.maxProfit,
+      perShareCost: arb.perShareCost,
+      perShareProceeds: arb.perShareProceeds,
+      totalCostUsd: arb.totalCostUsd,
+      totalProceedsUsd: arb.totalProceedsUsd,
+      feesPerShare: arb.feesPerShare,
+      slippagePerShare: arb.slippagePerShare,
+      vwapYes: arb.vwapYes,
+      vwapNo: arb.vwapNo,
+      vwapLevels: arb.vwapLevels,
+      vwapDeviationBps: arb.vwapDeviationBps,
       riskLevel: arb.maxProfit > 5 ? 'MEDIUM' : 'LOW',
       legs: [
         {

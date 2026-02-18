@@ -184,6 +184,10 @@ export class MultiOutcomeArbitrageDetector {
         totalCost: totalCost / recommendedSize,
         totalFees: totalFees / recommendedSize,
         totalSlippage: totalSlippage / recommendedSize,
+        perShareCost: totalAllIn / recommendedSize,
+        totalCostUsd: totalAllIn,
+        feesPerShare: totalFees / recommendedSize,
+        slippagePerShare: totalSlippage / recommendedSize,
         legs: outcomes.map((o) => ({
           tokenId: o.tokenId,
           side: 'BUY',

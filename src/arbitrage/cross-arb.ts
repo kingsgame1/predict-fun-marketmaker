@@ -92,6 +92,43 @@ export class CrossPlatformArbitrageDetector {
     return levels.reduce((sum, level) => sum + (Number.isFinite(level.shares) ? level.shares : 0), 0);
   }
 
+  private summarizeVwap(
+    yesVwap: ReturnType<typeof estimateBuy> | ReturnType<typeof estimateSell> | null,
+    noVwap: ReturnType<typeof estimateBuy> | ReturnType<typeof estimateSell> | null,
+    yesRef: number,
+    noRef: number,
+    size: number
+  ): {
+    perShare: number;
+    total: number;
+    feesPerShare: number;
+    slippagePerShare: number;
+    vwapYes: number;
+    vwapNo: number;
+    vwapLevels: number;
+    vwapDeviationBps: number;
+  } | null {
+    if (!yesVwap || !noVwap || size <= 0) {
+      return null;
+    }
+    const perShare = (yesVwap.avgAllIn || 0) + (noVwap.avgAllIn || 0);
+    const total = (yesVwap.totalAllIn || 0) + (noVwap.totalAllIn || 0);
+    const totalFees = (yesVwap.totalFees || 0) + (noVwap.totalFees || 0);
+    const totalSlippage = (yesVwap.totalSlippage || 0) + (noVwap.totalSlippage || 0);
+    const ref = yesRef + noRef;
+    const vwapDeviationBps = ref > 0 ? ((perShare / ref) - 1) * 10000 : 0;
+    return {
+      perShare,
+      total,
+      feesPerShare: totalFees / size,
+      slippagePerShare: totalSlippage / size,
+      vwapYes: yesVwap.avgAllIn || 0,
+      vwapNo: noVwap.avgAllIn || 0,
+      vwapLevels: (yesVwap.levelsUsed || 0) + (noVwap.levelsUsed || 0),
+      vwapDeviationBps,
+    };
+  }
+
   private topSize(levels?: DepthLevel[], fallback?: number): number {
     const fallbackSize = Number(fallback || 0);
     if (Number.isFinite(fallbackSize) && fallbackSize > 0) {
@@ -439,6 +476,8 @@ export class CrossPlatformArbitrageDetector {
     let depthShares = 0;
     let notionalUsd = 0;
     let profitUsd = 0;
+    let vwapSummary: ReturnType<CrossPlatformArbitrageDetector['summarizeVwap']> | null = null;
+    let vwapMode: 'BUY' | 'SELL' | null = null;
 
     if (buyNetAB >= buyNetBA && buyNetAB >= this.minProfitThreshold) {
       minCost = buyCostAB;
@@ -447,6 +486,14 @@ export class CrossPlatformArbitrageDetector {
       depthShares = resolvedBuySizeAB;
       notionalUsd = minCost * depthShares;
       profitUsd = Math.max(0, (profitPct / 100) * depthShares);
+      vwapSummary = this.summarizeVwap(
+        buyCandidateAB?.yes ?? buyYesA,
+        buyCandidateAB?.no ?? buyNoB,
+        yesAskA,
+        noAskB,
+        depthShares
+      );
+      vwapMode = 'BUY';
       legs = [
         {
           platform: marketA.platform,
@@ -472,6 +519,14 @@ export class CrossPlatformArbitrageDetector {
       depthShares = resolvedBuySizeBA;
       notionalUsd = minCost * depthShares;
       profitUsd = Math.max(0, (profitPct / 100) * depthShares);
+      vwapSummary = this.summarizeVwap(
+        buyCandidateBA?.yes ?? buyYesB,
+        buyCandidateBA?.no ?? buyNoA,
+        yesAskB,
+        noAskA,
+        depthShares
+      );
+      vwapMode = 'BUY';
       legs = [
         {
           platform: marketB.platform,
@@ -643,6 +698,14 @@ export class CrossPlatformArbitrageDetector {
               : 1;
         notionalUsd = proceedsPerShare * depthShares;
         profitUsd = Math.max(0, (profitPct / 100) * depthShares);
+        vwapSummary = this.summarizeVwap(
+          sellCandidateAB?.yes ?? sellYesA,
+          sellCandidateAB?.no ?? sellNoB,
+          yesBidA,
+          noBidB,
+          depthShares
+        );
+        vwapMode = 'SELL';
         legs = [
           {
             platform: marketA.platform,
@@ -674,6 +737,14 @@ export class CrossPlatformArbitrageDetector {
               : 1;
         notionalUsd = proceedsPerShare * depthShares;
         profitUsd = Math.max(0, (profitPct / 100) * depthShares);
+        vwapSummary = this.summarizeVwap(
+          sellCandidateBA?.yes ?? sellYesB,
+          sellCandidateBA?.no ?? sellNoA,
+          yesBidB,
+          noBidA,
+          depthShares
+        );
+        vwapMode = 'SELL';
         legs = [
           {
             platform: marketB.platform,
@@ -751,6 +822,16 @@ export class CrossPlatformArbitrageDetector {
       guaranteedPayout: 1,
       profitPercentage: profitPct,
       recommendedSize: depthShares,
+      perShareCost: vwapMode === 'BUY' ? vwapSummary?.perShare : undefined,
+      perShareProceeds: vwapMode === 'SELL' ? vwapSummary?.perShare : undefined,
+      totalCostUsd: vwapMode === 'BUY' ? vwapSummary?.total : undefined,
+      totalProceedsUsd: vwapMode === 'SELL' ? vwapSummary?.total : undefined,
+      feesPerShare: vwapSummary?.feesPerShare,
+      slippagePerShare: vwapSummary?.slippagePerShare,
+      vwapYes: vwapSummary?.vwapYes,
+      vwapNo: vwapSummary?.vwapNo,
+      vwapLevels: vwapSummary?.vwapLevels,
+      vwapDeviationBps: vwapSummary?.vwapDeviationBps,
       legs,
       risks,
       eventDescriptionMatch: similarity > 0.9,
@@ -837,6 +918,16 @@ export class CrossPlatformArbitrageDetector {
       riskLevel: arb.risks.length > 0 ? 'HIGH' : 'MEDIUM',
       recommendedAction: arb.action,
       positionSize: arb.recommendedSize,
+      perShareCost: arb.perShareCost,
+      perShareProceeds: arb.perShareProceeds,
+      totalCostUsd: arb.totalCostUsd,
+      totalProceedsUsd: arb.totalProceedsUsd,
+      feesPerShare: arb.feesPerShare,
+      slippagePerShare: arb.slippagePerShare,
+      vwapYes: arb.vwapYes,
+      vwapNo: arb.vwapNo,
+      vwapLevels: arb.vwapLevels,
+      vwapDeviationBps: arb.vwapDeviationBps,
       legs: arb.legs?.map((leg) => ({
         platform: leg.platform,
         tokenId: leg.tokenId,
