@@ -3,7 +3,7 @@
  * Production-oriented quoting + risk controls
  */
 
-import type { Config, Market, Orderbook, Order, OrderbookEntry, Position } from './types.js';
+import type { Config, Market, Orderbook, Order, OrderbookEntry, Position, LiquidityActivation } from './types.js';
 import type { MakerApi, MakerOrderManager } from './mm/venue.js';
 import { OrderManager } from './order-manager.js';
 import { ValueMismatchDetector } from './arbitrage/value-detector.js';
@@ -1457,6 +1457,40 @@ export class MarketMaker {
       return Math.max(1, equity * pct);
     }
     return this.config.maxDailyLoss ?? 200;
+  }
+
+  private normalizeLiquidityActivation(rule?: LiquidityActivation): LiquidityActivation | undefined {
+    if (!rule) {
+      return undefined;
+    }
+    const maxSpread =
+      rule.max_spread ??
+      (rule.max_spread_cents && rule.max_spread_cents > 0 ? rule.max_spread_cents / 100 : undefined);
+    return {
+      ...rule,
+      max_spread: Number.isFinite(maxSpread as number) ? (maxSpread as number) : rule.max_spread,
+    };
+  }
+
+  private getEffectiveLiquidityActivation(market: Market): LiquidityActivation | undefined {
+    const existing = this.normalizeLiquidityActivation(market.liquidity_activation);
+    if (existing) {
+      return existing;
+    }
+    if (!this.config.mmPointsAssumeActive) {
+      return undefined;
+    }
+    const minShares = Math.max(0, this.config.mmPointsMinShares ?? 0);
+    const maxSpreadCents = Math.max(0, this.config.mmPointsMaxSpreadCents ?? 0);
+    const maxSpreadRaw = Math.max(0, this.config.mmPointsMaxSpread ?? 0);
+    const maxSpread = maxSpreadCents > 0 ? maxSpreadCents / 100 : maxSpreadRaw > 0 ? maxSpreadRaw : undefined;
+    return {
+      active: true,
+      min_shares: minShares > 0 ? minShares : undefined,
+      max_spread_cents: maxSpreadCents > 0 ? maxSpreadCents : undefined,
+      max_spread: maxSpread,
+      description: 'fallback-points',
+    };
   }
 
   private getTopDepth(orderbook: Orderbook): { shares: number; usd: number } {
@@ -3031,6 +3065,7 @@ export class MarketMaker {
   calculatePrices(market: Market, orderbook: Orderbook): QuotePrices | null {
     const bestBid = orderbook.best_bid;
     const bestAsk = orderbook.best_ask;
+    const liquidityRules = this.getEffectiveLiquidityActivation(market);
 
     if (bestBid === undefined || bestAsk === undefined) {
       return null;
@@ -3171,8 +3206,8 @@ export class MarketMaker {
       adaptiveSpread *= 0.95;
     }
 
-    if (market.liquidity_activation?.max_spread) {
-      adaptiveSpread = Math.min(adaptiveSpread, market.liquidity_activation.max_spread * 0.95);
+    if (liquidityRules?.max_spread) {
+      adaptiveSpread = Math.min(adaptiveSpread, liquidityRules.max_spread * 0.95);
     }
 
     const safeModeActive = this.isSafeModeActive(market.token_id, {
@@ -3272,8 +3307,8 @@ export class MarketMaker {
     const bidFactor = this.clamp(1 + inventoryBias * invWeight - depthImbalance * imbWeight, minFactor, maxFactor);
     const askFactor = this.clamp(1 - inventoryBias * invWeight + depthImbalance * imbWeight, minFactor, maxFactor);
     let quoteOffset = Math.max(0, this.config.mmQuoteOffsetBps ?? 0) / 10000;
-    if (market.liquidity_activation?.max_spread) {
-      const maxAllowed = market.liquidity_activation.max_spread * 0.95;
+    if (liquidityRules?.max_spread) {
+      const maxAllowed = liquidityRules.max_spread * 0.95;
       const remaining = Math.max(0, maxAllowed - adaptiveSpread);
       quoteOffset = Math.min(quoteOffset, remaining / 2);
     }
@@ -3389,6 +3424,7 @@ export class MarketMaker {
       return { shares: 0, usdt: 0 };
     }
 
+    const liquidityRules = this.getEffectiveLiquidityActivation(market);
     const positionValue = this.positions.get(market.token_id)?.total_value || 0;
     const effectiveMaxPosition = this.getEffectiveMaxPosition();
     const remainingRiskBudget = Math.max(0, effectiveMaxPosition - positionValue);
@@ -3482,7 +3518,7 @@ export class MarketMaker {
     const noFill = this.getNoFillPenalty(market.token_id);
     shares = Math.floor(shares * sizeFactor * penalty * (noFill.sizeFactor || 1));
 
-    const minShares = market.liquidity_activation?.min_shares || 0;
+    const minShares = liquidityRules?.min_shares || 0;
     if (minShares > 0 && shares < minShares) {
       const minOrderValue = minShares * price;
       const hardCap = this.config.maxSingleOrderValue ?? Number.POSITIVE_INFINITY;
@@ -3493,7 +3529,7 @@ export class MarketMaker {
       }
     }
 
-    if (market.liquidity_activation?.active && this.config.mmPointsMinOnly && minShares > 0) {
+    if (liquidityRules?.active && this.config.mmPointsMinOnly && minShares > 0) {
       const multiplier = Math.max(1, this.config.mmPointsMinMultiplier ?? 1);
       const cap = Math.max(minShares, Math.floor(minShares * multiplier));
       shares = Math.min(shares, cap);
@@ -3541,12 +3577,13 @@ export class MarketMaker {
   }
 
   checkLiquidityPointsEligibility(market: Market, orderbook: Orderbook): boolean {
-    if (!market.liquidity_activation?.active) {
+    const rules = this.getEffectiveLiquidityActivation(market);
+    if (!rules?.active) {
       return false;
     }
 
-    if (market.liquidity_activation.max_spread_cents && orderbook.spread) {
-      const maxSpread = market.liquidity_activation.max_spread_cents / 100;
+    if (rules.max_spread_cents && orderbook.spread) {
+      const maxSpread = rules.max_spread_cents / 100;
       if (orderbook.spread > maxSpread) {
         return false;
       }
@@ -4325,7 +4362,8 @@ export class MarketMaker {
     if (retreatFloor > 0 && metrics.depthSpeedBps >= (this.config.mmLayerDepthSpeedRetreatBps ?? 0)) {
       sizeFloor = Math.min(sizeFloor, retreatFloor);
     }
-    const minShares = market.liquidity_activation?.min_shares || 0;
+    const liquidityRules = this.getEffectiveLiquidityActivation(market);
+    const minShares = liquidityRules?.min_shares || 0;
     let targetBidShares = Math.max(1, Math.floor(bidOrderSize.shares * profileScale));
     let targetAskShares = Math.max(1, Math.floor(askOrderSize.shares * profileScale));
     if (riskThrottle < 1) {

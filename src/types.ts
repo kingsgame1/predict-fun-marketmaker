@@ -445,6 +445,10 @@ export interface Config {
   mmOnlyPointsMarkets?: boolean;
   mmPointsMinOnly?: boolean;
   mmPointsMinMultiplier?: number;
+  mmPointsAssumeActive?: boolean;
+  mmPointsMinShares?: number;
+  mmPointsMaxSpreadCents?: number;
+  mmPointsMaxSpread?: number;
   antiFillBps?: number;
   nearTouchBps?: number;
   cooldownAfterCancelMs?: number;

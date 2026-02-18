@@ -325,6 +325,10 @@
 - `MM_ONLY_POINTS_MARKETS`：只在有积分/做市激励的市场挂单。
 - `MM_POINTS_MIN_ONLY`：只挂积分最低份额（降低被吃单风险）。
 - `MM_POINTS_MIN_MULTIPLIER`：积分最低份额乘数（默认 1）。
+- `MM_POINTS_ASSUME_ACTIVE`：当市场未提供积分规则时，启用本地兜底规则（适合 Probable）。
+- `MM_POINTS_MIN_SHARES`：兜底规则的最小份额（默认 100）。
+- `MM_POINTS_MAX_SPREAD_CENTS`：兜底规则的最大点差（单位¢，默认 6）。
+- `MM_POINTS_MAX_SPREAD`：兜底规则的最大点差（小数形式，如 0.06，可与上面二选一）。
 
 ### 做市自适应参数（新增）
 

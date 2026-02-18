@@ -534,6 +534,10 @@ export function loadConfig(): Config {
     mmDynamicCancelDecayMs: parseInt(process.env.MM_DYNAMIC_CANCEL_DECAY_MS || '60000'),
     mmDynamicCancelMaxBoost: parseFloat(process.env.MM_DYNAMIC_CANCEL_MAX_BOOST || '2'),
     mmOnlyPointsMarkets: process.env.MM_ONLY_POINTS_MARKETS === 'true',
+    mmPointsAssumeActive: process.env.MM_POINTS_ASSUME_ACTIVE === 'true',
+    mmPointsMinShares: parseFloat(process.env.MM_POINTS_MIN_SHARES || '0'),
+    mmPointsMaxSpreadCents: parseFloat(process.env.MM_POINTS_MAX_SPREAD_CENTS || '0'),
+    mmPointsMaxSpread: parseFloat(process.env.MM_POINTS_MAX_SPREAD || '0'),
     mmPointsMinOnly: process.env.MM_POINTS_MIN_ONLY === 'true',
     mmPointsMinMultiplier: parseFloat(process.env.MM_POINTS_MIN_MULTIPLIER || '1'),
     antiFillBps: parseFloat(process.env.ANTI_FILL_BPS || '0.002'),
@@ -2089,6 +2093,13 @@ export function printConfig(config: Config): void {
   console.log(`Anti Fill Bps: ${(config.antiFillBps ?? 0) * 100}%`);
   console.log(`Near Touch Bps: ${(config.nearTouchBps ?? 0) * 100}%`);
   console.log(`MM Only Points Markets: ${config.mmOnlyPointsMarkets ? '✅' : '❌'}`);
+  console.log(
+    `MM Points Fallback: ${
+      config.mmPointsAssumeActive
+        ? `active minShares=${config.mmPointsMinShares || 0} maxSpreadCents=${config.mmPointsMaxSpreadCents || 0}`
+        : 'off'
+    }`
+  );
   console.log(
     `MM Points Min Only: ${config.mmPointsMinOnly ? '✅' : '❌'} x${config.mmPointsMinMultiplier ?? 1}`
   );

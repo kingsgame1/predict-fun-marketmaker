@@ -40,6 +40,7 @@ Probable 做市（可选）：
 - `PROBABLE_ENABLED=true`
 - `PROBABLE_PRIVATE_KEY=...`
 - `MM_REQUIRE_JWT=false`
+- `MM_POINTS_ASSUME_ACTIVE=true`（Probable 未返回积分规则时启用兜底）
 - `ENABLE_TRADING=false`（先用模拟模式）
 
 ## 4. 先用“模拟模式”
