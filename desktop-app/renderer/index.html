@@ -61,6 +61,56 @@
               <p id="activationMessage" style="margin: 8px 0 0 0; font-size: 11px; color: #fca5a5;"></p>
             </div>
 
+            <!-- 套利模式选择 -->
+            <div style="margin-bottom: 12px; padding: 12px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 6px;">
+              <div style="font-size: 12px; font-weight: 600; color: #818cf8; margin-bottom: 8px;">🎯 选择套利模式</div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn ghost" id="arbModeBasic" style="flex: 1; min-width: 120px; font-size: 11px; padding: 6px 12px;">基础套利</button>
+                <button class="btn success" id="arbModeSuperHF" style="flex: 1; min-width: 120px; font-size: 11px; padding: 6px 12px;">⚡ 超级高频</button>
+              </div>
+              <p id="arbModeHint" style="margin: 8px 0 0 0; font-size: 10px; color: #a5b4fc;">超级高频：7大策略，基于2025年真实数据优化</p>
+            </div>
+
+            <!-- 超级高频策略配置 -->
+            <div id="superHFStrategies" style="display: none; margin-bottom: 12px; padding: 12px; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px;">
+              <div style="font-size: 12px; font-weight: 600; color: #fbbf24; margin-bottom: 8px;">⚡ 7大策略配置</div>
+              <div class="toggle-grid" style="grid-template-columns: repeat(2, 1fr); gap: 6px;">
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy1" checked />
+                  <span title="高概率债券 - 1800%年化">高概率债券 ⭐</span>
+                </label>
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy2" checked />
+                  <span title="均值回归 - Vitalik策略">均值回归 ⭐</span>
+                </label>
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy3" checked />
+                  <span title="领域专业化 - 96%胜率">领域专业化 ⭐</span>
+                </label>
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy4" />
+                  <span title="多结果套利">多结果套利</span>
+                </label>
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy5" />
+                  <span title="信息套利 - 需要额外数据">信息套利</span>
+                </label>
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy6" />
+                  <span title="跨平台套利 - 需要多平台API">跨平台套利</span>
+                </label>
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy7" />
+                  <span title="Yes+No&lt;1套利 - 竞争激烈">Yes+No&lt;1套利</span>
+                </label>
+                <label class="toggle" style="font-size: 11px;">
+                  <input type="checkbox" id="hfStrategy8" />
+                  <span title="🎯 确定性尾盘套利 - 循环交易+对冲">确定性尾盘 🎯</span>
+                </label>
+              </div>
+              <p style="margin: 8px 0 0 0; font-size: 10px; color: #fef3c7;">💡 建议启用前3个策略（标记⭐），收益最高且风险最低</p>
+            </div>
+
             <div class="button-row">
               <button class="btn primary" id="startArb">启动套利</button>
               <button class="btn ghost" id="stopArb">停止</button>
@@ -135,6 +185,14 @@
               Probable 模板：`MM_VENUE=probable` + `MM_POINTS_MIN_ONLY=true` + `MM_ONLY_POINTS_MARKETS=true`
               <br />
               Probable 兜底：`MM_POINTS_ASSUME_ACTIVE=true` + `MM_POINTS_MIN_SHARES=100` + `MM_POINTS_MAX_SPREAD_CENTS=6`
+              <br />
+              <strong>🎯 Probable 积分优化 - 第二档挂单策略（动态调整）：</strong><br>
+              • 根据订单簿第一档价格动态调整挂单位置<br>
+              • bestBid=99.1 → 我们的买价=99.0（第二档）<br>
+              • bestAsk=99.2 → 我们的卖价=99.3（第二档）<br>
+              • MM_QUOTE_SECOND_LAYER=true（启用动态挂单）<br>
+              • MM_TOUCH_BUFFER_FIXED_CENTS=0.1（固定偏移0.1美分）<br>
+              • 变成第一档时500ms内撤单重挂<br>
               <br />
               套利模板：`ARB_PREFLIGHT_ENABLED`、`ARB_WS_REALTIME`、`ARB_MAX_VWAP_DEVIATION_BPS` 等
             </div>
@@ -732,6 +790,12 @@
               <button class="btn subtle" id="loadMinTemplate">加载最小模板</button>
               <button class="btn subtle" id="loadFullTemplate">加载完整模板</button>
               <button class="btn success" id="applyBestPractice">✨ 一键最佳实践</button>
+            </div>
+            <div class="health-subtitle" style="margin-top: 16px;">平台模板</div>
+            <div class="button-row">
+              <button class="btn ghost" id="loadProbableMinTemplate">Probable 最小模板</button>
+              <button class="btn ghost" id="loadProbableFullTemplate">Probable 完整模板</button>
+              <button class="btn ghost" id="loadProbablePointsTemplate">Probable 积分优化</button>
             </div>
             <textarea id="envEditor" spellcheck="false"></textarea>
             <p class="hint">修改后需要点击"保存配置"，再启动对应机器人。</p>

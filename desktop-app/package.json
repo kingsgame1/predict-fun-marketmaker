@@ -140,7 +140,6 @@
       "icon": "build/icon.png",
       "category": "Finance",
       "maintainer": "Predict.fun"
-    },
-    "afterSign": "scripts/notarize.js"
+    }
   }
 }

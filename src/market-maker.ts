@@ -3662,7 +3662,19 @@ export class MarketMaker {
         }
       }
     }
-    if (touchBufferBps > 0) {
+    // 🎯 第二档挂单策略：基于订单簿第一档的固定金额偏移
+    // 如果启用了 MM_QUOTE_SECOND_LAYER，使用固定偏移而不是百分比偏移
+    const fixedCents = Math.max(0, this.config.mmTouchBufferFixedCents ?? 0);
+    if (fixedCents > 0 && this.config.mmQuoteSecondLayer) {
+      // 固定金额偏移：直接在 bestBid/bestAsk 基础上减/加固定金额
+      // 例如：bestBid=99.1, fixedCents=0.1 → 我们的买价=99.0
+      const fixedOffset = fixedCents / 100; // 转换为美元（如果价格以美元计价）
+      const maxBid = bestBid - fixedOffset;
+      const minAsk = bestAsk + fixedOffset;
+      bid = Math.min(bid, maxBid);
+      ask = Math.max(ask, minAsk);
+    } else if (touchBufferBps > 0) {
+      // 百分比偏移（原有逻辑）
       const buffer = touchBufferBps / 10000;
       const maxBid = bestBid * (1 - buffer);
       const minAsk = bestAsk * (1 + buffer);

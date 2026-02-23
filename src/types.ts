@@ -244,6 +244,8 @@ export interface Config {
   mmTouchBufferVolMaxBps?: number;
   mmTouchBufferDepthSpeedWeight?: number;
   mmTouchBufferDepthSpeedMaxBps?: number;
+  mmTouchBufferFixedCents?: number;
+  mmQuoteSecondLayer?: boolean;
   mmFillRiskSpreadBps?: number;
   mmNearTouchPenaltyBps?: number;
   mmNearTouchPenaltyMaxBps?: number;

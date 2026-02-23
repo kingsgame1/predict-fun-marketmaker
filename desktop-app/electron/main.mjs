@@ -1170,3 +1170,187 @@ ipcMain.handle('trigger-ws-boost', () => sendWsBoostSignal());
 ipcMain.handle('start-bot', (_, type) => spawnBot(type));
 ipcMain.handle('stop-bot', (_, type) => stopBot(type));
 ipcMain.handle('status', () => getStatus());
+
+// ⚡ 超级高频套利机器人 IPC 处理
+ipcMain.handle('start-super-hf-arbitrage', async (_, strategies) => {
+  try {
+    pushLog({
+      type: 'arb',
+      level: 'system',
+      message: '⚡ 正在启动超级高频套利机器人...',
+      timestamp: Date.now()
+    });
+
+    // 检查激活码
+    const projectRoot = getProjectRoot();
+    const activationPath = path.join(projectRoot, '.arb-activation.json');
+
+    if (!fs.existsSync(activationPath)) {
+      return {
+        ok: false,
+        message: '套利模块未激活，请先激活'
+      };
+    }
+
+    // 生成临时的超级高频配置文件
+    const configPath = path.join(projectRoot, 'config', 'high-frequency-arb.yml');
+    const tempConfigPath = path.join(projectRoot, 'config', 'high-frequency-arb-temp.yml');
+
+    // 读取原始配置
+    let configContent = '';
+    if (fs.existsSync(configPath)) {
+      configContent = fs.readFileSync(configPath, 'utf8');
+    } else {
+      // 默认配置
+      configContent = `# 超级高频套利配置
+strategies:
+  high_probability_bond: true
+  mean_reversion: true
+  domain_specialization: true
+  multi_result: false
+  information_arbitrage: false
+  cross_platform: false
+  yes_no_under: false
+
+execution:
+  auto_execute: false
+  max_daily_trades: 30
+  scan_interval_ms: 1000
+
+risk_management:
+  max_drawdown: 0.15
+  stop_loss: 0.10
+`;
+    }
+
+    // 更新策略配置
+    const lines = configContent.split('\n');
+    const newLines = [];
+    let inStrategies = false;
+
+    for (const line of lines) {
+      if (line.trim().startsWith('strategies:')) {
+        inStrategies = true;
+        newLines.push(line);
+        continue;
+      }
+
+      if (inStrategies && line.match(/^\s+high_probability_bond:/)) {
+        newLines.push(`  high_probability_bond: ${strategies.high_probability_bond}`);
+        continue;
+      }
+      if (inStrategies && line.match(/^\s+mean_reversion:/)) {
+        newLines.push(`  mean_reversion: ${strategies.mean_reversion}`);
+        continue;
+      }
+      if (inStrategies && line.match(/^\s+domain_specialization:/)) {
+        newLines.push(`  domain_specialization: ${strategies.domain_specialization}`);
+        continue;
+      }
+      if (inStrategies && line.match(/^\s+multi_result:/)) {
+        newLines.push(`  multi_result: ${strategies.multi_result}`);
+        continue;
+      }
+      if (inStrategies && line.match(/^\s+information_arbitrage:/)) {
+        newLines.push(`  information_arbitrage: ${strategies.information_arbitrage}`);
+        continue;
+      }
+      if (inStrategies && line.match(/^\s+cross_platform:/)) {
+        newLines.push(`  cross_platform: ${strategies.cross_platform}`);
+        continue;
+      }
+      if (inStrategies && line.match(/^\s+yes_no_under:/)) {
+        newLines.push(`  yes_no_under: ${strategies.yes_no_under}`);
+        inStrategies = false;
+        continue;
+      }
+
+      newLines.push(line);
+    }
+
+    // 写入临时配置
+    fs.writeFileSync(tempConfigPath, newLines.join('\n'));
+
+    // 启动超级高频套利机器人
+    const botPath = path.join(projectRoot, 'scripts', 'start-super-hf.ts');
+    const args = ['--import', 'tsx', botPath];
+
+    const botProcess = spawn('node', args, {
+      cwd: projectRoot,
+      env: { ...process.env, HIGH_FREQ_CONFIG: tempConfigPath },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    // 存储进程引用
+    processes.set('super-hf-arb', botProcess);
+
+    // 处理输出
+    botProcess.stdout.on('data', (data) => {
+      const text = data.toString();
+      pushLog({
+        type: 'arb',
+        level: 'stdout',
+        message: text.trim(),
+        timestamp: Date.now()
+      });
+    });
+
+    botProcess.stderr.on('data', (data) => {
+      const text = data.toString();
+      pushLog({
+        type: 'arb',
+        level: 'stderr',
+        message: text.trim(),
+        timestamp: Date.now()
+      });
+    });
+
+    botProcess.on('error', (error) => {
+      pushLog({
+        type: 'arb',
+        level: 'stderr',
+        message: `❌ 进程错误: ${error.message}`,
+        timestamp: Date.now()
+      });
+    });
+
+    botProcess.on('exit', (code) => {
+      processes.delete('super-hf-arb');
+      pushLog({
+        type: 'system',
+        level: 'system',
+        message: `⚡ 超级高频套利机器人已停止 (退出码: ${code})`,
+        timestamp: Date.now()
+      });
+
+      // 清理临时配置
+      if (fs.existsSync(tempConfigPath)) {
+        fs.unlinkSync(tempConfigPath);
+      }
+    });
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error?.message || String(error)
+    };
+  }
+});
+
+ipcMain.handle('stop-super-hf-arbitrage', async () => {
+  try {
+    const botProcess = processes.get('super-hf-arb');
+    if (botProcess && !botProcess.killed) {
+      botProcess.kill('SIGTERM');
+      processes.delete('super-hf-arb');
+      return { ok: true };
+    }
+    return { ok: false, message: '机器人未运行' };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error?.message || String(error)
+    };
+  }
+});

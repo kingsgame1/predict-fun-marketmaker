@@ -193,14 +193,32 @@
           <div class="button-row" style="margin-bottom: 12px;">
             <button class="btn ghost" id="loadMinTemplateSimple">加载最小模板</button>
             <button class="btn ghost" id="loadPointsTemplate">积分优化模板</button>
+            <button class="btn ghost" id="loadProbablePointsTemplateSimple">Probable 积分模板</button>
           </div>
 
           <!-- 配置提示 -->
           <div class="template-hint">
-            <strong>积分优化要点：</strong><br>
+            <strong>Predict 积分优化要点：</strong><br>
             • ORDER_SIZE ≥ 100（满足 min_shares）<br>
             • SPREAD ≤ 0.06（满足 max_spread 6¢）<br>
-            • 启用 PREDICT_WS_ENABLED 获取实时数据
+            • <strong>🎯 第二档挂单策略（动态调整）：</strong><br>
+            &nbsp;&nbsp;– 根据订单簿第一档价格动态调整<br>
+            &nbsp;&nbsp;– bestBid=0.50 → 买价=0.49<br>
+            &nbsp;&nbsp;– bestAsk=0.51 → 卖价=0.52<br>
+            &nbsp;&nbsp;– MM_QUOTE_SECOND_LAYER=true<br>
+            &nbsp;&nbsp;– MM_TOUCH_BUFFER_FIXED_CENTS=0.01<br>
+            • 启用 PREDICT_WS_ENABLED 获取实时数据<br><br>
+            <strong>Probable 积分优化要点：</strong><br>
+            • MM_VENUE=probable（使用 Probable 平台）<br>
+            • MM_POINTS_MIN_SHARES=100（最小100股）<br>
+            • MM_POINTS_MAX_SPREAD_CENTS=6（最大价差6美分）<br>
+            • <strong>🎯 第二档挂单策略（动态调整）：</strong><br>
+            &nbsp;&nbsp;– 根据订单簿第一档价格动态调整<br>
+            &nbsp;&nbsp;– bestBid=99.1 → 买价=99.0<br>
+            &nbsp;&nbsp;– bestAsk=99.2 → 卖价=99.3<br>
+            &nbsp;&nbsp;– MM_QUOTE_SECOND_LAYER=true<br>
+            &nbsp;&nbsp;– MM_TOUCH_BUFFER_FIXED_CENTS=0.1<br>
+            • 启用 PROBABLE_WS_ENABLED 获取实时数据
           </div>
         </section>
 

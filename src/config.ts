@@ -333,6 +333,8 @@ export function loadConfig(): Config {
     mmTouchBufferVolMaxBps: parseFloat(process.env.MM_TOUCH_BUFFER_VOL_MAX_BPS || '0'),
     mmTouchBufferDepthSpeedWeight: parseFloat(process.env.MM_TOUCH_BUFFER_DEPTH_SPEED_WEIGHT || '0'),
     mmTouchBufferDepthSpeedMaxBps: parseFloat(process.env.MM_TOUCH_BUFFER_DEPTH_SPEED_MAX_BPS || '0'),
+    mmTouchBufferFixedCents: parseFloat(process.env.MM_TOUCH_BUFFER_FIXED_CENTS || '0'),
+    mmQuoteSecondLayer: process.env.MM_QUOTE_SECOND_LAYER === 'true',
     mmFillRiskSpreadBps: parseFloat(process.env.MM_FILL_RISK_SPREAD_BPS || '0'),
     mmNearTouchPenaltyBps: parseFloat(process.env.MM_NEAR_TOUCH_PENALTY_BPS || '0'),
     mmNearTouchPenaltyMaxBps: parseFloat(process.env.MM_NEAR_TOUCH_PENALTY_MAX_BPS || '0'),

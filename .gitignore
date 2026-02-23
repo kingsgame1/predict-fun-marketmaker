@@ -16,3 +16,7 @@ private/
 
 # 激活信息文件（用户本地）
 .arbitrage_activation.json
+.secure_activation.dat
+
+# 🔐 激活码验证服务器（私有，不上传到公开仓库）
+activation-server/

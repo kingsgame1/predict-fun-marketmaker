@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('predictBot', {
   exportMmEvents: () => ipcRenderer.invoke('export-mm-events'),
   startBot: (type) => ipcRenderer.invoke('start-bot', type),
   stopBot: (type) => ipcRenderer.invoke('stop-bot', type),
+  startSuperHFArbitrage: (strategies) => ipcRenderer.invoke('start-super-hf-arbitrage', strategies),
+  stopSuperHFArbitrage: () => ipcRenderer.invoke('stop-super-hf-arbitrage'),
   getStatus: () => ipcRenderer.invoke('status'),
   onLog: (callback) => ipcRenderer.on('bot-log', (_, payload) => callback(payload)),
   onStatus: (callback) => ipcRenderer.on('bot-status', (_, payload) => callback(payload)),

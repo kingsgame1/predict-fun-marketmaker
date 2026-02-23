@@ -1,0 +1,123 @@
+# 🚀 超级高频套利机器人配置文件
+
+# ==================== 扫描配置 ====================
+scan:
+  interval_ms: 1000  # 扫描间隔（毫秒）- 建议1000ms，避免过度频繁
+  enable_ws: true   # 启用WebSocket实时数据
+
+# ==================== 策略配置 ====================
+strategies:
+  # 📊 信息套利（Neighbor Poll）- 需要99%+胜率数据
+  information_arbitrage: false
+
+  # 🎯 高概率债券（1800%年化回报）- 购买95-99%概率的结果
+  high_probability_bond: true
+
+  # 🌐 跨平台套利 - 需要多平台API
+  cross_platform: false
+
+  # 🎓 领域专业化（96%胜率）- 专注政治/科技/科学
+  domain_specialization: true
+
+  # 🐋 社交Alpha（跟踪大户）- 需要社交数据API
+  social_alpha: false
+
+  # 📈 均值回归（Vitalik策略）- 16%回报，70%+胜率
+  mean_reversion: true
+
+  # 🎯 多结果套利 - 更容易出现定价错误
+  multi_result: true
+
+  # 💰 Yes+No<1套利 - 竞争太激烈，不建议
+  yes_no_under: false
+
+  # 🎯 确定性尾盘套利 - 多结果市场的确定性机会
+  deterministic_sweep: false  # 需要手动确认获胜者
+
+# ==================== 执行配置 ====================
+execution:
+  auto_execute: false  # 自动执行（建议先手动确认）
+  max_daily_trades: 30  # 每日最大交易数（避免-10%陷阱）
+  position_sizing: volatility  # 仓位管理: kelly/fixed/volatility
+
+# ==================== 风险管理 ====================
+risk_management:
+  max_drawdown: 0.15    # 最大回撤15%
+  stop_loss: 0.10       # 止损10%
+  early_exit: true     # 提前退出以最大化年化回报
+
+# ==================== 时机优化 ====================
+timing:
+  trade_during_liquidity_gaps: true  # 在流动性低时交易（周末等）
+  hold_for_optimal_time: true       # 持有最优时间
+
+# ==================== 领域专业化配置 ====================
+domain_specialization:
+  focus_areas:
+    - politics    # 政治事件
+    - tech        # 科技行业
+    - science     # 科学发现
+
+  exclude_areas:
+    - crypto      # 加密货币（Vitalik避免）
+    - sports      # 体育比赛
+    - blockchain  # 区块链
+
+# ==================== 高概率债券策略配置 ====================
+high_probability_bond:
+  min_probability: 0.95      # 最小概率95%
+  max_probability: 0.99      # 最大概率99%
+  min_annualized_return: 1.0 # 最小年化回报100%
+  min_liquidity: 1000        # 最小流动性$1000
+
+# ==================== 均值回归策略配置 ====================
+mean_reversion:
+  extreme_threshold: 0.15    # 极端概率阈值15%
+  exclude_sectors:
+    - crypto
+    - sports
+  max_position_size: 500    # 最大仓位$500
+
+# ==================== 多结果套利配置 ====================
+multi_result:
+  min_outcomes: 3            # 最少3个结果
+  pricing_error_threshold: 0.05  # 定价错误阈值5%
+
+# ==================== 🎯 确定性尾盘套利配置 ====================
+deterministic_sweep:
+  # 市场识别
+  market_keywords:
+    - 票房        # 票房冠军
+    - 冠军         # 冠军
+    - 第一         # 第一名
+    - winner
+    - champion
+    - 选举         # 选举结果
+    - election
+
+  min_outcomes: 3            # 最少3个结果（如6部电影）
+
+  # 确定性条件
+  min_confidence: 0.95        # 最低确定性95%
+  require_verified_data: true  # 需要验证数据源确认
+
+  # 套利参数
+  winner_buy_at: "best_bid"   # 在买一价买入获胜者YES
+  winner_sell_at: 0.999       # 挂99.9卖出（利用0手续费）
+  min_price_gap: 0.01         # 最小价格差1%
+
+  # 循环交易（做大交易量）
+  enable_loop_trading: true   # 启用循环交易
+  loop_count: 10              # 循环10次
+  loop_interval_ms: 2000      # 每次循环间隔2秒
+
+  # 对冲套利（买入其他NO）
+  enable_hedge_arb: true      # 启用对冲套利
+  hedge_min_profit: 0.02      # 对冲最小利润2%
+
+  # 示例场景：2026春节票房冠军
+  # - 6部电影竞争
+  # - 确认"飞驰人生3"会是第一
+  # - 策略1：飞驰3 YES 买一价(0.95)买入 → 99.9卖出 → 循环10次
+  # - 策略2：其他5部NO如果<飞驰3 YES，买入并等结算
+  # - 预期收益：(0.999-0.95)*100 + Σ(price_gap)*100
