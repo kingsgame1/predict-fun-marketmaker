@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
   <title>Predict.fun 做市商控制台</title>
   <style>
     * {
@@ -224,7 +225,7 @@
   <div class="container">
     <div class="header">
       <h1>🚀 Predict.fun 做市商控制台</h1>
-      <p>智能做市与套利系统</p>
+      <p>做市商挂单（免费） · 自动套利机器人（需激活）</p>
     </div>
 
     <!-- 系统状态 -->
@@ -270,19 +271,30 @@
       <div class="action-card" onclick="startApp('simple')">
         <div class="action-icon">🎯</div>
         <h3>简化版</h3>
-        <p>界面简洁，一键配置，专注积分获取优化。适合新手用户。</p>
+        <p>做市商挂单（免费） · 适合新手用户快速开始赚取积分</p>
       </div>
 
       <div class="action-card" onclick="startApp('full')">
-        <div class="action-icon">🔧</div>
-        <h3>完整版</h3>
-        <p>包含套利机器人，30+高级配置，详细指标。适合高级用户。</p>
+        <div class="action-icon">🤖</div>
+        <h3>完整版 <span style="font-size: 0.8em; color: #f59e0b;">🔒 套利需激活</span></h3>
+        <p>做市商（免费） + 自动套利机器人（需激活） · 高级用户首选</p>
       </div>
+    </div>
 
-      <div class="action-card" onclick="startApp('trading')">
-        <div class="action-icon">💼</div>
-        <h3>交易模式</h3>
-        <p>直接启动交易界面，无需配置中心。快速启动。</p>
+    <!-- 功能说明 -->
+    <div style="background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border-radius: 16px; padding: 24px; margin-bottom: 24px; color: white;">
+      <h3 style="margin-bottom: 16px;">📋 功能说明</h3>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+        <div style="background: rgba(16, 185, 129, 0.2); border-radius: 12px; padding: 16px;">
+          <div style="font-size: 1.5rem; margin-bottom: 8px;">✅ 免费</div>
+          <div style="font-weight: 600; margin-bottom: 8px;">做市商挂单</div>
+          <div style="font-size: 0.85rem; opacity: 0.9;">挂单赚取积分，智能报价，风险控制</div>
+        </div>
+        <div style="background: rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 16px;">
+          <div style="font-size: 1.5rem; margin-bottom: 8px;">🔒 需激活</div>
+          <div style="font-weight: 600; margin-bottom: 8px;">自动套利机器人</div>
+          <div style="font-size: 0.85rem; opacity: 0.9;">跨平台套利、超级高频、Probable支持</div>
+        </div>
       </div>
     </div>
 

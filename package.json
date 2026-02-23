@@ -1,24 +1,15 @@
 {
   "name": "predict-fun-market-maker",
-  "version": "2.0.0",
-  "description": "Automated market maker and arbitrage bot for Predict.fun",
+  "version": "1.0.0",
+  "description": "Automated market maker bot for Predict.fun - 简化版",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "start:mm": "node --import tsx src/index.ts",
-    "start:arb": "node --import tsx src/arbitrage-bot.ts",
-    "start:super-hf": "node --import tsx scripts/start-super-hf.ts",
-    "start:auto-bot": "node --import tsx scripts/start-auto-bot.ts",
+    "start": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "test": "node --import tsx src/test.ts",
-    "debug": "node --import tsx src/debug-api.ts",
-    "check:api": "node scripts/check-api.cjs",
     "auth:jwt": "node --import tsx src/auth-jwt.ts",
-    "setup:approvals": "node --import tsx src/setup-approvals.ts",
-    "smoke:predict": "node --import tsx scripts/smoke-trade.ts",
-    "activate": "node --import tsx scripts/activate.ts",
-    "activate:check": "node --import tsx scripts/activate.ts check"
+    "setup:approvals": "node --import tsx src/setup-approvals.ts"
   },
   "keywords": [
     "predict",
@@ -29,7 +20,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@prob/clob": "^1.0.0",
     "@polymarket/clob-client": "^5.2.3",
     "@polymarket/order-utils": "^3.0.1",
     "@predictdotfun/sdk": "^1.0.0",

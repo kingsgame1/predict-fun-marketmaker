@@ -16,6 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 const Store = require('electron-store');
+require('dotenv').config(); // 加载环境变量
 
 const store = new Store();
 let mainWindow = null;
@@ -40,16 +41,11 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
   });
 
-  // 检查是否已激活
-  const isActivated = checkActivation();
+  // 直接显示主界面（简化版和交易模式免费使用）
+  mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  if (isActivated) {
-    // 已激活，显示主界面
-    mainWindow.loadFile('index.html');
-  } else {
-    // 未激活，显示激活界面
-    mainWindow.loadFile('activation.html');
-  }
+  // 打开开发者工具（临时调试）
+  mainWindow.webContents.openDevTools();
 
   // 开发模式下打开开发者工具
   if (process.env.NODE_ENV === 'development') {
@@ -90,8 +86,8 @@ function getProjectPath() {
   let projectPath = store.get('projectPath');
 
   if (!projectPath) {
-    // 默认路径：启动器所在目录的上级目录
-    projectPath = path.join(__dirname, '..');
+    // 默认路径：启动器所在目录的上级目录（predict-fun-market-maker）
+    projectPath = path.resolve(__dirname, '..');
     store.set('projectPath', projectPath);
   }
 
@@ -107,49 +103,51 @@ function setProjectPath(newPath) {
 
 /**
  * 启动主程序
+ *
+ * 两个版本启动同一个应用：
+ * - 简化版（simple）：做市商挂单（免费）
+ * - 完整版（full）：做市商挂单（免费） + 自动套利机器人（需激活码）
+ *
+ * 应用内部会根据激活状态决定是否启用套利功能
  */
 function startMainApp(mode = 'full') {
   try {
     const projectPath = getProjectPath();
-    const mainAppPath = path.join(projectPath, 'desktop-app');
 
-    if (!fs.existsSync(mainAppPath)) {
-      throw new Error('主程序不存在，请检查安装路径');
+    // 检查项目路径是否存在
+    if (!fs.existsSync(projectPath)) {
+      throw new Error('项目路径不存在: ' + projectPath);
     }
 
     // 检查 package.json
-    const packageJson = path.join(mainAppPath, 'package.json');
+    const packageJson = path.join(projectPath, 'package.json');
     if (!fs.existsSync(packageJson)) {
       throw new Error('主程序配置文件缺失');
     }
 
-    // 启动主程序
+    // 检查主程序入口文件
+    const mainEntry = path.join(projectPath, 'src', 'index.ts');
+    if (!fs.existsSync(mainEntry)) {
+      throw new Error('主程序入口文件缺失');
+    }
+
+    // 启动命令：使用 npm start 启动应用
     const platform = process.platform;
     let command = '';
 
     if (platform === 'darwin') {
       // macOS
-      const appPath = path.join(mainAppPath, 'dist', 'mac', 'Predict.fun Console.app');
-      if (fs.existsSync(appPath)) {
-        command = `open "${appPath}"`;
-      } else {
-        // 使用 npm start
-        command = `cd "${mainAppPath}" && npm start`;
-      }
+      command = `cd "${projectPath}" && npm start`;
     } else if (platform === 'win32') {
       // Windows
-      const exePath = path.join(mainAppPath, 'dist', 'win-unpacked', 'Predict.fun Console.exe');
-      if (fs.existsSync(exePath)) {
-        command = `"${exePath}"`;
-      } else {
-        command = `cd "${mainAppPath}" && npm start`;
-      }
+      command = `cd "${projectPath}" && npm start`;
     } else {
       // Linux
-      command = `cd "${mainAppPath}" && npm start`;
+      command = `cd "${projectPath}" && npm start`;
     }
 
     console.log('启动命令:', command);
+    console.log('启动模式:', mode);
 
     // 使用 spawn 启动，分离进程
     const { spawn } = require('child_process');
@@ -160,7 +158,15 @@ function startMainApp(mode = 'full') {
       cwd: projectPath,
     });
 
-    return { success: true, message: '主程序启动成功' };
+    const modeNames = {
+      'simple': '简化版',
+      'full': '完整版'
+    };
+
+    return {
+      success: true,
+      message: `${modeNames[mode] || mode}启动成功！\n\n✅ 做市商挂单（免费）\n${mode === 'full' ? '🔒 自动套利机器人（需激活码）\n' : ''}点击确定后，应用将自动启动。`
+    };
   } catch (error) {
     console.error('启动失败:', error);
     return { success: false, message: error.message };
@@ -247,36 +253,87 @@ ipcMain.handle('check-activation', async () => {
   return { activated: checkActivation() };
 });
 
-ipcMain.handle('activate-license', async (event, licenseKey, userId, userName, email) => {
+ipcMain.handle('activate-license', async (event, licenseKey) => {
   try {
-    // 这里应该调用真实的激活验证
-    // 简化版本：创建激活文件
+    // 基本验证
+    if (!licenseKey || licenseKey.length !== 39) {
+      return { success: false, message: '激活码格式无效' };
+    }
 
+    console.log('🔐 开始激活验证:', licenseKey);
+
+    // 读取配置
     const projectPath = getProjectPath();
-    const activationFile = path.join(projectPath, '.secure_activation.dat');
+    const envPath = path.join(projectPath, '.env');
 
-    const activationData = {
-      activated: true,
+    // 加载环境变量以获取服务器配置
+    const result = require('dotenv').config({ path: envPath });
+
+    // 导入激活验证模块
+    const { SecureActivationManager } = await import('./src/activation-secure.js');
+
+    // 执行在线激活验证
+    const activationResult = await SecureActivationManager.activate(
       licenseKey,
-      userId,
-      userName,
-      email,
-      expireDate: Date.now() + 365 * 24 * 60 * 60 * 1000,
-      hardwareFingerprint: 'mock-fingerprint',
-      features: ['arbitrage', 'auto_trading'],
-      activatedAt: Date.now(),
-    };
+      'user_' + Date.now().toString(36)
+    );
 
-    fs.writeFileSync(activationFile, JSON.stringify(activationData, null, 2));
+    if (activationResult.valid) {
+      console.log('✅ 激活成功');
 
-    return { success: true, message: '✅ 激活成功！' };
+      // 激活信息已经由 SecureActivationManager 保存
+      const remainingDays = activationResult.remainingDays || 365;
+      const features = activationResult.features || ['arbitrage'];
+
+      return {
+        success: true,
+        message: `激活成功！有效期${remainingDays}天\n已解锁功能: ${features.join(', ')}`
+      };
+    } else {
+      console.error('❌ 激活失败:', activationResult.message);
+      return {
+        success: false,
+        message: activationResult.message || '激活失败，请检查激活码是否正确'
+      };
+    }
   } catch (error) {
-    return { success: false, message: `激活失败: ${error.message}` };
+    console.error('❌ 激活过程出错:', error);
+    return {
+      success: false,
+      message: `激活失败: ${error.message}`
+    };
   }
 });
 
 ipcMain.handle('start-app', async (event, mode) => {
+  // 直接启动应用，激活检查在应用内部进行
+  // 这样可以支持：做市商免费，套利机器人需要激活
   return startMainApp(mode);
+});
+
+ipcMain.handle('show-activation-window', async () => {
+  if (!mainWindow) {
+    return { success: false, message: '主窗口不存在' };
+  }
+
+  // 创建激活窗口（模态窗口）
+  const activationWindow = new BrowserWindow({
+    width: 600,
+    height: 700,
+    parent: mainWindow,
+    modal: true,
+    title: '激活 - Predict.fun',
+    resizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  activationWindow.loadFile(path.join(__dirname, 'activation.html'));
+
+  return { success: true };
 });
 
 ipcMain.handle('open-project-folder', async () => {

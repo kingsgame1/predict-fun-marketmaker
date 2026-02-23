@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
   <title>激活 - Predict.fun 做市商</title>
   <style>
     * {
@@ -174,23 +175,8 @@
           placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
           required
           maxlength="39"
-          style="font-family: monospace; text-transform: uppercase;"
+          style="font-family: monospace; text-transform: uppercase; font-size: 1.2rem;"
         >
-      </div>
-
-      <div class="form-group">
-        <label for="userId">用户ID</label>
-        <input type="text" id="userId" placeholder="your_user_id" required>
-      </div>
-
-      <div class="form-group">
-        <label for="userName">用户名</label>
-        <input type="text" id="userName" placeholder="Your Name" required>
-      </div>
-
-      <div class="form-group">
-        <label for="email">邮箱</label>
-        <input type="email" id="email" placeholder="your@email.com" required>
       </div>
 
       <button type="submit" class="btn" id="submitBtn">
@@ -230,9 +216,6 @@
       e.preventDefault();
 
       const licenseKey = licenseKeyInput.value.trim();
-      const userId = document.getElementById('userId').value.trim();
-      const userName = document.getElementById('userName').value.trim();
-      const email = document.getElementById('email').value.trim();
 
       // 基本验证
       if (!/^[A-F0-9]{4}(?:-[A-F0-9]{4}){7}$/.test(licenseKey)) {
@@ -243,30 +226,26 @@
       // 显示加载状态
       submitBtn.classList.add('loading');
       submitBtn.disabled = true;
-      showMessage('', '');
+      showMessage('正在验证激活码...', '');
 
       try {
-        const result = await window.electronAPI.activateLicense(
-          licenseKey,
-          userId,
-          userName,
-          email
-        );
+        // 只发送激活码，其他信息由服务器端处理
+        const result = await window.electronAPI.activateLicense(licenseKey);
 
         if (result.success) {
-          showMessage(result.message, 'success');
+          showMessage('✅ ' + result.message, 'success');
 
-          // 延迟跳转到主界面
+          // 延迟关闭激活窗口
           setTimeout(() => {
-            location.href = 'index.html';
+            window.close();
           }, 1500);
         } else {
-          showMessage(result.message, 'error');
+          showMessage('❌ ' + result.message, 'error');
           submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
         }
       } catch (error) {
-        showMessage(`激活失败: ${error.message}`, 'error');
+        showMessage(`❌ 激活失败: ${error.message}`, 'error');
         submitBtn.classList.remove('loading');
         submitBtn.disabled = false;
       }

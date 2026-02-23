@@ -4,11 +4,13 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-context_bridge.exposeInMainWorld('electronAPI', {
-  // 激活相关
+contextBridge.exposeInMainWorld('electronAPI', {
+  // 激活相关 - 简化为只接受激活码
   checkActivation: () => ipcRenderer.invoke('check-activation'),
-  activateLicense: (licenseKey, userId, userName, email) =>
-    ipcRenderer.invoke('activate-license', licenseKey, userId, userName, email),
+  activateLicense: (licenseKey) =>
+    ipcRenderer.invoke('activate-license', licenseKey),
+  showActivationWindow: () =>
+    ipcRenderer.invoke('show-activation-window'),
 
   // 应用启动
   startApp: (mode) => ipcRenderer.invoke('start-app', mode),

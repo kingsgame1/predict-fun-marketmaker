@@ -1,745 +1,132 @@
-# Predict.fun Market Maker Bot
+# Predict.fun Market Maker - 简化版
 
-Automated market making bot for [Predict.fun](https://predict.fun/) - the BNB Chain prediction market protocol.
+自动化做市商机器人，为 [Predict.fun](https://predict.fun/?ref=B0CE6) 市场提供流动性并赚取积分。
 
-## Referral
+## ✨ 功能特点
 
-- Predict Invite link: [https://predict.fun?ref=B0CE6](https://predict.fun?ref=B0CE6)
-- probable Invite link：[https://probable.markets/?ref=PNRBS9VL](https://probable.markets/?ref=PNRBS9VL)
-- Twitter: @ccjing_eth
+- ✅ **自动做市商挂单** - 智能报价，提供流动性
+- ✅ **风险控制系统** - 自动止损，仓位管理
+- ✅ **WebSocket实时数据** - 低延迟市场数据
+- ✅ **完全免费** - 无需激活，开箱即用
+- ✅ **简单易用** - 适合新手赚取积分
 
-## Features
+## 🚀 快速开始
 
-### Core Features
-- **Automated Market Making**: Automatically places bid and ask orders on liquid markets
-- **Smart Order Management**: Auto-cancels orders near fill to avoid unwanted positions
-- **Position Management**: Market closes positions when limits are exceeded
-- **Market Selection**: Automatically selects the most liquid and profitable markets
-- **Liquidity Points**: Earn liquidity rewards by providing continuous limit orders
-- **Risk Controls**: Configurable position limits, spread, and price movement thresholds
-- **Dependency Arbitrage**: OR-Tools based combinatorial arbitrage via logical constraints
-- **Multi-Outcome Arbitrage**: Sum of outcomes < $1 opportunities
-
-### 🚀 New Optimization Features (v3.1)
-- **Secure Activation System** (v2.0): Advanced license protection
-  - RSA-2048 asymmetric encryption signatures
-  - Multi-factor hardware fingerprinting (CPU, MAC, Disk Serial)
-  - AES-256-GCM encrypted local storage
-  - Online validation + 24-hour offline cache
-  - Anti-replay timestamp verification
-
-- **Desktop Launcher**: One-click application launcher
-  - Beautiful activation UI with real-time validation
-  - System environment checks (Node.js, NPM, project paths)
-  - Quick actions (config editor, folder explorer)
-  - Cross-platform support (macOS .dmg, Windows .exe, Linux .AppImage)
-
-- **Opportunity Quality Filter**: Multi-dimensional scoring system (0-100)
-  - Profit potential, risk level, liquidity, price quality, timing score
-  - Automatic filtering of low-quality opportunities
-  - Expected +25% success rate improvement
-
-- **Execution Statistics Tracker**: Real-time performance monitoring
-  - Track success rate, profit/loss, slippage, execution time
-  - Professional metrics: Sharpe ratio, max drawdown, profit factor
-  - Export to CSV for detailed analysis
-
-- **Configuration Templates**:
-  - **Conservative Template** (`config/templates/.conservative-template.env`)
-    - High success rate (90%+), low risk
-    - Minimum 2% profit, $5000 liquidity required
-    - Ideal for testing and new users
-
-  - **Aggressive Template** (`config/templates/.aggressive-template.env`)
-    - Maximum profit potential, higher risk
-    - Minimum 0.5% profit, all strategies enabled
-    - For experienced traders
-
-📖 **See [`docs/ACTIVATION_AND_LAUNCHER_GUIDE.md`](docs/ACTIVATION_AND_LAUNCHER_GUIDE.md) for deployment guide**
-
-## Desktop App & Launcher
-
-### Desktop Console (v0.1.1)
-
-- Releases: https://github.com/ccjingeth/predict-fun-marketmaker/releases/tag/v0.1.1
-- macOS ARM64 DMG: `Predict.fun.Console-0.1.1-arm64.dmg`
-- macOS ARM64 ZIP: `Predict.fun.Console-0.1.1-arm64-mac.zip`
-- 首次启动被拦截时：右键应用 → 打开
-
-### 🆕 Desktop Launcher (v1.0)
-
-Standalone launcher with built-in activation system:
-
-**Features**:
-- 🔐 Secure activation code input and validation
-- 📊 System health checks (Node.js, NPM, project paths)
-- 🚀 One-click launch (Simple/Full/Trading modes)
-- ⚙️ Quick config editor and file explorer
-- 🎨 Beautiful gradient UI
-
-**Build from source**:
-```bash
-cd launcher
-npm install
-npm run build:mac    # macOS
-npm run build:win    # Windows
-npm run build:linux  # Linux
-```
-
-**Or run directly**:
-```bash
-cd launcher
-npm install
-npm start
-```
-
-See [`docs/ACTIVATION_AND_LAUNCHER_GUIDE.md`](docs/ACTIVATION_AND_LAUNCHER_GUIDE.md) for full deployment guide.
-
-## Architecture
-
-```
-predict-fun-market-maker/
-├── src/
-│   ├── api/
-│   │   └── client.ts          # REST API client
-│   ├── config.ts              # Configuration management
-│   ├── types.ts               # TypeScript types
-│   ├── market-selector.ts     # Market scoring and selection
-│   ├── market-maker.ts        # Core MM logic
-│   ├── index.ts               # Main entry point
-│   └── test.ts                # Test script
-├── .env.example               # Environment variables template
-├── package.json
-└── tsconfig.json
-```
-
-## Setup
-
-### 1. Install Dependencies
+### 1. 安装依赖
 
 ```bash
-cd predict-fun-market-maker
 npm install
 ```
 
-### 2. Configure Environment
-
-#### Option A: Use Pre-configured Templates (Recommended)
-
-**For new users or testing** - Conservative configuration:
-```bash
-cp config/templates/.conservative-template.env .env
-```
-
-**For experienced users** - Aggressive configuration:
-```bash
-cp config/templates/.aggressive-template.env .env
-```
-
-#### Option B: Manual Configuration
-
-Copy `.env.example` to `.env` and configure:
+### 2. 配置环境
 
 ```bash
 cp .env.example .env
+# 编辑 .env 文件，填写API密钥等配置
 ```
 
-Edit `.env`:
+**必填配置**：
+- `API_KEY` - Predict.fun API密钥
+- `JWT_TOKEN` - JWT令牌
+- `PRIVATE_KEY` - 钱包私钥（64位十六进制，不带0x）
+- `PREDICT_ACCOUNT_ADDRESS` - 账户地址（0x开头的42位地址）
+
+### 3. 启动程序
+
+```bash
+npm start
+```
+
+## ⚙️ 配置说明
+
+### 做市商配置
 
 ```env
-# API Configuration
-API_BASE_URL=https://api.predict.fun
-API_KEY=your_api_key_here
-JWT_TOKEN=your_jwt_token_here
-RPC_URL=https://bsc-dataseed.binance.org
-
-# Wallet Configuration
-PRIVATE_KEY=your_private_key_here
-PREDICT_ACCOUNT_ADDRESS=your_predict_account_address_here
-
-# Market Maker Configuration
-SPREAD=0.02                    # 2% spread
-MIN_SPREAD=0.01                # floor spread
-MAX_SPREAD=0.08                # cap spread
-USE_VALUE_SIGNAL=false         # enable value signal bias
-VALUE_SIGNAL_WEIGHT=0.35       # 0-1 blend weight
-VALUE_CONFIDENCE_MIN=0.6       # 0-1 minimum confidence
-ORDER_SIZE=10                  # $10 per order
-MAX_SINGLE_ORDER_VALUE=50      # max $ per order
-MAX_POSITION=100               # Max $100 position per market
-INVENTORY_SKEW_FACTOR=0.15     # inventory bias
-CANCEL_THRESHOLD=0.05          # Cancel on 5% price move
-REPRICE_THRESHOLD=0.003        # re-quote if price drifts 0.3%
-MIN_ORDER_INTERVAL_MS=3000     # cooldown per market
-MAX_ORDERS_PER_MARKET=2        # cap open orders
-MAX_DAILY_LOSS=200             # halt trading if below -$200
-ANTI_FILL_BPS=0.002            # cancel when near taker
-NEAR_TOUCH_BPS=0.0015          # early cancel threshold
-COOLDOWN_AFTER_CANCEL_MS=4000
-VOLATILITY_PAUSE_BPS=0.01
-VOLATILITY_LOOKBACK_MS=10000
-PAUSE_AFTER_VOLATILITY_MS=8000
-HEDGE_ON_FILL=false
-HEDGE_TRIGGER_SHARES=50
-HEDGE_MODE=FLATTEN
-HEDGE_MAX_SLIPPAGE_BPS=250
-REFRESH_INTERVAL=5000          # 5 seconds between updates
-ENABLE_TRADING=false           # Start in dry-run mode
-AUTO_CONFIRM=false             # auto confirm executions
-
-# Cross-platform arbitrage
-CROSS_PLATFORM_ENABLED=false
-CROSS_PLATFORM_MIN_PROFIT=0.01
-CROSS_PLATFORM_MIN_SIMILARITY=0.78
-CROSS_PLATFORM_AUTO_EXECUTE=false
-CROSS_PLATFORM_REQUIRE_CONFIRM=true
-CROSS_PLATFORM_TRANSFER_COST=0.002
-CROSS_PLATFORM_SLIPPAGE_BPS=250
-CROSS_PLATFORM_MAX_SHARES=200
-CROSS_PLATFORM_DEPTH_LEVELS=10
-CROSS_PLATFORM_EXECUTION_VWAP_CHECK=true
-CROSS_PLATFORM_PRICE_DRIFT_BPS=40
-CROSS_PLATFORM_ADAPTIVE_SIZE=true
-CROSS_PLATFORM_MIN_DEPTH_SHARES=1
-CROSS_PLATFORM_VOLATILITY_BPS=80
-CROSS_PLATFORM_VOLATILITY_LOOKBACK_MS=2000
-CROSS_PLATFORM_TOKEN_MAX_FAILURES=2
-CROSS_PLATFORM_TOKEN_FAILURE_WINDOW_MS=30000
-CROSS_PLATFORM_TOKEN_COOLDOWN_MS=120000
-CROSS_PLATFORM_METRICS_LOG_MS=0
-CROSS_PLATFORM_DEPTH_USAGE=0.5
-CROSS_PLATFORM_MAX_NOTIONAL=200
-CROSS_PLATFORM_RECHECK_MS=0
-CROSS_PLATFORM_RECHECK_DEVIATION_BPS=0
-CROSS_PLATFORM_RECHECK_DRIFT_BPS=0
-CROSS_PLATFORM_STABILITY_SAMPLES=1
-CROSS_PLATFORM_STABILITY_INTERVAL_MS=0
-CROSS_PLATFORM_STABILITY_BPS=0
-CROSS_PLATFORM_POST_TRADE_DRIFT_BPS=0
-CROSS_PLATFORM_AUTO_TUNE=true
-CROSS_PLATFORM_AUTO_TUNE_MIN_FACTOR=0.5
-CROSS_PLATFORM_AUTO_TUNE_MAX_FACTOR=1.2
-CROSS_PLATFORM_AUTO_TUNE_UP=0.03
-CROSS_PLATFORM_AUTO_TUNE_DOWN=0.08
-CROSS_PLATFORM_TOKEN_MIN_SCORE=40
-CROSS_PLATFORM_TOKEN_SCORE_ON_SUCCESS=2
-CROSS_PLATFORM_TOKEN_SCORE_ON_FAILURE=5
-CROSS_PLATFORM_TOKEN_SCORE_ON_VOLATILITY=10
-CROSS_PLATFORM_TOKEN_SCORE_ON_POST_TRADE=15
-CROSS_PLATFORM_PLATFORM_MIN_SCORE=40
-CROSS_PLATFORM_PLATFORM_SCORE_ON_SUCCESS=1
-CROSS_PLATFORM_PLATFORM_SCORE_ON_FAILURE=3
-CROSS_PLATFORM_PLATFORM_SCORE_ON_VOLATILITY=6
-CROSS_PLATFORM_PLATFORM_SCORE_ON_POST_TRADE=8
-CROSS_PLATFORM_PLATFORM_SCORE_ON_SPREAD=6
-CROSS_PLATFORM_LEG_DRIFT_SPREAD_BPS=0
-CROSS_PLATFORM_ALLOWLIST_TOKENS=
-CROSS_PLATFORM_BLOCKLIST_TOKENS=
-CROSS_PLATFORM_ALLOWLIST_PLATFORMS=
-CROSS_PLATFORM_BLOCKLIST_PLATFORMS=
-CROSS_PLATFORM_CHUNK_MAX_SHARES=0
-CROSS_PLATFORM_CHUNK_MAX_NOTIONAL=0
-CROSS_PLATFORM_CHUNK_DELAY_MS=0
-CROSS_PLATFORM_CHUNK_AUTO_TUNE=true
-CROSS_PLATFORM_CHUNK_FACTOR_MIN=0.5
-CROSS_PLATFORM_CHUNK_FACTOR_MAX=1.5
-CROSS_PLATFORM_CHUNK_FACTOR_UP=0.1
-CROSS_PLATFORM_CHUNK_FACTOR_DOWN=0.2
-CROSS_PLATFORM_CHUNK_DELAY_AUTO_TUNE=false
-CROSS_PLATFORM_CHUNK_DELAY_MIN_MS=0
-CROSS_PLATFORM_CHUNK_DELAY_MAX_MS=2000
-CROSS_PLATFORM_CHUNK_DELAY_UP_MS=100
-CROSS_PLATFORM_CHUNK_DELAY_DOWN_MS=100
-CROSS_PLATFORM_PLATFORM_MAX_FAILURES=3
-CROSS_PLATFORM_PLATFORM_FAILURE_WINDOW_MS=60000
-CROSS_PLATFORM_PLATFORM_COOLDOWN_MS=120000
-CROSS_PLATFORM_AUTO_BLOCKLIST=false
-CROSS_PLATFORM_AUTO_BLOCKLIST_COOLDOWN_MS=300000
-CROSS_PLATFORM_AUTO_BLOCKLIST_SCORE=30
-CROSS_PLATFORM_GLOBAL_COOLDOWN_MS=0
-CROSS_PLATFORM_GLOBAL_MIN_QUALITY=0
-CROSS_PLATFORM_STATE_PATH=data/cross-platform-state.json
-CROSS_PLATFORM_METRICS_PATH=data/cross-platform-metrics.json
-CROSS_PLATFORM_METRICS_FLUSH_MS=30000
-CROSS_PLATFORM_ORDER_TYPE=FOK
-CROSS_PLATFORM_BATCH_ORDERS=false
-CROSS_PLATFORM_BATCH_MAX=15
-CROSS_PLATFORM_USE_FOK=true
-CROSS_PLATFORM_PARALLEL_SUBMIT=true
-CROSS_PLATFORM_LIMIT_ORDERS=true
-CROSS_PLATFORM_CANCEL_OPEN_MS=1500
-CROSS_PLATFORM_POST_FILL_CHECK=true
-CROSS_PLATFORM_FILL_CHECK_MS=1500
-CROSS_PLATFORM_HEDGE_ON_FAILURE=false
-CROSS_PLATFORM_HEDGE_PREDICT_ONLY=true
-CROSS_PLATFORM_HEDGE_SLIPPAGE_BPS=400
-CROSS_PLATFORM_MAX_RETRIES=1
-CROSS_PLATFORM_RETRY_DELAY_MS=300
-CROSS_PLATFORM_CIRCUIT_MAX_FAILURES=3
-CROSS_PLATFORM_CIRCUIT_WINDOW_MS=60000
-CROSS_PLATFORM_CIRCUIT_COOLDOWN_MS=60000
-CROSS_PLATFORM_RETRY_SIZE_FACTOR=0.6
-CROSS_PLATFORM_RETRY_AGGRESSIVE_BPS=0
-CROSS_PLATFORM_MAPPING_PATH=cross-platform-mapping.json
-CROSS_PLATFORM_USE_MAPPING=true
-
-# Dependency arbitrage (OR-Tools)
-DEPENDENCY_ARB_ENABLED=false
-DEPENDENCY_CONSTRAINTS_PATH=dependency-constraints.json
-DEPENDENCY_PYTHON_PATH=python3
-DEPENDENCY_PYTHON_SCRIPT=scripts/dependency-arb.py
-DEPENDENCY_MIN_PROFIT=0.02
-DEPENDENCY_MAX_LEGS=6
-DEPENDENCY_MAX_NOTIONAL=200
-DEPENDENCY_MIN_DEPTH=1
-DEPENDENCY_FEE_BPS=100
-DEPENDENCY_SLIPPAGE_BPS=20
-DEPENDENCY_MAX_ITER=12
-DEPENDENCY_ORACLE_TIMEOUT_SEC=2
-DEPENDENCY_TIMEOUT_MS=10000
-DEPENDENCY_ALLOW_SELLS=true
-
-# Multi-outcome arbitrage
-MULTI_OUTCOME_ENABLED=true
-MULTI_OUTCOME_MIN_OUTCOMES=3
-MULTI_OUTCOME_MAX_SHARES=500
-
-# Arbitrage auto-execution
-ARB_AUTO_EXECUTE=false
-ARB_AUTO_EXECUTE_VALUE=false
-ARB_EXECUTE_TOP_N=1
-ARB_EXECUTION_COOLDOWN_MS=60000
-ARB_SCAN_INTERVAL_MS=10000
-ARB_MAX_MARKETS=80
-ARB_ORDERBOOK_CONCURRENCY=8
-ARB_MARKETS_CACHE_MS=10000
-ARB_WS_MAX_AGE_MS=10000
-ARB_MAX_ERRORS=5
-ARB_ERROR_WINDOW_MS=60000
-ARB_PAUSE_ON_ERROR_MS=60000
-ARB_WS_HEALTH_LOG_MS=0
-
-When `ARB_AUTO_EXECUTE=true`, `npm run start:arb` runs continuous monitoring and executes top opportunities.
-Value-mismatch auto execution is opt-in with `ARB_AUTO_EXECUTE_VALUE=true`.
-
-# Alerts
-ALERT_WEBHOOK_URL=
-ALERT_MIN_INTERVAL_MS=60000
-
-# Polymarket
-POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
-POLYMARKET_CLOB_URL=https://clob.polymarket.com
-POLYMARKET_FEE_RATE_URL=https://clob.polymarket.com/fee-rate
-POLYMARKET_FEE_RATE_CACHE_MS=300000
-POLYMARKET_FEE_CURVE_RATE=0.25
-POLYMARKET_FEE_CURVE_EXPONENT=2
-POLYMARKET_WS_ENABLED=false
-POLYMARKET_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market
-POLYMARKET_WS_CUSTOM_FEATURE=false
-POLYMARKET_WS_INITIAL_DUMP=true
-POLYMARKET_WS_STALE_MS=20000
-POLYMARKET_WS_RESET_ON_RECONNECT=true
-POLYMARKET_CACHE_TTL_MS=60000
-
-# Probable
-PROBABLE_ENABLED=false
-PROBABLE_MARKET_API_URL=https://market-api.probable.markets
-PROBABLE_ORDERBOOK_API_URL=https://api.probable.markets/public/api/v1
-PROBABLE_MAX_MARKETS=30
-PROBABLE_FEE_BPS=0
-PROBABLE_WS_ENABLED=false
-PROBABLE_WS_URL=wss://ws.probable.markets/public/api/v1
-PROBABLE_WS_STALE_MS=20000
-PROBABLE_WS_RESET_ON_RECONNECT=true
-PROBABLE_CACHE_TTL_MS=60000
-PROBABLE_PRIVATE_KEY=
-PROBABLE_CHAIN_ID=56
-PROBABLE_AUTO_DERIVE_API_KEY=true
-PROBABLE_RPC_URL=
-
-PREDICT_WS_ENABLED=false
-PREDICT_WS_URL=wss://ws.predict.fun/ws
-PREDICT_WS_API_KEY=
-PREDICT_WS_TOPIC_KEY=token_id
-PREDICT_WS_STALE_MS=20000
-PREDICT_WS_RESET_ON_RECONNECT=true
-POLYMARKET_PRIVATE_KEY=
-POLYMARKET_API_KEY=
-POLYMARKET_API_SECRET=
-POLYMARKET_API_PASSPHRASE=
-
-# Opinion
-OPINION_OPENAPI_URL=https://proxy.opinion.trade:8443/openapi
-OPINION_API_KEY=
-OPINION_PRIVATE_KEY=
-OPINION_CHAIN_ID=56
-OPINION_HOST=https://proxy.opinion.trade:8443
-OPINION_WS_ENABLED=false
-OPINION_WS_URL=wss://ws.opinion.trade
-OPINION_WS_HEARTBEAT_MS=30000
-OPINION_WS_STALE_MS=20000
-OPINION_WS_RESET_ON_RECONNECT=true
+MM_ENABLED=true                    # 启用做市商
+MM_POSITION_SIZE=0.05              # 仓位比例（5%）
+ORDER_SIZE=10                      # 订单大小（美元）
+MAX_POSITION=100                   # 最大持仓（美元）
 ```
 
-## Smoke Test (Tiny Live Order)
-
-Use this to validate end-to-end order placement and auto-cancel with minimal size:
-
-```bash
-npm run smoke:predict
-```
-
-Optional env overrides:
-
-- `SMOKE_TOKEN_ID` (token to test)
-- `SMOKE_SIDE` (`BUY` / `SELL`)
-- `SMOKE_SHARES` (default `1`)
-- `SMOKE_PRICE_BUFFER_BPS` (default `50`, keep away from top of book)
-- `SMOKE_CANCEL_MS` (default `5000`)
-- `SMOKE_LIVE=true` to actually place and cancel the order
-- `SMOKE_ALLOW_OFFLINE=true` to skip failures when the API is unreachable
-
-To run live, also set `ENABLE_TRADING=true` and `JWT_TOKEN` in `.env`.
-
-### 3. Get API Key (REQUIRED)
-
-⚠️ **Important**: All API calls now require an API key, including public endpoints like `/markets` and `/orderbooks`.
-
-To get your API key:
-1. Join [Predict's Discord](https://discord.gg/predictdotfun)
-2. Open a support ticket
-3. Request an API key for trading
-
-Add the API key to your `.env`:
-```env
-API_KEY=your_api_key_here
-```
-
-### 4. Generate JWT Token (REQUIRED for private endpoints)
-
-```bash
-npm run auth:jwt
-```
-
-This command will:
-- Fetch auth challenge message
-- Sign it with your configured wallet
-- Exchange it for JWT
-- Write `JWT_TOKEN=...` into `.env`
-
-### 5. Configure Wallet
-
-You have two options:
-
-**Option A: Use EOA (Externally Owned Account)**
-- Set `PRIVATE_KEY` in `.env`
-- Leave `PREDICT_ACCOUNT_ADDRESS` empty
-
-**Option B: Use Predict Account (Smart Wallet)**
-- Get your deposit address from the Predict app settings
-- Get your Privy wallet private key from settings
-- Set both `PRIVATE_KEY` (Privy key) and `PREDICT_ACCOUNT_ADDRESS` (deposit address)
-
-### 6. Set Approvals (First Time Only)
-
-Before trading, approve protocol contracts:
-
-```bash
-npm run setup:approvals
-```
-
-### Risk Controls (Recommended Defaults)
-
-This bot now includes production-grade safeguards:
-- Adaptive spread with min/max bounds
-- Inventory skew (reduce one side when exposure is high)
-- Reprice/cooldown thresholds to prevent order spam
-- Max open orders per market
-- Session loss halt (`MAX_DAILY_LOSS`)
-  - Optional value-signal bias (`USE_VALUE_SIGNAL`)
-
-### Dependency Arbitrage (OR-Tools)
-
-1. Install OR-Tools:
-
-```bash
-pip install ortools
-```
-
-2. Edit `dependency-constraints.json` with real token IDs.
-3. Enable:
+### 价差配置
 
 ```env
-DEPENDENCY_ARB_ENABLED=true
+SPREAD=0.02                        # 基础价差（2%）
+MIN_SPREAD=0.01                    # 最小价差（1%）
+MAX_SPREAD=0.08                    # 最大价差（8%）
 ```
 
-## Usage
+### 风险控制
 
-Desktop app instructions: `USAGE.md`
-Beginner guide: `docs/BEGINNER_GUIDE.md`
-Config reference: `docs/CONFIG_REFERENCE.md`
-JSON templates: `docs/JSON_TEMPLATES.md`
-
-### Debug API Response
-
-To check what fields the API actually returns (useful for finding liquidity activation rules):
-
-```bash
-npm run debug
+```env
+MAX_DAILY_LOSS=200                 # 每日最大亏损（美元）
 ```
 
-This will show the raw API response structure, including any liquidity activation fields.
+## 💡 使用建议
 
-### Test Connection
+### 新手推荐配置
 
-```bash
-npm test
+```env
+MM_ENABLED=true
+ORDER_SIZE=5                       # 小单开始
+MAX_POSITION=50                    # 小仓位
+MAX_DAILY_LOSS=50                  # 低止损
+SPREAD=0.02
+SIMULATION_MODE=true               # 先模拟测试
 ```
 
-### One-Click API Check
+### 实盘模式
 
-```bash
-npm run check:api
+确认配置正确后，设置为实盘：
+
+```env
+SIMULATION_MODE=false
 ```
 
-This script will:
-- Read `.env` automatically
-- Verify `API_KEY` format and connectivity
-- Validate `/markets` and `/orderbooks` endpoints
-- Validate `/positions` when `JWT_TOKEN` is configured
-- Warn if `PRIVATE_KEY` is still a demo key
+## 📊 功能对比
 
-This will:
-- Test API connectivity
-- Fetch and display markets
-- Show orderbook data
-- Run market selection analysis
+| 功能 | 简化版 | 说明 |
+|------|--------|------|
+| 做市商挂单 | ✅ | 自动提供流动性 |
+| 智能报价 | ✅ | 根据市场调整价差 |
+| 风险控制 | ✅ | 止损、仓位管理 |
+| WebSocket | ✅ | 实时市场数据 |
+| 套利机器人 | ❌ | 不包含 |
+| 高频交易 | ❌ | 不包含 |
 
-### Run Bot (Dry Run Mode)
+## 🛡️ 安全提示
 
-Start with `ENABLE_TRADING=false` to test without real orders:
+1. ⚠️ **永远不要将私钥提交到Git仓库**
+2. 🧪 建议先使用 `SIMULATION_MODE=true` 测试
+3. 💰 设置合理的止损和限额
+4. 📈 定期查看交易记录
+5. ⚖️ 不要使用全部资金进行交易
 
-```bash
-npm run start:mm
-```
+## 🔗 相关链接
 
-### Run Bot (Live Trading)
+- [Predict.fun](https://predict.fun?ref=B0CE6)
+- [推荐邀请链接](https://predict.fun?ref=B0CE6)
+- Twitter: [@ccjing_eth](https://twitter.com/ccjing_eth)
 
-Set `ENABLE_TRADING=true` in `.env` and run:
+## 📝 更新日志
 
-```bash
-npm run start:mm
-```
+### v1.0.0 (2025-02-24)
+- ✅ 初始发布
+- ✅ 做市商挂单功能
+- ✅ 风险控制系统
+- ✅ WebSocket实时数据
 
-Required before live mode:
-1. `npm run auth:jwt`
-2. `npm run setup:approvals`
+## 📄 许可证
 
-Probable market making:
-- Set `MM_VENUE=probable`
-- Set `PROBABLE_ENABLED=true` and `PROBABLE_PRIVATE_KEY`
-- Optional: `MM_REQUIRE_JWT=false` (Probable does not use JWT)
+MIT License
 
-### Development Mode
+## ⚠️ 免责声明
 
-Auto-restart on file changes:
+本软件仅供学习研究使用。使用本软件进行交易的任何风险由用户自行承担。请在充分了解风险的情况下使用。
 
-```bash
-npm run dev
-```
+---
 
-### Desktop Console (Electron)
-
-```bash
-cd desktop-app
-npm install
-npm run dev
-
-# package desktop app
-npm run pack
-```
-
-Note: The desktop console reads the root `.env` file and spawns bots via `node --import tsx`, so make sure root dependencies are installed. Packaged builds run compiled `dist` via system `node`. Set `NODE_BINARY` to override.
-
-Cross-platform auto-execution requirements:
-- Polymarket: configure `POLYMARKET_PRIVATE_KEY` (API keys can be derived or set manually).
-- Opinion: install `opinion_clob_sdk` (Python) and set `OPINION_API_KEY` + `OPINION_PRIVATE_KEY`.
-- Probable: set `PROBABLE_PRIVATE_KEY` (auto-derives API Key) and keep `PROBABLE_ENABLED=true`.
-For unattended mode set `AUTO_CONFIRM=true` and `CROSS_PLATFORM_AUTO_EXECUTE=true`.
-For strict event matching, maintain `cross-platform-mapping.json` with `predictMarketId` and external token IDs.
-
-## How It Works
-
-### 1. Market Selection
-
-The bot scans all markets and scores them based on:
-- **✨ Liquidity Points Activation** (+50 bonus points!)
-  - Markets with active point rewards get highest priority
-- **Liquidity** (24h volume)
-- **Activity** (number of orders)
-- **Spread** (tighter spreads score higher)
-
-Only markets with sufficient liquidity and order depth are selected.
-
-### 2. Liquidity Points Activation Rules
-
-Each market may have specific rules to earn liquidity points:
-
-```
-liquidity_activation: {
-  active: boolean,              // Is point earning active?
-  max_spread_pct: number,       // Maximum spread allowed (e.g., 0.03 = 3%)
-  min_order_size: number,       // Minimum order size (in USDT)
-  requirements: string          // Additional requirements
-}
-```
-
-**The bot automatically:**
-- ✅ Adjusts spread to stay within `max_spread_pct`
-- ✅ Ensures order size meets `min_order_size`
-- ✅ Prioritizes markets with active liquidity rewards
-- ✅ Shows whether orders qualify for points
-
-### 3. Order Placement
-
-For each selected market, the bot:
-1. Fetches the current orderbook
-2. Checks if orders will earn liquidity points
-3. Adjusts spread to meet market requirements
-4. Calculates the mid-price
-5. Places bid orders slightly below mid-price
-6. Places ask orders slightly above mid-price
-7. Displays if orders qualify for points ✨
-
-### 4. Risk Management
-
-**Price Movement Protection**:
-- Monitors price changes between updates
-- Cancels all orders if price moves beyond `CANCEL_THRESHOLD`
-
-**Fill Protection**:
-- Monitors distance from best bid/ask
-- Cancels orders that get too close to being filled
-- Prevents accumulating unwanted positions
-
-**Position Limits**:
-- Tracks total position value per market
-- Stops placing orders when `MAX_POSITION` is reached
-- Can automatically close excess positions
-
-### 5. Earning Liquidity Points
-
-By maintaining continuous limit orders that meet the market's requirements:
-- Orders must be within the `max_spread_pct` range
-- Orders must be at least `min_order_size`
-- Points are earned continuously while orders are on the book
-
-These points may qualify you for airdrop rewards!
-
-## Configuration Guide
-
-### Spread (`SPREAD`)
-
-The percentage difference between your bid and ask prices.
-
-- Lower spread = more fills, higher risk
-- Higher spread = fewer fills, lower risk
-- Recommended: 0.02 - 0.05 (2-5%)
-
-### Order Size (`ORDER_SIZE`)
-
-The USDT value of each order.
-
-- Smaller size = lower risk per trade
-- Larger size = more liquidity points potential
-- Recommended: 10 - 50 USDT
-
-### Max Position (`MAX_POSITION`)
-
-Maximum total exposure per market.
-
-- Should be at least 10x your order size
-- Prevents accumulation of too much inventory
-- Recommended: 100 - 500 USDT
-
-### Cancel Threshold (`CANCEL_THRESHOLD`)
-
-Price movement percentage that triggers order cancellation.
-
-- Lower = more conservative, more frequent cancels
-- Higher = more aggressive, higher fill risk
-- Recommended: 0.03 - 0.10 (3-10%)
-
-### Refresh Interval (`REFRESH_INTERVAL`)
-
-Milliseconds between market updates.
-
-- Lower = faster reactions, more API calls
-- Higher = fewer API calls, slower reactions
-- Recommended: 3000 - 10000 ms
-
-## API Documentation
-
-- [Developer Docs](https://dev.predict.fun/)
-- [API Reference](https://api.predict.fun/docs)
-- [Order Creation Guide](https://dev.predict.fun/how-to-create-or-cancel-orders-679306m0)
-
-## Important Notes
-
-⚠️ **Warning**: This bot is in beta. Use at your own risk.
-
-1. **Start in dry-run mode** (`ENABLE_TRADING=false`) to verify everything works
-2. **Start small** - use small order sizes initially
-3. **Monitor regularly** - check the bot's activity and positions
-4. **Understand the risks** - prediction markets can be volatile
-5. **Rate limits** - the API has rate limits (default: 240 req/min)
-
-## SDK Integration
-
-To fully enable trading, you need to integrate with the `@predictdotfun/sdk` package:
-
-```bash
-npm install @predictdotfun/sdk
-```
-
-The SDK handles:
-- Order signing
-- Privy wallet integration (for Predict accounts)
-- Approval transactions
-- Order cancellation
-
-See [SDK Documentation](https://github.com/PredictDotFun/sdk) for details.
-
-## Troubleshooting
-
-**"Failed to connect to Predict.fun API"**
-- Check your internet connection
-- Verify `API_BASE_URL` is correct
-- Try accessing https://api.predict.fun/docs in a browser
-
-**"PRIVATE_KEY is required"**
-- Make sure you created a `.env` file
-- Add `PRIVATE_KEY=your_key_here` to `.env`
-
-**No markets selected**
-- The markets may have insufficient liquidity
-- Try lowering `minLiquidity` and `minVolume24h` in `market-selector.ts`
-- Verify your network connection
-
-**Orders not being placed**
-- Check if `ENABLE_TRADING=true` in `.env`
-- Verify SDK integration is complete
-- Check logs for error messages
-
-## License
-
-MIT
-
-## Sources
-
-- [Predict API Developer Documentation](https://dev.predict.fun/)
-- [How to create or cancel orders](https://dev.predict.fun/how-to-create-or-cancel-orders-679306m0)
-- [Get the orderbook for a market](https://dev.predict.fun/get-the-orderbook-for-a-market-25326908e0)
-- [NPM SDK Package](https://www.npmjs.com/package/@predictdotfun/sdk)
-- [Python SDK](https://github.com/PredictDotFun/sdk-python)
-- [Predict.fun Homepage](https://predict.fun/)
+**版本**: 1.0.0 (简化版)
+**更新**: 2025-02-24
+**平台**: [Predict.fun](https://predict.fun?ref=B0CE6)
+**网络**: BSC (BNB Smart Chain)
