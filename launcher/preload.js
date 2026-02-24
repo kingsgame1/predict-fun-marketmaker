@@ -5,15 +5,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // 激活相关 - 简化为只接受激活码
-  checkActivation: () => ipcRenderer.invoke('check-activation'),
-  activateLicense: (licenseKey) =>
-    ipcRenderer.invoke('activate-license', licenseKey),
-  showActivationWindow: () =>
-    ipcRenderer.invoke('show-activation-window'),
-
   // 应用启动
-  startApp: (mode) => ipcRenderer.invoke('start-app', mode),
+  startApp: () => ipcRenderer.invoke('start-app'),
 
   // 文件操作
   openProjectFolder: () => ipcRenderer.invoke('open-project-folder'),
