@@ -6801,11 +6801,6 @@ function setupEventListeners() {
               };
               return names[name] || name;
             });
-                cross_platform: '跨平台套利',
-                yes_no_under: 'Yes+No<1'
-              };
-              return names[name] || name;
-            });
 
           pushLog({
             type: 'system',

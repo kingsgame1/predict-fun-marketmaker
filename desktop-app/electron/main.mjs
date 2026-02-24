@@ -993,7 +993,7 @@ function createWindow() {
     backgroundColor: '#0f1222',
     title: title,
     webPreferences: {
-      preload: path.resolve(__dirname, 'preload.mjs'),
+      preload: path.resolve(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
     },
