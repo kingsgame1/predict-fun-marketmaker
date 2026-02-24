@@ -89,6 +89,13 @@
           <!-- 简化的策略开关 -->
           <div class="control-block">
             <h3>核心设置</h3>
+            <div class="select-row" style="margin-bottom: 12px;">
+              <label for="mmVenueSelect">交易平台</label>
+              <select id="mmVenueSelect" style="flex: 1; padding: 8px 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; background: rgba(0,0,0,0.2); color: #e5e7eb; font-size: 14px;">
+                <option value="predict">Predict.fun</option>
+                <option value="probable">Probable.markets</option>
+              </select>
+            </div>
             <div class="toggle-grid">
               <label class="toggle"><input type="checkbox" data-env="ENABLE_TRADING" />实盘交易</label>
               <label class="toggle"><input type="checkbox" data-env="AUTO_CONFIRM" />自动确认</label>
