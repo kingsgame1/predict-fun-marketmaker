@@ -1,7 +1,7 @@
 {
   "name": "predict-fun-market-maker",
-  "version": "1.0.0",
-  "description": "Automated market maker bot for Predict.fun - 简化版",
+  "version": "1.1.0",
+  "description": "Automated market maker bot for Predict.fun & Probable - 双平台支持",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -24,12 +24,13 @@
     "@polymarket/clob-client": "^5.2.3",
     "@polymarket/order-utils": "^3.0.1",
     "@predictdotfun/sdk": "^1.0.0",
+    "@prob/clob": "^0.5.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.0",
     "express": "^4.22.1",
     "open": "^10.2.0",
-    "viem": "^2.21.4",
+    "viem": "^2.46.3",
     "ws": "^8.17.0"
   },
   "devDependencies": {
