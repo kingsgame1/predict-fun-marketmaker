@@ -6,19 +6,19 @@
 import type { Config, Market, Orderbook, Order, OrderbookEntry, Position, LiquidityActivation } from './types.js';
 import type { MakerApi, MakerOrderManager } from './mm/venue.js';
 import { OrderManager } from './order-manager.js';
-import { ValueMismatchDetector } from './arbitrage/value-detector.js';
-import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
-import { CrossPlatformAggregator } from './external/aggregator.js';
-import { CrossPlatformExecutionRouter } from './external/execution.js';
-import { findBestMatch, similarityScore } from './external/match.js';
-import type { PlatformLeg, PlatformMarket } from './external/types.js';
+// import { ValueMismatchDetector } from './arbitrage/value-detector.js';
+// import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
+// import { CrossPlatformAggregator } from './external/aggregator.js';
+// import { CrossPlatformExecutionRouter } from './external/execution.js';
+// import { findBestMatch, similarityScore } from './external/match.js';
+// import type { PlatformLeg, PlatformMarket } from './external/types.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { pointsManager } from './mm/points/points-manager.js';
-import { spreadCache } from './mm/cache/spread-cache.js';
-import { pointsOptimizerEngine, type PointsMarketScore } from './mm/points/points-optimizer.js';
-import { pointsSystemIntegration } from './mm/points/points-integration.js';
-import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './mm/points/points-optimizer-v2.js';
+// import { pointsManager } from './mm/points/points-manager.js';
+// import { spreadCache } from './mm/cache/spread-cache.js';
+// import { pointsOptimizerEngine, type PointsMarketScore } from './mm/points/points-optimizer.js';
+// import { pointsSystemIntegration } from './mm/points/points-integration.js';
+// import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './mm/points/points-optimizer-v2.js';
 
 interface QuotePrices {
   bidPrice: number;

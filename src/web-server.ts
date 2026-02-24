@@ -3,7 +3,7 @@
  */
 
 import express from 'express';
-import { open } from 'open';
+import open from 'open';
 import { PredictMarketMakerBot } from './index.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
