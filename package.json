@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "start": "cd launcher && npm start",
+    "start": "cd desktop-app && npm start",
     "start:cli": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

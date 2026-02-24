@@ -46,59 +46,6 @@
             </div>
           </div>
 
-          <!-- 自动套利控制 -->
-          <div class="control-block" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 16px;">
-            <h3 style="margin: 0 0 12px 0; color: #34d399;">🤖 全自动套利</h3>
-            <p style="margin: 0 0 12px 0; font-size: 12px; color: rgba(52, 211, 153, 0.8);">
-              自动扫描市场并执行套利（同平台 yes+no&lt;1 / 跨平台价差）
-            </p>
-
-            <!-- 激活码输入区域 -->
-            <div id="activationSection" style="margin-bottom: 12px; padding: 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <span style="font-size: 12px; font-weight: 600; color: #f87171;">🔑 需要激活码</span>
-                <span id="activationStatus" style="font-size: 11px; color: #fca5a5;">未激活</span>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <input type="text" id="licenseKeyInput" placeholder="输入激活码 (XXXX-XXXX-XXXX-XXXX-XXXX)"
-                  style="flex: 1; padding: 6px 10px; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; font-size: 11px; background: rgba(0, 0, 0, 0.2); color: #e5e7eb;">
-                <button class="btn primary" id="activateBtn" style="padding: 6px 12px; font-size: 11px;">激活</button>
-              </div>
-              <p id="activationMessage" style="margin: 8px 0 0 0; font-size: 11px; color: #fca5a5;"></p>
-            </div>
-
-            <div class="button-row">
-              <button class="btn success" id="startAutoArb" style="flex: 1;">▶ 启动自动套利</button>
-              <button class="btn ghost" id="stopAutoArb" style="flex: 1;">⏹ 停止</button>
-            </div>
-            <div class="status-row" style="margin-top: 12px;">
-              <span>状态</span>
-              <span id="statusAutoArb" class="status" style="color: #34d399;">未运行</span>
-            </div>
-            <div class="toggle-grid" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(16, 185, 129, 0.2);">
-              <label class="toggle" style="font-size: 12px;">
-                <input type="checkbox" data-env="AUTO_ARB_ENABLED" />
-                <span>启用自动套利</span>
-              </label>
-              <label class="toggle" style="font-size: 12px;">
-                <input type="checkbox" data-env="AUTO_ARB_IN_PLATFORM" checked />
-                <span>站内套利</span>
-              </label>
-              <label class="toggle" style="font-size: 12px;">
-                <input type="checkbox" data-env="AUTO_ARB_CROSS_PLATFORM" />
-                <span>跨平台套利</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- 套利统计 -->
-          <div class="control-block">
-            <h3>📊 套利统计</h3>
-            <div class="health-list" id="arbitrageStatsList">
-              <div class="health-item" style="font-size: 12px; opacity: 0.7;">启动后自动显示统计信息</div>
-            </div>
-          </div>
-
           <!-- 新手引导 -->
           <div class="control-block" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px; padding: 16px;">
             <h3 style="margin: 0 0 12px 0; color: #818cf8;">👋 欢迎使用简化版</h3>
@@ -269,8 +216,6 @@
       </main>
     </div>
 
-    <script src="activation-check.js"></script>
-    <script src="arbitrage-stats.js"></script>
     <script src="renderer.js"></script>
     <script src="charts.js"></script>
   </body>

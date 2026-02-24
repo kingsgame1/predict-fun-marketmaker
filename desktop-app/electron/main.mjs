@@ -10,9 +10,9 @@ const devProjectRoot = path.resolve(__dirname, '..', '..');
 
 // 解析命令行参数，确定加载哪个HTML
 // --launcher 或 -l: 启动器（版本选择页面）
-// --simple 或 -s: 简化版
-// --full 或 -f: 完整版（默认）
-// 默认：完整版
+// --simple 或 -s: 简化版（默认）
+// --full 或 -f: 完整版
+// 默认：简化版
 const args = process.argv.slice(1);
 const useLauncher = args.includes('--launcher') || args.includes('-l');
 const useSimple = args.includes('--simple') || args.includes('-s');
@@ -21,11 +21,11 @@ const useFull = args.includes('--full') || args.includes('-f');
 let htmlFileName;
 if (useLauncher) {
   htmlFileName = 'launcher.html';
-} else if (useSimple) {
-  htmlFileName = 'index_simple.html';
-} else {
-  // 默认完整版
+} else if (useFull) {
   htmlFileName = 'index.html';
+} else {
+  // 默认简化版
+  htmlFileName = 'index_simple.html';
 }
 
 const rendererPath = path.resolve(__dirname, '..', 'renderer', htmlFileName);
