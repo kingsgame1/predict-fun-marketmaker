@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Predict.fun 做市商控制台</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 40px;
+    }
+
+    .header h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+
+    .header p {
+      font-size: 1.1rem;
+      opacity: 0.9;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .card-header h2 {
+      font-size: 1.3rem;
+      color: #1f2937;
+    }
+
+    .status-badge {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .status-running {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status-stopped {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+    }
+
+    .stat-item {
+      padding: 16px;
+      background: #f9fafb;
+      border-radius: 8px;
+    }
+
+    .stat-label {
+      font-size: 0.85rem;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1f2937;
+    }
+
+    .stat-value.green { color: #10b981; }
+    .stat-value.red { color: #ef4444; }
+    .stat-value.blue { color: #3b82f6; }
+
+    .log-container {
+      background: #1f2937;
+      border-radius: 8px;
+      padding: 16px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.9rem;
+    }
+
+    .log-line {
+      padding: 4px 0;
+      color: #e5e7eb;
+      border-bottom: 1px solid #374151;
+    }
+
+    .log-line:last-child {
+      border-bottom: none;
+    }
+
+    .log-time {
+      color: #9ca3af;
+      margin-right: 8px;
+    }
+
+    .log-info { color: #60a5fa; }
+    .log-success { color: #34d399; }
+    .log-warning { color: #fbbf24; }
+    .log-error { color: #f87171; }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #5a67d8;
+      transform: translateY(-2px);
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #4b5563;
+      transform: translateY(-2px);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .loading {
+      animation: pulse 1.5s infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🚀 Predict.fun 做市商控制台</h1>
+      <p>自动做市商 · 赚取积分 · 完全免费</p>
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="card">
+      <div class="card-header">
+        <h2>⚙️ 控制面板</h2>
+        <span class="status-badge status-stopped" id="statusBadge">已停止</span>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" id="startBtn" onclick="startMarketMaker()">▶️ 启动做市商</button>
+        <button class="btn btn-danger" id="stopBtn" onclick="stopMarketMaker()" disabled>⏹️ 停止</button>
+        <button class="btn btn-secondary" onclick="refreshStatus()">🔄 刷新状态</button>
+      </div>
+    </div>
+
+    <!-- 统计数据 -->
+    <div class="card">
+      <div class="card-header">
+        <h2>📊 统计数据</h2>
+      </div>
+      <div class="grid">
+        <div class="stat-item">
+          <div class="stat-label">总订单数</div>
+          <div class="stat-value blue" id="totalOrders">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">成功订单</div>
+          <div class="stat-value green" id="successOrders">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">失败订单</div>
+          <div class="stat-value red" id="failedOrders">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">运行时间</div>
+          <div class="stat-value" id="uptime">0分 0秒</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">当前市场</div>
+          <div class="stat-value" id="markets">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">活跃订单</div>
+          <div class="stat-value blue" id="activeOrders">0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 实时日志 -->
+    <div class="card">
+      <div class="card-header">
+        <h2>📝 实时日志</h2>
+      </div>
+      <div class="log-container" id="logContainer">
+        <div class="log-line">
+          <span class="log-time">[系统]</span>
+          <span class="log-info">控制台已就绪，等待启动...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let isRunning = false;
+    let startTime = null;
+    let stats = {
+      totalOrders: 0,
+      successOrders: 0,
+      failedOrders: 0,
+      markets: 0,
+      activeOrders: 0
+    };
+
+    // 初始化
+    document.addEventListener('DOMContentLoaded', () => {
+      loadStatus();
+      setInterval(updateUptime, 1000);
+    });
+
+    // 启动做市商
+    async function startMarketMaker() {
+      try {
+        addLog('info', '正在启动做市商...');
+        const response = await fetch('/api/start', {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          isRunning = true;
+          startTime = Date.now();
+          updateStatus();
+          addLog('success', '✅ 做市商启动成功！');
+        } else {
+          addLog('error', '❌ 启动失败: ' + result.message);
+        }
+      } catch (error) {
+        addLog('error', '❌ 连接失败: ' + error.message);
+      }
+    }
+
+    // 停止做市商
+    async function stopMarketMaker() {
+      try {
+        addLog('warning', '正在停止做市商...');
+        const response = await fetch('/api/stop', {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          isRunning = false;
+          startTime = null;
+          updateStatus();
+          addLog('success', '✅ 做市商已停止');
+        } else {
+          addLog('error', '❌ 停止失败: ' + result.message);
+        }
+      } catch (error) {
+        addLog('error', '❌ 连接失败: ' + error.message);
+      }
+    }
+
+    // 刷新状态
+    async function refreshStatus() {
+      addLog('info', '正在刷新状态...');
+      await loadStatus();
+      setTimeout(() => addLog('info', '✅ 状态已更新'), 500);
+    }
+
+    // 加载状态
+    async function loadStatus() {
+      try {
+        const response = await fetch('/api/status');
+        const data = await response.json();
+
+        isRunning = data.running || false;
+        stats = data.stats || stats;
+
+        updateStatus();
+        updateStats();
+      } catch (error) {
+        console.error('加载状态失败:', error);
+      }
+    }
+
+    // 更新状态显示
+    function updateStatus() {
+      const badge = document.getElementById('statusBadge');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+
+      if (isRunning) {
+        badge.textContent = '运行中';
+        badge.className = 'status-badge status-running';
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+      } else {
+        badge.textContent = '已停止';
+        badge.className = 'status-badge status-stopped';
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+    }
+
+    // 更新统计数据
+    function updateStats() {
+      document.getElementById('totalOrders').textContent = stats.totalOrders || 0;
+      document.getElementById('successOrders').textContent = stats.successOrders || 0;
+      document.getElementById('failedOrders').textContent = stats.failedOrders || 0;
+      document.getElementById('markets').textContent = stats.markets || 0;
+      document.getElementById('activeOrders').textContent = stats.activeOrders || 0;
+    }
+
+    // 更新运行时间
+    function updateUptime() {
+      if (!startTime) {
+        document.getElementById('uptime').textContent = '0分 0秒';
+        return;
+      }
+
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      document.getElementById('uptime').textContent = `${minutes}分 ${seconds}秒`;
+    }
+
+    // 添加日志
+    function addLog(type, message) {
+      const container = document.getElementById('logContainer');
+      const time = new Date().toLocaleTimeString('zh-CN');
+      const logClass = {
+        info: 'log-info',
+        success: 'log-success',
+        warning: 'log-warning',
+        error: 'log-error'
+      }[type] || 'log-info';
+
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      line.innerHTML = `<span class="log-time">[${time}]</span><span class="${logClass}">${message}</span>`;
+
+      container.appendChild(line);
+      container.scrollTop = container.scrollHeight;
+
+      // 限制日志行数
+      while (container.children.length > 100) {
+        container.removeChild(container.firstChild);
+      }
+    }
+
+    // 定期刷新状态
+    setInterval(() => {
+      if (isRunning) {
+        loadStatus();
+      }
+    }, 5000);
+  </script>
+</body>
+</html>

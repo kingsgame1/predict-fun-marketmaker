@@ -15,7 +15,7 @@ import { ProbableWebSocketFeed } from './external/probable-ws.js';
 import { ProbableOrderManager } from './order-manager-probable.js';
 import type { Market, Orderbook } from './types.js';
 
-class PredictMarketMakerBot {
+export class PredictMarketMakerBot {
   private api: PredictAPI;
   private marketSelector: MarketSelector;
   private marketMaker: MarketMaker;
@@ -367,6 +367,16 @@ class PredictMarketMakerBot {
   }
 
   /**
+   * Start the bot
+   */
+  async start(): Promise<void> {
+    if (this.running) {
+      throw new Error('Bot is already running');
+    }
+    await this.run();
+  }
+
+  /**
    * Stop the bot
    */
   stop(): void {
@@ -383,6 +393,20 @@ class PredictMarketMakerBot {
   }
 
   /**
+   * Get selected markets count
+   */
+  getSelectedMarketsCount(): number {
+    return this.selectedMarkets.length;
+  }
+
+  /**
+   * Check if bot is running
+   */
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  /**
    * Sleep utility
    */
   private sleep(ms: number): Promise<void> {
@@ -390,7 +414,7 @@ class PredictMarketMakerBot {
   }
 }
 
-class ProbableMarketMakerBot {
+export class ProbableMarketMakerBot {
   private api: ProbableAPI;
   private marketSelector: MarketSelector;
   private marketMaker: MarketMaker;
@@ -678,6 +702,13 @@ class ProbableMarketMakerBot {
     }
   }
 
+  async start(): Promise<void> {
+    if (this.running) {
+      throw new Error('Bot is already running');
+    }
+    await this.run();
+  }
+
   stop(): void {
     this.running = false;
     if (this.wsFeed) {
@@ -686,6 +717,14 @@ class ProbableMarketMakerBot {
     if (this.wsDirtyUnsub) {
       this.wsDirtyUnsub();
     }
+  }
+
+  getSelectedMarketsCount(): number {
+    return this.selectedMarkets.length;
+  }
+
+  isRunning(): boolean {
+    return this.running;
   }
 
   private sleep(ms: number): Promise<void> {

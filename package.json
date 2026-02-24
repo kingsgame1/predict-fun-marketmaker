@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "start": "node --import tsx src/index.ts",
+    "start": "node --import tsx src/web-server.ts",
+    "start:cli": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "auth:jwt": "node --import tsx src/auth-jwt.ts",
@@ -26,10 +27,13 @@
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.0",
+    "express": "^4.22.1",
+    "open": "^10.2.0",
     "viem": "^2.21.4",
     "ws": "^8.17.0"
   },
   "devDependencies": {
+    "@types/express": "^4.17.25",
     "@types/node": "^20.14.0",
     "@types/ws": "^8.5.10",
     "tsx": "^4.15.0",
