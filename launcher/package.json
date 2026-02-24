@@ -1,0 +1,13 @@
+{
+  "name": "predict-fun-launcher",
+  "version": "1.0.0",
+  "description": "Predict.fun Market Maker Launcher - 简化版",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-store": "^8.1.0"
+  }
+}
