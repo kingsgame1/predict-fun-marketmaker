@@ -10,7 +10,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "auth:jwt": "node --import tsx src/auth-jwt.ts",
-    "setup:approvals": "node --import tsx src/setup-approvals.ts"
+    "setup:approvals": "node --import tsx src/setup-approvals.ts",
+    "market:recommend": "node --import tsx scripts/market-recommender.ts"
   },
   "keywords": [
     "predict",
