@@ -54,6 +54,42 @@ interface PositionSnapshot {
   timestamp: number;
 }
 
+// MEDIUM FIX #3: 定义做市商常量（消除魔法数字）
+const MARKET_MAKER_CONSTANTS = {
+  // 基础常量
+  MIN_TICK: 0.0001,
+  BPS_MULTIPLIER: 10000,
+  EPSILON: 0.0001,  // 浮点数比较精度
+
+  // 时间相关
+  DEFAULT_MIN_INTERVAL_MS: 3000,
+  ORDERBOOK_CACHE_MAX_AGE_MS: 2000,
+  FILL_DETECTION_COOLDOWN_MS: 5000,
+
+  // 价差相关
+  DEFAULT_SPREAD_CENTS: 0.02,
+  MAX_ALLOWED_BOOK_SPREAD: 0.2,
+  MIN_SPREAD_BPS: 80,
+  MAX_SPREAD_BPS: 550,
+
+  // 比率限制
+  MAX_RATIO: 999,
+  DEFAULT_TOLERANCE: 0.05,
+
+  // 订单大小
+  MIN_ORDER_SIZE: 10,
+  DEFAULT_ORDER_SIZE: 25,
+
+  // 滑点
+  DEFAULT_SLIPPAGE_BPS: 250,
+  DEFAULT_HEDGE_SLIPPAGE_BPS: 250,
+
+  // 风险控制
+  DEFAULT_MAX_POSITION: 100,
+  DEFAULT_MAX_DAILY_LOSS: 200,
+
+} as const;
+
 interface QuotePrices {
   bidPrice: number;
   askPrice: number;
@@ -73,6 +109,24 @@ interface QuotePrices {
 interface OrderSizeResult {
   shares: number;
   usdt: number;
+}
+
+// MEDIUM FIX #2: 结构化日志系统
+enum LogLevel {
+  ERROR = 'ERROR',
+  WARN = 'WARN',
+  INFO = 'INFO',
+  DEBUG = 'DEBUG',
+}
+
+interface LogContext {
+  tokenId?: string;
+  orderId?: string;
+  shares?: number;
+  price?: number;
+  side?: 'BUY' | 'SELL';
+  market?: string;
+  [key: string]: unknown;
 }
 
 export class MarketMaker {
@@ -1323,7 +1377,7 @@ export class MarketMaker {
         return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
       }
       if (vwapThresholdBps > 0 && vwapTargetShares > 0) {
-        const vwap = estimateSell(
+        const vwap = this.estimateSell(
           orderbook.bids,
           vwapTargetShares,
           vwapFeeBps,
@@ -1398,7 +1452,7 @@ export class MarketMaker {
         return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
       }
       if (vwapThresholdBps > 0 && vwapTargetShares > 0) {
-        const vwap = estimateBuy(
+        const vwap = this.estimateBuy(
           orderbook.asks,
           vwapTargetShares,
           vwapFeeBps,
@@ -1500,7 +1554,7 @@ export class MarketMaker {
       return { skip: false };
     }
     if (side === 'BUY') {
-      const vwap = estimateSell(
+      const vwap = this.estimateSell(
         orderbook.bids,
         targetShares,
         vwapFeeBps,
@@ -1516,7 +1570,7 @@ export class MarketMaker {
         }
       }
     } else {
-      const vwap = estimateBuy(
+      const vwap = this.estimateBuy(
         orderbook.asks,
         targetShares,
         vwapFeeBps,
@@ -5537,8 +5591,11 @@ export class MarketMaker {
         const prevYes = prevData?.yesAmount ?? 0;
         const prevNo = prevData?.noAmount ?? 0;
 
+        // MEDIUM FIX #1: 使用 EPSILON 进行浮点数比较
+        const EPSILON = MARKET_MAKER_CONSTANTS.EPSILON;
+
         // 检查 YES 变化
-        if (Math.abs(currentYes - prevYes) > 0) {
+        if (Math.abs(currentYes - prevYes) > EPSILON) {
           const deltaYes = currentYes - prevYes;
           const side = deltaYes > 0 ? 'BUY' : 'SELL';
           const filledShares = Math.abs(deltaYes);
@@ -5546,7 +5603,7 @@ export class MarketMaker {
         }
 
         // 检查 NO 变化
-        if (Math.abs(currentNo - prevNo) > 0) {
+        if (Math.abs(currentNo - prevNo) > EPSILON) {
           const deltaNo = currentNo - prevNo;
           const side = deltaNo > 0 ? 'BUY' : 'SELL';
           const filledShares = Math.abs(deltaNo);
@@ -6208,59 +6265,52 @@ export class MarketMaker {
   }
 
   /**
-   * 执行市价买入
+   * MEDIUM FIX #5: 提取市价订单执行的公共逻辑
    */
-  private async executeMarketBuy(market: Market, token: 'YES' | 'NO', shares: number, targetTokenId?: string): Promise<void> {
+  private async executeMarketOrder(
+    market: Market,
+    side: 'BUY' | 'SELL',
+    token: 'YES' | 'NO',
+    shares: number,
+    targetTokenId?: string
+  ): Promise<void> {
     if (!this.orderManager) {
       return;
     }
 
     try {
-      // 如果指定了 targetTokenId，使用它；否则使用 market.token_id
       const actualTokenId = targetTokenId || market.token_id;
       const actualMarket = targetTokenId ? { ...market, token_id: actualTokenId } : market;
 
       const orderbook = await this.api.getOrderbook(actualTokenId);
       const payload = await this.orderManager.buildMarketOrderPayload({
         market: actualMarket,
-        side: 'BUY',
+        side,
         shares,
         orderbook,
-        slippageBps: String(this.config.unifiedMarketMakerHedgeSlippageBps || 250),
+        slippageBps: String(this.config.unifiedMarketMakerHedgeSlippageBps || MARKET_MAKER_CONSTANTS.DEFAULT_HEDGE_SLIPPAGE_BPS),
       });
       await this.api.createOrder(payload);
-      console.log(`🛡️  Market BUY: ${shares} ${token} @ ${actualTokenId.slice(0, 16)}...`);
+      const emoji = side === 'BUY' ? '🛡️' : '🔄';
+      console.log(`${emoji} Market ${side}: ${shares} ${token} @ ${actualTokenId.slice(0, 16)}...`);
     } catch (error) {
-      console.error(`Error executing market buy:`, error);
+      console.error(`Error executing market ${side.toLowerCase()}:`, error);
+      throw error; // 重新抛出以便上层处理
     }
   }
 
   /**
-   * 执行市价卖出
+   * 执行市价买入（使用公共逻辑）
+   */
+  private async executeMarketBuy(market: Market, token: 'YES' | 'NO', shares: number, targetTokenId?: string): Promise<void> {
+    return this.executeMarketOrder(market, 'BUY', token, shares, targetTokenId);
+  }
+
+  /**
+   * 执行市价卖出（使用公共逻辑）
    */
   private async executeMarketSell(market: Market, token: 'YES' | 'NO', shares: number, targetTokenId?: string): Promise<void> {
-    if (!this.orderManager) {
-      return;
-    }
-
-    try {
-      // 如果指定了 targetTokenId，使用它；否则使用 market.token_id
-      const actualTokenId = targetTokenId || market.token_id;
-      const actualMarket = targetTokenId ? { ...market, token_id: actualTokenId } : market;
-
-      const orderbook = await this.api.getOrderbook(actualTokenId);
-      const payload = await this.orderManager.buildMarketOrderPayload({
-        market: actualMarket,
-        side: 'SELL',
-        shares,
-        orderbook,
-        slippageBps: String(this.config.unifiedMarketMakerHedgeSlippageBps || 250),
-      });
-      await this.api.createOrder(payload);
-      console.log(`🔄 Market SELL: ${shares} ${token} @ ${actualTokenId.slice(0, 16)}...`);
-    } catch (error) {
-      console.error(`Error executing market sell:`, error);
-    }
+    return this.executeMarketOrder(market, 'SELL', token, shares, targetTokenId);
   }
 
   // ===== 统一做市商策略辅助方法 =====
@@ -6778,5 +6828,152 @@ export class MarketMaker {
     for (const tokenId of tokenIds) {
       this.cleanupStaleState(tokenId);
     }
+  }
+
+  /**
+   * MEDIUM FIX #2: 结构化日志方法
+   */
+  private log(level: LogLevel, message: string, context?: LogContext): void {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+      timestamp,
+      level,
+      message,
+      ...context,
+    };
+
+    // 输出到控制台
+    if (level === LogLevel.ERROR) {
+      console.error(JSON.stringify(logEntry));
+    } else if (level === LogLevel.WARN) {
+      console.warn(JSON.stringify(logEntry));
+    } else {
+      console.log(JSON.stringify(logEntry));
+    }
+
+    // 存储到事件日志
+    this.mmEventLog.push({
+      ts: Date.now(),
+      type: level,
+      message,
+      ...context,
+    });
+  }
+
+  /**
+   * 便捷的日志方法
+   */
+  private logError(message: string, context?: LogContext): void {
+    this.log(LogLevel.ERROR, message, context);
+  }
+
+  private logWarn(message: string, context?: LogContext): void {
+    this.log(LogLevel.WARN, message, context);
+  }
+
+  private logInfo(message: string, context?: LogContext): void {
+    this.log(LogLevel.INFO, message, context);
+  }
+
+  private logDebug(message: string, context?: LogContext): void {
+    this.log(LogLevel.DEBUG, message, context);
+  }
+
+  /**
+   * MEDIUM FIX #8: VWAP 估算函数 - 从订单簿计算买入 VWAP（成本）
+   *
+   * @param levels - 订单簿层级（asks 或 bids）
+   * @param targetShares - 目标交易股数
+   * @param feeBps - 手续费（基点）
+   * @param _unused1 - 未使用的参数（保持兼容性）
+   * @param _unused2 - 未使用的参数（保持兼容性）
+   * @param slippageBps - 滑点（基点）
+   * @param maxLevels - 最大使用层级数
+   * @returns VWAP 计算结果
+   */
+  private estimateBuy(
+    levels: OrderLevel[],
+    targetShares: number,
+    feeBps: number = 0,
+    _unused1: unknown = undefined,
+    _unused2: unknown = undefined,
+    slippageBps: number = 0,
+    maxLevels: number = Infinity
+  ): { avgAllIn: number; totalShares: number } | null {
+    if (!levels || levels.length === 0 || targetShares <= 0) {
+      return null;
+    }
+
+    let totalShares = 0;
+    let totalCost = 0;
+    const feeMultiplier = 1 + feeBps / 10000;
+    const slippageMultiplier = 1 + slippageBps / 10000;
+
+    for (let i = 0; i < levels.length && i < maxLevels && totalShares < targetShares; i++) {
+      const level = levels[i];
+      const shares = Math.min(level.shares || 0, targetShares - totalShares);
+
+      if (shares > 0) {
+        const price = (level.price || 0) * slippageMultiplier;
+        totalCost += shares * price * feeMultiplier;
+        totalShares += shares;
+      }
+    }
+
+    if (totalShares === 0) {
+      return null;
+    }
+
+    const avgAllIn = totalCost / totalShares;
+    return { avgAllIn, totalShares };
+  }
+
+  /**
+   * MEDIUM FIX #8: VWAP 估算函数 - 从订单簿计算卖出 VWAP（收入）
+   *
+   * @param levels - 订单簿层级（asks 或 bids）
+   * @param targetShares - 目标交易股数
+   * @param feeBps - 手续费（基点）
+   * @param _unused1 - 未使用的参数（保持兼容性）
+   * @param _unused2 - 未使用的参数（保持兼容性）
+   * @param slippageBps - 滑点（基点）
+   * @param maxLevels - 最大使用层级数
+   * @returns VWAP 计算结果
+   */
+  private estimateSell(
+    levels: OrderLevel[],
+    targetShares: number,
+    feeBps: number = 0,
+    _unused1: unknown = undefined,
+    _unused2: unknown = undefined,
+    slippageBps: number = 0,
+    maxLevels: number = Infinity
+  ): { avgAllIn: number; totalShares: number } | null {
+    if (!levels || levels.length === 0 || targetShares <= 0) {
+      return null;
+    }
+
+    let totalShares = 0;
+    let totalRevenue = 0;
+    const feeMultiplier = 1 - feeBps / 10000;
+    const slippageMultiplier = 1 - slippageBps / 10000;
+
+    for (let i = 0; i < levels.length && i < maxLevels && totalShares < targetShares; i++) {
+      const level = levels[i];
+      const shares = Math.min(level.shares || 0, targetShares - totalShares);
+
+      if (shares > 0) {
+        const price = (level.price || 0) * slippageMultiplier;
+        totalRevenue += shares * price * feeMultiplier;
+        totalShares += shares;
+      }
+    }
+
+    if (totalShares === 0) {
+      return null;
+    }
+
+    const avgAllIn = totalRevenue / totalShares;
+    return { avgAllIn, totalShares };
   }
 }
