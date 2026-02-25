@@ -6,6 +6,32 @@
 import type { Config, Market, Orderbook, Order, OrderbookEntry, Position, LiquidityActivation } from './types.js';
 import type { MakerApi, MakerOrderManager } from './mm/venue.js';
 import { OrderManager } from './order-manager.js';
+// 统一做市商策略（整合了所有优点）
+import {
+  UnifiedMarketMakerStrategy,
+  UnifiedState,
+  type UnifiedMarketMakerConfig,
+  type UnifiedAction
+} from './strategies/unified-market-maker-strategy.js';
+
+// 两阶段循环对冲策略
+import {
+  TwoPhaseHedgeStrategy,
+  TwoPhaseState,
+  twoPhaseHedgeStrategy
+} from './strategies/two-phase-hedge-strategy.js';
+
+// Phase 1: 导入增强模块
+import {
+  VolatilityEstimator,
+  OrderFlowEstimator,
+  InventoryClassifier,
+  InventoryState,
+  MeanReversionPredictor
+} from './analysis/types.js';
+import {
+  DynamicASModel
+} from './pricing/types.js';
 // import { ValueMismatchDetector } from './arbitrage/value-detector.js';
 // import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
 // import { CrossPlatformAggregator } from './external/aggregator.js';
@@ -16,9 +42,9 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 // import { pointsManager } from './mm/points/points-manager.js';
 // import { spreadCache } from './mm/cache/spread-cache.js';
-// import { pointsOptimizerEngine, type PointsMarketScore } from './mm/points/points-optimizer.js';
+import { pointsOptimizerEngine, type PointsMarketScore } from './mm/points/points-optimizer.js';
 // import { pointsSystemIntegration } from './mm/points/points-integration.js';
-// import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './mm/points/points-optimizer-v2.js';
+import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './mm/points/points-optimizer-v2.js';
 
 interface QuotePrices {
   bidPrice: number;
@@ -84,10 +110,12 @@ export class MarketMaker {
   private actionLockUntil: Map<string, number> = new Map();
   private cooldownUntil: Map<string, number> = new Map();
   private pauseUntil: Map<string, number> = new Map();
-  private lastNetShares: Map<string, number> = new Map();
+  private lastNetShares: Map<string, number | { net: number; yesAmount: number; noAmount: number }> = new Map();
   private lastHedgeAt: Map<string, number> = new Map();
   private lastIcebergAt: Map<string, number> = new Map();
   private lastFillAt: Map<string, number> = new Map();
+  // 存储 token_id -> market 映射（支持 YES/NO 的不同 token_id）
+  private marketByToken: Map<string, Market> = new Map();
   private lastProfile: Map<string, 'CALM' | 'NORMAL' | 'VOLATILE'> = new Map();
   private lastProfileAt: Map<string, number> = new Map();
   private icebergPenalty: Map<string, { value: number; ts: number }> = new Map();
@@ -151,10 +179,74 @@ export class MarketMaker {
   private pointsReportInterval = 5 * 60 * 1000; // 5分钟报告一次
   private pointsOrderbookCache: Map<string, Orderbook> = new Map();
 
+  // ===== Phase 1: 增强模块字段 =====
+  // 为每个市场维护独立的估算器
+  private perMarketVolatility: Map<string, VolatilityEstimator> = new Map();
+  private perMarketOrderFlow: Map<string, OrderFlowEstimator> = new Map();
+  private perMarketReversion: Map<string, MeanReversionPredictor> = new Map();
+  private perMarketInventoryState: Map<string, InventoryState> = new Map();
+
+  // 全局估算器（共享）
+  private volatilityEstimator: VolatilityEstimator;
+  private orderFlowEstimator: OrderFlowEstimator;
+  private inventoryClassifier: InventoryClassifier;
+  private reversionPredictor: MeanReversionPredictor;
+  private asModel: DynamicASModel;
+
+  // ===== 统一做市商策略（整合所有优点） =====
+  private unifiedMarketMakerStrategy: UnifiedMarketMakerStrategy;
+  private lastPlacedPrices: Map<string, {
+    yesBid: number;
+    yesAsk: number;
+    noBid: number;
+    noAsk: number;
+    timestamp: number;
+  }> = new Map();
+
+  // ===== 两阶段循环对冲策略 =====
+  private twoPhaseStrategy: TwoPhaseHedgeStrategy = twoPhaseHedgeStrategy;
+  private perMarketTwoPhaseState: Map<string, TwoPhaseState> = new Map();
+
   constructor(api: MakerApi, config: Config, orderManagerFactory?: () => Promise<MakerOrderManager>) {
     this.api = api;
     this.config = config;
     this.orderManagerFactory = orderManagerFactory;
+
+    // ===== Phase 1: 初始化增强模块 =====
+    this.volatilityEstimator = new VolatilityEstimator();
+    this.orderFlowEstimator = new OrderFlowEstimator();
+    this.inventoryClassifier = new InventoryClassifier({
+      safeThreshold: config.mmInventorySafeThreshold ?? 0.3,
+      warningThreshold: config.mmInventoryWarningThreshold ?? 0.5,
+      dangerThreshold: config.mmInventoryDangerThreshold ?? 0.7,
+      enableAsymSpread: true
+    });
+    this.reversionPredictor = new MeanReversionPredictor();
+    this.asModel = new DynamicASModel({
+      gamma: config.mmASGamma ?? 0.1,
+      lambda: config.mmASLambda ?? 1.0,
+      kappa: config.mmASKappa ?? 1.5,
+      alpha: config.mmASAlpha ?? 0.5,
+      beta: config.mmASBeta ?? 0.3,
+      delta: config.mmASDelta ?? 0.2
+    });
+
+    // ===== 初始化统一做市商策略（整合所有优点） =====
+    this.unifiedMarketMakerStrategy = new UnifiedMarketMakerStrategy({
+      enabled: config.unifiedMarketMakerEnabled ?? false,
+      tolerance: config.unifiedMarketMakerTolerance ?? 0.05,
+      minHedgeSize: config.unifiedMarketMakerMinSize ?? 10,
+      maxHedgeSize: config.unifiedMarketMakerMaxSize ?? 500,
+      buySpreadBps: config.unifiedMarketMakerBuySpreadBps ?? 150,
+      sellSpreadBps: config.unifiedMarketMakerSellSpreadBps ?? 150,
+      hedgeSlippageBps: config.unifiedMarketMakerHedgeSlippageBps ?? 250,
+      asyncHedging: config.unifiedMarketMakerAsyncHedging ?? true,
+      dualTrackMode: config.unifiedMarketMakerDualTrackMode ?? true,
+      dynamicOffsetMode: config.unifiedMarketMakerDynamicOffsetMode ?? true,
+      buyOffsetBps: config.unifiedMarketMakerBuyOffsetBps ?? 100,
+      sellOffsetBps: config.unifiedMarketMakerSellOffsetBps ?? 100,
+    });
+
     if (this.config.useValueSignal) {
       this.valueDetector = new ValueMismatchDetector(0, 0);
     }
@@ -247,6 +339,18 @@ export class MarketMaker {
       }
 
       this.sessionPnL = Array.from(this.positions.values()).reduce((sum, p) => sum + p.pnl, 0);
+
+      // ===== Phase 1: 更新库存预测器 =====
+      for (const [tokenId, position] of this.positions) {
+        const netShares = position.yes_amount - position.no_amount;
+        const maxPosition = this.getEffectiveMaxPosition();
+        const predictor = this.getOrCreateReversionPredictor(tokenId);
+        predictor.recordInventory(tokenId, netShares, maxPosition);
+
+        // 更新库存状态分类
+        const inventoryState = this.inventoryClassifier.classify(tokenId, netShares, maxPosition);
+        this.perMarketInventoryState.set(tokenId, inventoryState);
+      }
 
       // 日损失自动恢复机制（默认24小时自动恢复）
       const autoResetMs = 24 * 60 * 60 * 1000; // 24小时
@@ -3489,8 +3593,67 @@ export class MarketMaker {
       adaptiveSpread *= 0.95;
     }
 
+    // ===== Phase 1: 集成 AS 模型计算最优价差 =====
+    let asEnhancedSpread = adaptiveSpread;
+    if (this.config.mmEnhancedSpreadEnabled !== false) {
+      // 更新增强指标
+      this.updateAdvancedMetrics(market.token_id, orderbook);
+
+      // 获取实时数据
+      const volEstimator = this.getOrCreateVolatilityEstimator(market.token_id);
+      const enhancedVol = volEstimator.getVolatility();
+
+      const flowEstimator = this.getOrCreateOrderFlowEstimator(market.token_id);
+      const orderFlow = flowEstimator.getFlowIntensity(1);
+      const flowMetrics = flowEstimator.getMetrics(1);
+
+      // 库存状态
+      const inventoryBias = this.calculateInventoryBias(market.token_id);
+      const inventoryState = this.inventoryClassifier.classify(
+        market.token_id,
+        Math.round(inventoryBias * this.getEffectiveMaxPosition()),
+        this.getEffectiveMaxPosition()
+      );
+
+      // 更新缓存
+      this.perMarketInventoryState.set(market.token_id, inventoryState);
+
+      // 使用 AS 模型计算最优价差
+      const asMarketState = {
+        midPrice: microPrice,
+        inventory: inventoryBias,
+        volatility: enhancedVol > 0 ? enhancedVol : volEma,
+        orderFlow: orderFlow,
+        depth: depthMetrics.totalDepth,
+        flowDirection: flowMetrics.direction
+      };
+
+      const asOptimalSpread = this.asModel.calculateOptimalSpread(asMarketState);
+
+      // 获取库存策略
+      const strategy = this.inventoryClassifier.getStrategy(
+        inventoryState,
+        Math.round(inventoryBias * this.getEffectiveMaxPosition()),
+        this.getEffectiveMaxPosition()
+      );
+
+      // 应用策略倍数
+      const strategyAdjustedSpread = asOptimalSpread * strategy.spreadMultiplier;
+
+      // 混合现有价差和 AS 价差（可配置权重）
+      const asWeight = this.config.mmASModelWeight ?? 0.5; // 默认50%权重
+      asEnhancedSpread = adaptiveSpread * (1 - asWeight) + strategyAdjustedSpread * asWeight;
+
+      // 如果库存状态不允许挂单，返回null
+      if (!strategy.allowOrders) {
+        console.log(`⚠️  Inventory state ${inventoryState} for ${market.token_id}, orders not allowed`);
+        // 不返回null，而是扩大价差到极值
+        asEnhancedSpread = Math.max(asEnhancedSpread, maxSpread);
+      }
+    }
+
     if (liquidityRules?.max_spread) {
-      adaptiveSpread = Math.min(adaptiveSpread, liquidityRules.max_spread * 0.95);
+      asEnhancedSpread = Math.min(asEnhancedSpread, liquidityRules.max_spread * 0.95);
     }
 
     const safeModeActive = this.isSafeModeActive(market.token_id, {
@@ -3500,14 +3663,14 @@ export class MarketMaker {
     });
     if (safeModeActive) {
       const spreadMult = Math.max(1, this.config.mmSafeModeSpreadMult ?? 1);
-      adaptiveSpread *= spreadMult;
+      asEnhancedSpread *= spreadMult;
       const spreadAdd = Math.max(0, this.config.mmSafeModeSpreadAdd ?? 0);
       if (spreadAdd > 0) {
-        adaptiveSpread += spreadAdd;
+        asEnhancedSpread += spreadAdd;
       }
       const cancelBufferAdd = Math.max(0, this.config.mmSafeModeCancelBufferAddBps ?? 0);
       if (cancelBufferAdd > 0) {
-        adaptiveSpread += cancelBufferAdd / 10000;
+        asEnhancedSpread += cancelBufferAdd / 10000;
       }
     } else {
       const holdMs = Math.max(0, this.config.mmSafeModeExitHoldMs ?? 0);
@@ -3529,14 +3692,14 @@ export class MarketMaker {
 
     const wsSpreadMult = this.getWsHealthSpreadMult();
     if (wsSpreadMult > 0 && wsSpreadMult !== 1) {
-      adaptiveSpread *= wsSpreadMult;
+      asEnhancedSpread *= wsSpreadMult;
       minSpread *= wsSpreadMult;
       if (maxSpread > 0) {
         maxSpread *= wsSpreadMult;
       }
     }
 
-    adaptiveSpread = this.clamp(adaptiveSpread, minSpread, maxSpread);
+    asEnhancedSpread = this.clamp(asEnhancedSpread, minSpread, maxSpread);
 
     const inventoryBias = this.calculateInventoryBias(market.token_id);
     let inventorySkewFactor = this.config.inventorySkewFactor ?? 0.15;
@@ -3580,7 +3743,7 @@ export class MarketMaker {
       1 +
       Math.abs(inventoryBias) * inventorySpreadWeight +
       Math.abs(imbalance) * imbalanceSpreadWeight;
-    const half = (adaptiveSpread * spreadBoost) / 2;
+    const half = (asEnhancedSpread * spreadBoost) / 2;
     const invWeight = this.config.mmAsymSpreadInventoryWeight ?? 0.4;
     const imbWeight = this.config.mmAsymSpreadImbalanceWeight ?? 0.35;
     const minFactor = this.config.mmAsymSpreadMinFactor ?? 0.6;
@@ -3696,7 +3859,7 @@ export class MarketMaker {
       bidPrice: bid,
       askPrice: ask,
       midPrice: microPrice,
-      spread: adaptiveSpread,
+      spread: asEnhancedSpread,
       pressure,
       inventoryBias,
       valueBias,
@@ -4036,6 +4199,41 @@ export class MarketMaker {
       console.log('⚠️  Trading is disabled. Set ENABLE_TRADING=true to enable.');
       return;
     }
+
+    // 更新 marketByToken 映射（支持 YES/NO 的不同 token_id）
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+    this.marketByToken.set(market.token_id, market);
+    if (yesTokenId) {
+      this.marketByToken.set(yesTokenId, { ...market, token_id: yesTokenId });
+    }
+    if (noTokenId) {
+      this.marketByToken.set(noTokenId, { ...market, token_id: noTokenId });
+    }
+
+    // ===== 统一做市商策略（整合所有优点） =====
+    if (this.unifiedMarketMakerStrategy.isEnabled()) {
+      // CRITICAL FIX #1: 使用聚合的持仓（YES + NO token_id）
+      const position = this.getAggregatedPosition(market);
+      const yesPrice = orderbook.best_bid || 0;
+      const noPrice = 1 - yesPrice;
+
+      const analysis = this.unifiedMarketMakerStrategy.analyze(market, position, yesPrice, noPrice);
+
+      console.log(`🚀 统一做市商策略: ${analysis.state}`);
+      console.log(`   挂 Buy 单: ${analysis.shouldPlaceBuyOrders ? '✅' : '❌'}`);
+      console.log(`   挂 Sell 单: ${analysis.shouldPlaceSellOrders ? '✅' : '❌'}`);
+
+      // 执行统一策略的挂单逻辑
+      await this.executeUnifiedStrategy(market, orderbook, position, analysis);
+
+      // 监控是否成为第一档（如果成为则自动撤单重挂）
+      await this.monitorTierOneStatus(market, orderbook);
+
+      return;
+    }
+
+    // 如果未启用统一策略，继续原有的做市商逻辑
+    // ...
 
     if (this.tradingHalted) {
       console.log('🛑 Trading halted by risk controls.');
@@ -4689,8 +4887,43 @@ export class MarketMaker {
         `bias=${prices.inventoryBias.toFixed(2)} imb=${imbalance.toFixed(2)}${depthInfo}${valueInfo} ${qualifiesForPoints ? '✨' : ''} profile=${profile}`
     );
 
-    const suppressBuy = prices.inventoryBias > 0.85;
-    const suppressSell = prices.inventoryBias < -0.85;
+    // ===== Phase 1: 使用 InventoryClassifier 的单边挂单策略 =====
+    let suppressBuy = false;
+    let suppressSell = false;
+
+    if (this.config.mmEnhancedSpreadEnabled !== false) {
+      const inventoryBias = this.calculateInventoryBias(market.token_id);
+      const inventoryState = this.perMarketInventoryState.get(market.token_id);
+      if (inventoryState) {
+        const strategy = this.inventoryClassifier.getStrategy(
+          inventoryState,
+          Math.round(inventoryBias * this.getEffectiveMaxPosition()),
+          this.getEffectiveMaxPosition()
+        );
+
+        // 使用策略中的单边挂单配置
+        if (strategy.singleSide === 'BUY') {
+          suppressSell = true;  // 只允许买单，不挂卖单
+          console.log(`   📊 Single-side mode: BUY only (inventory bias: ${(inventoryBias * 100).toFixed(1)}%)`);
+        } else if (strategy.singleSide === 'SELL') {
+          suppressBuy = true;   // 只允许卖单，不挂买单
+          console.log(`   📊 Single-side mode: SELL only (inventory bias: ${(inventoryBias * 100).toFixed(1)}%)`);
+        }
+
+        // 如果不允许挂单，抑制双边
+        if (!strategy.allowOrders) {
+          suppressBuy = true;
+          suppressSell = true;
+          console.log(`   🛑 Orders suspended: ${inventoryState} state`);
+        }
+      }
+    }
+
+    // 兜底逻辑：如果没有启用 Phase 1，使用原来的硬编码阈值
+    if (!suppressBuy && !suppressSell) {
+      suppressBuy = prices.inventoryBias > 0.85;
+      suppressSell = prices.inventoryBias < -0.85;
+    }
 
     let placed = false;
     const allowBelowMin = this.config.mmLayerAllowBelowMinShares === true;
@@ -5184,18 +5417,94 @@ export class MarketMaker {
   }
 
   private async detectAndHedgeFills(): Promise<void> {
+    // ===== 统一做市商策略：订单成交处理 =====
+    if (this.unifiedMarketMakerStrategy.isEnabled()) {
+      // 修复：遍历所有市场并聚合 YES/NO 的 position
+      const processedMarkets = new Set<string>();
+
+      for (const [tokenId, position] of this.positions.entries()) {
+        // 从 token_id 找到对应的市场对象
+        let market: Market | undefined;
+        for (const [mTokenId, m] of this.marketByToken) {
+          if (mTokenId === tokenId) {
+            market = m;
+            break;
+          }
+        }
+
+        if (!market || !market.condition_id || processedMarkets.has(market.condition_id)) {
+          continue;
+        }
+
+        processedMarkets.add(market.condition_id);
+
+        // 获取 YES 和 NO 的 token_id
+        const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+        if (!yesTokenId || !noTokenId) {
+          continue;
+        }
+
+        // 聚合 YES 和 NO 的 position
+        const yesPosition = this.positions.get(yesTokenId) || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+        const noPosition = this.positions.get(noTokenId) || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+
+        const currentYes = yesPosition.yes_amount + noPosition.yes_amount;
+        const currentNo = yesPosition.no_amount + noPosition.no_amount;
+
+        // HIGH FIX #5: 首次运行时建立基线，避免误报成交
+        if (!this.lastNetShares.has(market.condition_id)) {
+          this.lastNetShares.set(market.condition_id, {
+            net: currentYes - currentNo,
+            yesAmount: currentYes,
+            noAmount: currentNo
+          });
+          continue; // 跳过第一次迭代，只建立基线
+        }
+
+        const prevData = this.lastNetShares.get(market.condition_id);
+        const prevYes = (typeof prevData === 'object' && prevData?.yesAmount) ?? 0;
+        const prevNo = (typeof prevData === 'object' && prevData?.noAmount) ?? 0;
+
+        // 检查 YES 变化
+        if (Math.abs(currentYes - prevYes) > 0) {
+          const deltaYes = currentYes - prevYes;
+          const side = deltaYes > 0 ? 'BUY' : 'SELL';
+          const filledShares = Math.abs(deltaYes);
+          await this.handleUnifiedOrderFill(market, side, 'YES', filledShares);
+        }
+
+        // 检查 NO 变化
+        if (Math.abs(currentNo - prevNo) > 0) {
+          const deltaNo = currentNo - prevNo;
+          const side = deltaNo > 0 ? 'BUY' : 'SELL';
+          const filledShares = Math.abs(deltaNo);
+          await this.handleUnifiedOrderFill(market, side, 'NO', filledShares);
+        }
+
+        // 保存当前状态（使用 condition_id 作为 key）
+        this.lastNetShares.set(market.condition_id, {
+          net: currentYes - currentNo,
+          yesAmount: currentYes,
+          noAmount: currentNo
+        });
+      }
+      return;
+    }
+
+    // ===== 原有的对冲逻辑（如果未启用统一策略）=====
     const triggerShares = this.config.hedgeTriggerShares ?? 50;
     if (this.lastNetShares.size === 0) {
       for (const [tokenId, position] of this.positions.entries()) {
         const net = position.yes_amount - position.no_amount;
-        this.lastNetShares.set(tokenId, net);
+        this.lastNetShares.set(tokenId, { net, yesAmount: position.yes_amount, noAmount: position.no_amount });
       }
       return;
     }
 
     for (const [tokenId, position] of this.positions.entries()) {
       const net = position.yes_amount - position.no_amount;
-      const prev = this.lastNetShares.get(tokenId) ?? 0;
+      const prevValue = this.lastNetShares.get(tokenId);
+      const prev = (typeof prevValue === 'number' ? prevValue : 0) ?? 0;
       const delta = net - prev;
       const absDelta = Math.abs(delta);
       const restoreActive = this.isLayerRestoreActive(tokenId);
@@ -5550,5 +5859,730 @@ export class MarketMaker {
 
     // 定期详细积分报告
     this.reportPointsEfficiency();
+  }
+
+  // ===== Phase 1: 增强模块辅助方法 =====
+
+  /**
+   * 获取或创建波动率估算器
+   */
+  private getOrCreateVolatilityEstimator(tokenId: string): VolatilityEstimator {
+    if (!this.perMarketVolatility.has(tokenId)) {
+      this.perMarketVolatility.set(tokenId, new VolatilityEstimator());
+    }
+    return this.perMarketVolatility.get(tokenId)!;
+  }
+
+  /**
+   * 获取或创建订单流估算器
+   */
+  private getOrCreateOrderFlowEstimator(tokenId: string): OrderFlowEstimator {
+    if (!this.perMarketOrderFlow.has(tokenId)) {
+      this.perMarketOrderFlow.set(tokenId, new OrderFlowEstimator());
+    }
+    return this.perMarketOrderFlow.get(tokenId)!;
+  }
+
+  /**
+   * 获取或创建均值回归预测器
+   */
+  private getOrCreateReversionPredictor(tokenId: string): MeanReversionPredictor {
+    if (!this.perMarketReversion.has(tokenId)) {
+      this.perMarketReversion.set(tokenId, new MeanReversionPredictor());
+    }
+    return this.perMarketReversion.get(tokenId)!;
+  }
+
+  /**
+   * 更新波动率和订单流数据
+   */
+  private updateAdvancedMetrics(tokenId: string, orderbook: Orderbook): void {
+    // 更新波动率
+    if (orderbook.mid_price && orderbook.mid_price > 0) {
+      const volEstimator = this.getOrCreateVolatilityEstimator(tokenId);
+      volEstimator.updatePrice(orderbook.mid_price, Date.now());
+    }
+
+    // 库存数据在 handleFill 中更新
+  }
+
+  /**
+   * 记录订单流事件
+   */
+  private recordOrderFlow(tokenId: string, side: 'BUY' | 'SELL', amount: number, price: number): void {
+    const flowEstimator = this.getOrCreateOrderFlowEstimator(tokenId);
+    flowEstimator.recordOrder(side, amount, price, Date.now());
+  }
+
+  // ===== 两阶段循环对冲策略（V5）辅助方法 =====
+
+  /**
+   * 第一阶段：挂 Buy 单（建立对冲库存）
+   */
+  private async executeTwoPhaseBuySide(market: Market, orderbook: Orderbook, position: Position): Promise<void> {
+    // CRITICAL FIX #3: 使用 YES/NO 各自的 token_id
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+    if (!yesTokenId || !noTokenId) {
+      console.warn('⚠️  Cannot get YES/NO token_ids, skipping Phase 1');
+      return;
+    }
+
+    // 分别获取 YES 和 NO 的订单簿
+    const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
+    const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
+
+    const yesPrice = yesOrderbook.best_bid || 0;
+    const noPrice = noOrderbook.best_bid || (1 - yesPrice);
+
+    // 获取两阶段策略建议的挂单价格
+    const prices = this.twoPhaseStrategy.suggestOrderPrices(yesPrice, noPrice, TwoPhaseState.EMPTY);
+
+    if (!prices.yesBid || !prices.noBid) {
+      console.log('⚠️  Could not calculate buy prices');
+      return;
+    }
+
+    console.log(`💡 Phase 1 BUY prices: YES=$${prices.yesBid.toFixed(4)} NO=$${prices.noBid.toFixed(4)}`);
+
+    // 取消所有现有订单（使用原始 market.token_id）
+    await this.cancelOrdersForMarket(market.token_id);
+
+    // 计算订单大小
+    const orderSize = Math.max(10, Math.floor(this.config.orderSize || 25));
+
+    // CRITICAL FIX #3: 使用各自的市场对象挂单
+    const yesMarket = { ...market, token_id: yesTokenId };
+    const noMarket = { ...market, token_id: noTokenId };
+
+    // 挂 YES Buy 单
+    if (prices.yesBid > 0) {
+      await this.placeLimitOrder(yesMarket, 'BUY', prices.yesBid, orderSize, 0.02);
+    }
+
+    // 挂 NO Buy 单
+    if (prices.noBid > 0) {
+      await this.placeLimitOrder(noMarket, 'BUY', prices.noBid, orderSize, 0.02);
+    }
+
+    console.log(`✅ Phase 1: Placed BUY orders (establishing hedge)`);
+  }
+
+  /**
+   * 第二阶段：挂 Sell 单（赚取积分并平仓）
+   */
+  private async executeTwoPhaseSellSide(market: Market, orderbook: Orderbook, position: Position): Promise<void> {
+    // CRITICAL FIX #3: 使用 YES/NO 各自的 token_id
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+    if (!yesTokenId || !noTokenId) {
+      console.warn('⚠️  Cannot get YES/NO token_ids, skipping Phase 2');
+      return;
+    }
+
+    // 分别获取 YES 和 NO 的订单簿
+    const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
+    const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
+
+    const yesPrice = yesOrderbook.best_bid || 0;
+    const noPrice = noOrderbook.best_bid || (1 - yesPrice);
+
+    // 获取两阶段策略建议的挂单价格
+    const prices = this.twoPhaseStrategy.suggestOrderPrices(yesPrice, noPrice, TwoPhaseState.HEDGED);
+
+    if (!prices.yesAsk || !prices.noAsk) {
+      console.log('⚠️  Could not calculate sell prices');
+      return;
+    }
+
+    console.log(`💡 Phase 2 SELL prices: YES=$${prices.yesAsk.toFixed(4)} NO=$${prices.noAsk.toFixed(4)}`);
+
+    // 取消所有现有订单（使用原始 market.token_id）
+    await this.cancelOrdersForMarket(market.token_id);
+
+    // 计算订单大小（基于当前持仓）
+    const orderSize = Math.max(10, Math.min(
+      Math.floor(position.yes_amount || 10),
+      Math.floor(position.no_amount || 10)
+    ));
+
+    // CRITICAL FIX #3: 使用各自的市场对象挂单
+    const yesMarket = { ...market, token_id: yesTokenId };
+    const noMarket = { ...market, token_id: noTokenId };
+
+    // 挂 YES Sell 单
+    if (prices.yesAsk > 0 && position.yes_amount > 0) {
+      await this.placeLimitOrder(yesMarket, 'SELL', prices.yesAsk, orderSize, 0.02);
+    }
+
+    // 挂 NO Sell 单
+    if (prices.noAsk > 0 && position.no_amount > 0) {
+      await this.placeLimitOrder(noMarket, 'SELL', prices.noAsk, orderSize, 0.02);
+    }
+
+    console.log(`✅ Phase 2: Placed SELL orders (earning points)`);
+  }
+
+  /**
+   * 处理两阶段策略的订单成交
+   */
+  async handleTwoPhaseOrderFill(
+    market: Market,
+    side: 'BUY' | 'SELL',
+    token: 'YES' | 'NO',
+    filledShares: number
+  ): Promise<void> {
+    const currentState = this.perMarketTwoPhaseState.get(market.token_id) || TwoPhaseState.EMPTY;
+
+    // CRITICAL FIX #2a: 使用聚合的持仓（YES + NO token_id）
+    const position = this.getAggregatedPosition(market);
+
+    console.log(`📝 Two-phase order fill: ${token} ${side} ${filledShares} shares (Phase: ${currentState})`);
+
+    const action = this.twoPhaseStrategy.handleOrderFill(
+      side,
+      token,
+      filledShares,
+      position.yes_amount,
+      position.no_amount,
+      currentState
+    );
+
+    if (!action.needsAction || action.type === 'NONE') {
+      return;
+    }
+
+    console.log(`🎯 Two-phase action: ${action.type} ${action.shares} shares - ${action.reason}`);
+
+    // 获取 YES/NO token_id 用于对冲操作
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    // HIGH FIX #7: 添加 targetTokenId 空值检查
+    if (action.type === 'BUY_YES' && !yesTokenId) {
+      console.error('❌ Cannot execute BUY_YES: yesTokenId is undefined');
+      return;
+    }
+    if (action.type === 'BUY_NO' && !noTokenId) {
+      console.error('❌ Cannot execute BUY_NO: noTokenId is undefined');
+      return;
+    }
+    if (action.type === 'SELL_YES' && !yesTokenId) {
+      console.error('❌ Cannot execute SELL_YES: yesTokenId is undefined');
+      return;
+    }
+    if (action.type === 'SELL_NO' && !noTokenId) {
+      console.error('❌ Cannot execute SELL_NO: noTokenId is undefined');
+      return;
+    }
+
+    // 执行对冲或平仓操作
+    switch (action.type) {
+      case 'BUY_YES':
+        // Phase 1: NO Buy 单被成交 → 立即买入 YES 建立对冲
+        // CRITICAL FIX #2b: 传递 targetTokenId (YES)
+        await this.executeMarketBuy(market, 'YES', action.shares, yesTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.HEDGED);
+        console.log(`✅ Phase 1: Established 1:1 hedge (YES + NO)`);
+        break;
+
+      case 'BUY_NO':
+        // Phase 1: YES Buy 单被成交 → 立即买入 NO 建立对冲
+        // CRITICAL FIX #2b: 传递 targetTokenId (NO)
+        await this.executeMarketBuy(market, 'NO', action.shares, noTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.HEDGED);
+        console.log(`✅ Phase 1: Established 1:1 hedge (YES + NO)`);
+        break;
+
+      case 'SELL_YES':
+        // Phase 2: NO Sell 单被成交 → 立即卖出 YES 平仓
+        // CRITICAL FIX #2b: 传递 targetTokenId (YES)
+        await this.executeMarketSell(market, 'YES', action.shares, yesTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.EMPTY);
+        console.log(`✅ Phase 2: Flattened position, back to 0`);
+        break;
+
+      case 'SELL_NO':
+        // Phase 2: YES Sell 单被成交 → 立即卖出 NO 平仓
+        // CRITICAL FIX #2b: 传递 targetTokenId (NO)
+        await this.executeMarketSell(market, 'NO', action.shares, noTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.EMPTY);
+        console.log(`✅ Phase 2: Flattened position, back to 0`);
+        break;
+    }
+  }
+
+  /**
+   * 执行市价买入
+   */
+  private async executeMarketBuy(market: Market, token: 'YES' | 'NO', shares: number, targetTokenId?: string): Promise<void> {
+    if (!this.orderManager) {
+      return;
+    }
+
+    try {
+      // 如果指定了 targetTokenId，使用它；否则使用 market.token_id
+      const actualTokenId = targetTokenId || market.token_id;
+      const actualMarket = targetTokenId ? { ...market, token_id: actualTokenId } : market;
+
+      const orderbook = await this.api.getOrderbook(actualTokenId);
+      const payload = await this.orderManager.buildMarketOrderPayload({
+        market: actualMarket,
+        side: 'BUY',
+        shares,
+        orderbook,
+        slippageBps: String(this.config.unifiedMarketMakerHedgeSlippageBps || 250),
+      });
+      await this.api.createOrder(payload);
+      console.log(`🛡️  Market BUY: ${shares} ${token} @ ${actualTokenId.slice(0, 16)}...`);
+    } catch (error) {
+      console.error(`Error executing market buy:`, error);
+    }
+  }
+
+  /**
+   * 执行市价卖出
+   */
+  private async executeMarketSell(market: Market, token: 'YES' | 'NO', shares: number, targetTokenId?: string): Promise<void> {
+    if (!this.orderManager) {
+      return;
+    }
+
+    try {
+      // 如果指定了 targetTokenId，使用它；否则使用 market.token_id
+      const actualTokenId = targetTokenId || market.token_id;
+      const actualMarket = targetTokenId ? { ...market, token_id: actualTokenId } : market;
+
+      const orderbook = await this.api.getOrderbook(actualTokenId);
+      const payload = await this.orderManager.buildMarketOrderPayload({
+        market: actualMarket,
+        side: 'SELL',
+        shares,
+        orderbook,
+        slippageBps: String(this.config.unifiedMarketMakerHedgeSlippageBps || 250),
+      });
+      await this.api.createOrder(payload);
+      console.log(`🔄 Market SELL: ${shares} ${token} @ ${actualTokenId.slice(0, 16)}...`);
+    } catch (error) {
+      console.error(`Error executing market sell:`, error);
+    }
+  }
+
+  // ===== 统一做市商策略辅助方法 =====
+
+  /**
+   * 从市场对象的 outcomes 数组中获取 YES 和 NO 的 token_id
+   */
+  private getYesNoTokenIds(market: Market): { yesTokenId?: string; noTokenId?: string } {
+    if (!market.outcomes || market.outcomes.length === 0) {
+      console.warn(`⚠️  市场 ${market.token_id.slice(0, 8)}... 没有 outcomes 数据`);
+      return {};
+    }
+
+    let yesTokenId: string | undefined;
+    let noTokenId: string | undefined;
+
+    for (const outcome of market.outcomes) {
+      // MEDIUM FIX #12: 验证 outcome 数据完整性
+      if (!outcome.onChainId) {
+        console.warn(`⚠️  Outcome ${outcome.name} 缺少 onChainId`);
+        continue;
+      }
+
+      const name = outcome.name.toLowerCase();
+      const isYes = name === 'yes' || name === 'up' || name === 'true' || outcome.indexSet === 1;
+      const isNo = name === 'no' || name === 'down' || name === 'false' || outcome.indexSet === 2;
+
+      if (isYes) {
+        yesTokenId = outcome.onChainId;
+      } else if (isNo) {
+        noTokenId = outcome.onChainId;
+      }
+    }
+
+    return { yesTokenId, noTokenId };
+  }
+
+  /**
+   * 获取聚合的持仓（YES 和 NO token_id 的持仓合并）
+   * 用于统一做市商策略和两阶段策略
+   */
+  private getAggregatedPosition(market: Market): Position {
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    if (!yesTokenId || !noTokenId) {
+      // Fallback: 使用 market.token_id
+      return this.positions.get(market.token_id) || {
+        token_id: market.token_id,
+        question: market.question || '',
+        yes_amount: 0,
+        no_amount: 0,
+        total_value: 0,
+        avg_entry_price: 0,
+        current_price: 0,
+        pnl: 0,
+      };
+    }
+
+    // 聚合 YES 和 NO token 的持仓
+    const yesPosition = this.positions.get(yesTokenId) || {
+      yes_amount: 0,
+      no_amount: 0,
+      total_value: 0,
+      pnl: 0,
+    };
+    const noPosition = this.positions.get(noTokenId) || {
+      yes_amount: 0,
+      no_amount: 0,
+      total_value: 0,
+      pnl: 0,
+    };
+
+    return {
+      token_id: market.token_id,
+      question: market.question || '',
+      yes_amount: yesPosition.yes_amount + noPosition.yes_amount,
+      no_amount: yesPosition.no_amount + noPosition.no_amount,
+      total_value: yesPosition.total_value + noPosition.total_value,
+      avg_entry_price: 0,
+      current_price: 0,
+      pnl: (yesPosition.pnl || 0) + (noPosition.pnl || 0),
+    };
+  }
+
+  /**
+   * 查找同一市场的 YES 和 NO 市场对象（已废弃，使用 getYesNoTokenIds）
+   * @deprecated 使用 getYesNoTokenIds 直接从 outcomes 数组获取 token_id
+   */
+  private findYesNoMarkets(market: Market): { yes?: Market; no?: Market } {
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    const yesMarket = yesTokenId ? { ...market, token_id: yesTokenId } : undefined;
+    const noMarket = noTokenId ? { ...market, token_id: noTokenId } : undefined;
+
+    return { yes: yesMarket, no: noMarket };
+  }
+
+  /**
+   * 推断市场的 outcome (YES 或 NO)（已废弃，使用 outcomes 数组）
+   * @deprecated 使用 market.outcomes 数组直接获取
+   */
+  private inferOutcome(market: Market): 'YES' | 'NO' | null {
+    // 首先尝试从 outcomes 数组中获取
+    if (market.outcomes && market.outcomes.length > 0) {
+      const yesOutcome = market.outcomes.find(o =>
+        o.name.toLowerCase() === 'yes' ||
+        o.name.toLowerCase() === 'up' ||
+        o.name.toLowerCase() === 'true' ||
+        o.indexSet === 1
+      );
+      if (yesOutcome && yesOutcome.onChainId === market.token_id) {
+        return 'YES';
+      }
+
+      const noOutcome = market.outcomes.find(o =>
+        o.name.toLowerCase() === 'no' ||
+        o.name.toLowerCase() === 'down' ||
+        o.name.toLowerCase() === 'false' ||
+        o.indexSet === 2
+      );
+      if (noOutcome && noOutcome.onChainId === market.token_id) {
+        return 'NO';
+      }
+    }
+
+    // Fallback：使用旧的推断逻辑
+    const rawOutcome = String(market.outcome || '').toUpperCase();
+    if (rawOutcome.includes('YES')) {
+      return 'YES';
+    }
+    if (rawOutcome.includes('NO')) {
+      return 'NO';
+    }
+
+    const q = market.question.toLowerCase();
+    if (/\b(yes|true)\b/.test(q)) {
+      return 'YES';
+    }
+    if (/\b(no|false)\b/.test(q)) {
+      return 'NO';
+    }
+
+    return null;
+  }
+
+  /**
+   * 执行统一策略的挂单逻辑
+   */
+  private async executeUnifiedStrategy(
+    market: Market,
+    orderbook: Orderbook,
+    position: Position,
+    analysis: any
+  ): Promise<void> {
+    // 修复：获取 YES 和 NO 的 token_id
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    if (!yesTokenId || !noTokenId) {
+      console.warn(`⚠️  无法获取 YES/NO token_id，跳过统一策略`);
+      return;
+    }
+
+    console.log(`🔑 使用不同的 token_id:`);
+    console.log(`   YES: ${yesTokenId.slice(0, 16)}...`);
+    console.log(`   NO:  ${noTokenId.slice(0, 16)}...`);
+
+    // MEDIUM FIX #13: 使用 getAggregatedPosition 方法（移除重复逻辑）
+    const unifiedPosition = this.getAggregatedPosition(market);
+
+    console.log(`📊 聚合持仓: YES=${unifiedPosition.yes_amount}, NO=${unifiedPosition.no_amount}`);
+
+    // 修复 2: 分别获取 YES 和 NO 的订单簿
+    const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
+    const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
+
+    const yesPrice = yesOrderbook.best_bid || 0;
+    const noPrice = noOrderbook.best_bid || (1 - yesPrice);
+
+    console.log(`📊 实际价格: YES=$${yesPrice.toFixed(4)} NO=$${noPrice.toFixed(4)}`);
+
+    // 获取建议的挂单价格（动态偏移模式）
+    const prices = this.unifiedMarketMakerStrategy.suggestOrderPrices(
+      yesPrice,
+      noPrice,
+      yesOrderbook,
+      noOrderbook
+    );
+
+    console.log(`💡 挂单价格（统一策略 - ${prices.source === 'DYNAMIC_OFFSET' ? '动态偏移' : '固定价差'}）:`);
+    console.log(`   YES Buy: $${prices.yesBid.toFixed(4)} | YES Sell: $${prices.yesAsk.toFixed(4)}`);
+    console.log(`   NO Buy: $${prices.noBid.toFixed(4)} | NO Sell: $${prices.noAsk.toFixed(4)}`);
+
+    // 计算订单大小
+    const buyOrderSize = analysis.buyOrderSize;
+    const sellOrderSize = analysis.sellOrderSize;
+
+    // 构建带有正确 token_id 的 market 对象
+    const yesMarket = { ...market, token_id: yesTokenId };
+    const noMarket = { ...market, token_id: noTokenId };
+
+    // 取消所有现有订单（取消两个 token_id 的订单）
+    await this.cancelOrdersForMarket(yesTokenId);
+    await this.cancelOrdersForMarket(noTokenId);
+
+    // 挂 Buy 单（如果有）
+    if (analysis.shouldPlaceBuyOrders && buyOrderSize > 0) {
+      console.log(`📊 挂 Buy 单（赚取买入端积分）`);
+
+      // 使用 YES 市场对象挂 YES 订单
+      if (prices.yesBid > 0) {
+        await this.placeLimitOrder(yesMarket, 'BUY', prices.yesBid, buyOrderSize, 0.02);
+      }
+
+      // 使用 NO 市场对象挂 NO 订单
+      if (prices.noBid > 0) {
+        await this.placeLimitOrder(noMarket, 'BUY', prices.noBid, buyOrderSize, 0.02);
+      }
+    }
+
+    // 挂 Sell 单（如果有）
+    if (analysis.shouldPlaceSellOrders && sellOrderSize > 0) {
+      console.log(`📊 挂 Sell 单（赚取卖出端积分，${Math.min(unifiedPosition.yes_amount, unifiedPosition.no_amount)} 组已对冲）`);
+
+      // 使用 YES 市场对象挂 YES Sell 单
+      if (prices.yesAsk > 0 && unifiedPosition.yes_amount > 0) {
+        await this.placeLimitOrder(yesMarket, 'SELL', prices.yesAsk, sellOrderSize, 0.02);
+      }
+
+      // 使用 NO 市场对象挂 NO Sell 单
+      if (prices.noAsk > 0 && unifiedPosition.no_amount > 0) {
+        await this.placeLimitOrder(noMarket, 'SELL', prices.noAsk, sellOrderSize, 0.02);
+      }
+    }
+
+    console.log(`✅ 统一策略挂单完成（使用 YES 和 NO 各自的 token_id）`);
+
+    // 修复 4: 记录挂单价格到两个 key（用于监控是否成为第一档）
+    const priceData = {
+      yesBid: prices.yesBid,
+      yesAsk: prices.yesAsk,
+      noBid: prices.noBid,
+      noAsk: prices.noAsk,
+      timestamp: Date.now(),
+    };
+
+    this.lastPlacedPrices.set(yesTokenId, priceData);
+    this.lastPlacedPrices.set(noTokenId, priceData);
+  }
+
+  /**
+   * 监控订单是否成为第一档（动态偏移模式）
+   * 如果我们的订单成为第一档，立即撤单并重新挂单
+   */
+  private async monitorTierOneStatus(
+    market: Market,
+    orderbook: Orderbook
+  ): Promise<boolean> {
+    // 检查是否启用监控
+    if (!this.config.unifiedMarketMakerMonitorTierOne) {
+      return false;
+    }
+
+    // 检查是否使用统一策略
+    if (!this.unifiedMarketMakerStrategy.isEnabled()) {
+      return false;
+    }
+
+    // CRITICAL FIX #3: 使用 yesTokenId 查询价格（因为价格是用 yesTokenId 存储的）
+    const { yesTokenId } = this.getYesNoTokenIds(market);
+    if (!yesTokenId) {
+      return false;
+    }
+
+    const lastPrices = this.lastPlacedPrices.get(yesTokenId);
+
+    if (!lastPrices) {
+      return false;
+    }
+
+    // 检查时间戳（避免频繁检查，最多每2秒检查一次）
+    const timeSinceLastPlace = Date.now() - lastPrices.timestamp;
+    if (timeSinceLastPlace < 2000) {
+      return false;
+    }
+
+    let needsReprice = false;
+    const reasons: string[] = [];
+
+    // 获取订单簿第一档价格（YES 的价格）
+    const yesBestBid = orderbook.best_bid || 0;
+    const yesBestAsk = orderbook.best_ask || 0;
+
+    // 计算 NO 的第一档价格（YES + NO = 1）
+    // NO 的买价 = 1 - YES 的卖价
+    // NO 的卖价 = 1 - YES 的买价
+    const noBestBid = 1 - yesBestAsk;
+    const noBestAsk = 1 - yesBestBid;
+
+    // 检查 YES 订单是否成为第一档
+    if (lastPrices.yesBid > 0 && lastPrices.yesBid >= yesBestBid * 0.999) {
+      needsReprice = true;
+      reasons.push(`YES Buy $${lastPrices.yesBid.toFixed(4)} >= YES 第一档 $${yesBestBid.toFixed(4)}`);
+    }
+
+    if (lastPrices.yesAsk > 0 && lastPrices.yesAsk <= yesBestAsk * 1.001) {
+      needsReprice = true;
+      reasons.push(`YES Sell $${lastPrices.yesAsk.toFixed(4)} <= YES 第一档 $${yesBestAsk.toFixed(4)}`);
+    }
+
+    // 检查 NO 订单是否成为第一档
+    if (lastPrices.noBid > 0 && lastPrices.noBid >= noBestBid * 0.999) {
+      needsReprice = true;
+      reasons.push(`NO Buy $${lastPrices.noBid.toFixed(4)} >= NO 第一档 $${noBestBid.toFixed(4)}`);
+    }
+
+    if (lastPrices.noAsk > 0 && lastPrices.noAsk <= noBestAsk * 1.001) {
+      needsReprice = true;
+      reasons.push(`NO Sell $${lastPrices.noAsk.toFixed(4)} <= NO 第一档 $${noBestAsk.toFixed(4)}`);
+    }
+
+    if (needsReprice) {
+      console.log(`⚠️  检测到订单成为第一档，需要重新挂单：`);
+      for (const reason of reasons) {
+        console.log(`   - ${reason}`);
+      }
+
+      // 修复 3: 获取聚合的 position 并重新挂单
+      const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+      const yesPosition = this.positions.get(yesTokenId || '') || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+      const noPosition = this.positions.get(noTokenId || '') || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+
+      const unifiedPosition: Position = {
+        token_id: market.token_id,
+        question: market.question || '',
+        yes_amount: yesPosition.yes_amount + noPosition.yes_amount,
+        no_amount: yesPosition.no_amount + noPosition.no_amount,
+        total_value: yesPosition.total_value + noPosition.total_value,
+        avg_entry_price: 0,
+        current_price: 0,
+        pnl: yesPosition.pnl + noPosition.pnl,
+      };
+
+      const bestBid = yesBestBid || 0;
+      const analysis = this.unifiedMarketMakerStrategy.analyze(market, unifiedPosition, bestBid, 1 - bestBid);
+
+      await this.executeUnifiedStrategy(market, orderbook, unifiedPosition, analysis);
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 处理统一策略的订单成交
+   */
+  async handleUnifiedOrderFill(
+    market: Market,
+    side: 'BUY' | 'SELL',
+    token: 'YES' | 'NO',
+    filledShares: number
+  ): Promise<void> {
+    // MEDIUM FIX #13: 使用 getAggregatedPosition 方法（移除重复逻辑）
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    if (!yesTokenId || !noTokenId) {
+      console.warn(`⚠️  无法获取 YES/NO token_id，跳过订单成交处理`);
+      return;
+    }
+
+    const unifiedPosition = this.getAggregatedPosition(market);
+
+    const action = this.unifiedMarketMakerStrategy.handleOrderFill(
+      market.token_id,
+      side,
+      token,
+      filledShares,
+      unifiedPosition.yes_amount,
+      unifiedPosition.no_amount
+    );
+
+    if (!action.needsAction || action.type === 'NONE') {
+      return;
+    }
+
+    console.log(`🎯 统一策略操作: ${action.type} ${action.shares} shares`);
+    console.log(`   原因: ${action.reason}`);
+    console.log(`   优先级: ${action.priority}`);
+
+    // 获取目标 token_id
+    const targetTokenId = token === 'YES' ? yesTokenId : noTokenId;
+
+    // 执行对冲操作，使用正确的 token_id
+    switch (action.type) {
+      case 'BUY_YES':
+        await this.executeMarketBuy(market, 'YES', action.shares, yesTokenId);
+        console.log(`✅ 异步对冲完成: 买入 ${action.shares} YES @ ${yesTokenId.slice(0, 16)}...`);
+        break;
+
+      case 'BUY_NO':
+        await this.executeMarketBuy(market, 'NO', action.shares, noTokenId);
+        console.log(`✅ 异步对冲完成: 买入 ${action.shares} NO @ ${noTokenId.slice(0, 16)}...`);
+        break;
+
+      case 'SELL_YES':
+        await this.executeMarketSell(market, 'YES', action.shares, yesTokenId);
+        console.log(`✅ 平仓完成: 卖出 ${action.shares} YES @ ${yesTokenId.slice(0, 16)}...`);
+        break;
+
+      case 'SELL_NO':
+        await this.executeMarketSell(market, 'NO', action.shares, noTokenId);
+        console.log(`✅ 平仓完成: 卖出 ${action.shares} NO @ ${noTokenId.slice(0, 16)}...`);
+        break;
+    }
+  }
+
+  /**
+   * 获取增强的库存状态
+   */
+  private getEnhancedInventoryState(tokenId: string): InventoryState {
+    return this.perMarketInventoryState.get(tokenId) ?? InventoryState.SAFE;
   }
 }

@@ -109,6 +109,16 @@ export class PredictAPI {
     const liquidity24h =
       raw?.liquidity_24h ?? raw?.totalLiquidityUsd ?? raw?.stats?.liquidity24hUsd ?? raw?.stats?.liquidity24h;
 
+    // Parse outcomes array if available
+    const outcomes = Array.isArray(raw?.outcomes)
+      ? raw.outcomes.map((o: any) => ({
+          name: String(o.name || 'Unknown'),
+          indexSet: Number(o.indexSet || 0),
+          status: o.status || 'OPEN',
+          onChainId: String(o.onChainId || ''),
+        }))
+      : undefined;
+
     return {
       token_id: String(raw?.token_id ?? raw?.tokenId ?? raw?.resolution?.onChainId ?? raw?.id ?? ''),
       question: raw?.question ?? raw?.title ?? raw?.market_question ?? 'Unknown market',
@@ -122,6 +132,7 @@ export class PredictAPI {
       fee_rate_bps: Number(raw?.fee_rate_bps ?? raw?.feeRateBps ?? 0),
       volume_24h: Number(volume24h ?? 0),
       liquidity_24h: Number(liquidity24h ?? 0),
+      outcomes,
     };
   }
 

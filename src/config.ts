@@ -631,6 +631,30 @@ export function loadConfig(): Config {
     crossHedgeSimilarityWeight: parseFloat(process.env.CROSS_HEDGE_SIMILARITY_WEIGHT || '0.7'),
     crossHedgeDepthWeight: parseFloat(process.env.CROSS_HEDGE_DEPTH_WEIGHT || '0.3'),
     crossHedgeMinDepthUsd: parseFloat(process.env.CROSS_HEDGE_MIN_DEPTH_USD || '0'),
+
+    // 完美对冲策略配置
+    perfectHedgeEnabled: process.env.PERFECT_HEDGE_ENABLED === 'true',
+    perfectHedgeTolerance: parseFloat(process.env.PERFECT_HEDGE_TOLERANCE || '0.05'),
+    perfectHedgeMinSize: parseFloat(process.env.PERFECT_HEDGE_MIN_SIZE || '50'),
+    perfectHedgeMaxSize: parseFloat(process.env.PERFECT_HEDGE_MAX_SIZE || '500'),
+    perfectHedgeAutoBalance: process.env.PERFECT_HEDGE_AUTO_BALANCE !== 'false',
+    perfectHedgeBalanceSlippageBps: parseInt(process.env.PERFECT_HEDGE_BALANCE_SLIPPAGE_BPS || '300'),
+
+    // 统一做市商策略配置（整合所有优点）
+    unifiedMarketMakerEnabled: process.env.UNIFIED_MARKET_MAKER_ENABLED === 'true',
+    unifiedMarketMakerTolerance: parseFloat(process.env.UNIFIED_MARKET_MAKER_TOLERANCE || '0.05'),
+    unifiedMarketMakerMinSize: parseFloat(process.env.UNIFIED_MARKET_MAKER_MIN_SIZE || '10'),
+    unifiedMarketMakerMaxSize: parseFloat(process.env.UNIFIED_MARKET_MAKER_MAX_SIZE || '500'),
+    unifiedMarketMakerBuySpreadBps: parseInt(process.env.UNIFIED_MARKET_MAKER_BUY_SPREAD_BPS || '150'),
+    unifiedMarketMakerSellSpreadBps: parseInt(process.env.UNIFIED_MARKET_MAKER_SELL_SPREAD_BPS || '150'),
+    unifiedMarketMakerHedgeSlippageBps: parseInt(process.env.UNIFIED_MARKET_MAKER_HEDGE_SLIPPAGE_BPS || '250'),
+    unifiedMarketMakerAsyncHedging: process.env.UNIFIED_MARKET_MAKER_ASYNC_HEDGING !== 'false',
+    unifiedMarketMakerDualTrackMode: process.env.UNIFIED_MARKET_MAKER_DUAL_TRACK_MODE !== 'false',
+    unifiedMarketMakerDynamicOffsetMode: process.env.UNIFIED_MARKET_MAKER_DYNAMIC_OFFSET_MODE !== 'false',
+    unifiedMarketMakerBuyOffsetBps: parseInt(process.env.UNIFIED_MARKET_MAKER_BUY_OFFSET_BPS || '100'),
+    unifiedMarketMakerSellOffsetBps: parseInt(process.env.UNIFIED_MARKET_MAKER_SELL_OFFSET_BPS || '100'),
+    unifiedMarketMakerMonitorTierOne: process.env.UNIFIED_MARKET_MAKER_MONITOR_TIER_ONE !== 'false',
+
     crossPlatformAdaptiveSize: process.env.CROSS_PLATFORM_ADAPTIVE_SIZE !== 'false',
     crossPlatformMinDepthShares: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_SHARES || '1'),
     crossPlatformMinDepthUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_USD || '0'),

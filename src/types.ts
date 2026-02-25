@@ -246,6 +246,42 @@ export interface Config {
   mmTouchBufferDepthSpeedMaxBps?: number;
   mmTouchBufferFixedCents?: number;
   mmQuoteSecondLayer?: boolean;
+
+  // ===== Phase 1: 增强模块配置 =====
+  // 启用增强价差计算 (AS模型)
+  mmEnhancedSpreadEnabled?: boolean;
+
+  // AS模型权重 (0-1, 默认0.5表示50%权重)
+  mmASModelWeight?: number;
+
+  // AS模型参数
+  mmASGamma?: number;      // 风险厌恶系数 (默认0.1)
+  mmASLambda?: number;     // 订单到达速率 (默认1.0)
+  mmASKappa?: number;      // 价格弹性 (默认1.5)
+  mmASAlpha?: number;      // 库存影响 (默认0.5)
+  mmASBeta?: number;       // 波动率影响 (默认0.3)
+  mmASDelta?: number;      // 订单流影响 (默认0.2)
+
+  // 库存分类阈值
+  mmInventorySafeThreshold?: number;     // 安全阈值 (默认0.3)
+  mmInventoryWarningThreshold?: number;  // 警告阈值 (默认0.5)
+  mmInventoryDangerThreshold?: number;   // 危险阈值 (默认0.7)
+
+  // ===== 统一做市商策略配置（整合所有优点） =====
+  unifiedMarketMakerEnabled?: boolean;         // 启用统一做市商策略
+  unifiedMarketMakerTolerance?: number;        // 对冲偏差容忍度 (0.05 = 5%)
+  unifiedMarketMakerMinSize?: number;          // 最小对冲数量
+  unifiedMarketMakerMaxSize?: number;          // 最大对冲数量
+  unifiedMarketMakerBuySpreadBps?: number;      // Buy 单价差（基点，150 = 1.5%）- 备用
+  unifiedMarketMakerSellSpreadBps?: number;     // Sell 单价差（基点，150 = 1.5%）- 备用
+  unifiedMarketMakerHedgeSlippageBps?: number;  // 对冲滑点（基点，250 = 2.5%）
+  unifiedMarketMakerAsyncHedging?: boolean;     // 启用异步对冲（不撤单）
+  unifiedMarketMakerDualTrackMode?: boolean;   // 启用双轨并行模式
+  unifiedMarketMakerDynamicOffsetMode?: boolean; // 启用动态偏移模式（第二档挂单）
+  unifiedMarketMakerBuyOffsetBps?: number;     // Buy 单偏移量（基点，100 = 1%）
+  unifiedMarketMakerSellOffsetBps?: number;    // Sell 单偏移量（基点，100 = 1%）
+  unifiedMarketMakerMonitorTierOne?: boolean;  // 监控是否成为第一档（自动撤单重挂）
+
   mmFillRiskSpreadBps?: number;
   mmNearTouchPenaltyBps?: number;
   mmNearTouchPenaltyMaxBps?: number;
@@ -527,6 +563,15 @@ export interface Config {
   crossHedgeSimilarityWeight?: number;
   crossHedgeDepthWeight?: number;
   crossHedgeMinDepthUsd?: number;
+
+  // ==================== 完美对冲策略配置 ====================
+  perfectHedgeEnabled?: boolean;              // 启用完美对冲策略
+  perfectHedgeTolerance?: number;             // 对冲偏差容忍度（0.05 = 5%）
+  perfectHedgeMinSize?: number;               // 最小对冲数量（股）
+  perfectHedgeMaxSize?: number;               // 最大对冲数量（股）
+  perfectHedgeAutoBalance?: boolean;          // 自动平衡 YES/NO 比例
+  perfectHedgeBalanceSlippageBps?: number;    // 平衡滑点（基点）
+
   crossPlatformAdaptiveSize?: boolean;
   crossPlatformMinDepthShares?: number;
   crossPlatformMinDepthUsd?: number;
@@ -997,6 +1042,13 @@ export interface Config {
   enableTrading: boolean;
 }
 
+export interface MarketOutcome {
+  name: string;
+  indexSet: number;
+  status: 'WON' | 'LOST' | 'OPEN' | 'CANCELLED';
+  onChainId: string;
+}
+
 export interface Market {
   token_id: string;
   question: string;
@@ -1010,6 +1062,8 @@ export interface Market {
   fee_rate_bps: number;
   volume_24h?: number;
   liquidity_24h?: number;
+  // Outcomes array containing all outcome tokens
+  outcomes?: MarketOutcome[];
   // Price aggregation from orderbook
   best_bid?: number;
   best_ask?: number;
