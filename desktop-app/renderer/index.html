@@ -199,6 +199,64 @@
           </div>
         </section>
 
+        <!-- 市场推荐卡片 -->
+        <section class="card control-card" style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%); border: 1px solid rgba(139, 92, 246, 0.3);">
+          <div class="card-header">
+            <h2>📊 市场智能推荐</h2>
+            <span class="badge" id="marketRecommendStatus" style="background: rgba(139, 92, 246, 0.2); color: #a78bfa;">未分析</span>
+          </div>
+
+          <div class="control-block">
+            <p style="font-size: 12px; color: #c4b5fd; margin: 0 0 12px 0;">
+              自动分析所有市场，计算 1% 流动性，按评分排序推荐最优市场。
+            </p>
+
+            <div class="button-row">
+              <button class="btn primary" id="analyzeMarkets" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+                🔍 开始分析市场
+              </button>
+              <button class="btn ghost" id="openMarketRecommender" style="border: 1px solid rgba(139, 92, 246, 0.3);">
+                🎯 打开推荐工具
+              </button>
+            </div>
+
+            <!-- 分析结果区域 -->
+            <div id="marketAnalysisResult" style="display: none; margin-top: 16px; padding: 12px; background: rgba(0, 0, 0, 0.2); border-radius: 8px;">
+              <div id="marketStats" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px;">
+                <div style="text-align: center; padding: 8px; background: rgba(139, 92, 246, 0.1); border-radius: 6px;">
+                  <div style="font-size: 20px; font-weight: 600; color: #a78bfa;" id="totalMarkets">0</div>
+                  <div style="font-size: 11px; color: #c4b5fd;">总市场数</div>
+                </div>
+                <div style="text-align: center; padding: 8px; background: rgba(16, 185, 129, 0.1); border-radius: 6px;">
+                  <div style="font-size: 20px; font-weight: 600; color: #34d399;" id="pointsMarkets">0</div>
+                  <div style="font-size: 11px; color: #6ee7b7;">积分市场</div>
+                </div>
+                <div style="text-align: center; padding: 8px; background: rgba(251, 191, 36, 0.1); border-radius: 6px;">
+                  <div style="font-size: 20px; font-weight: 600; color: #fbbf24;" id="avgScore">0</div>
+                  <div style="font-size: 11px; color: #fde68a;">平均评分</div>
+                </div>
+              </div>
+
+              <!-- Top 3 市场推荐 -->
+              <div style="margin-bottom: 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #c4b5fd; margin-bottom: 8px;">🏆 Top 3 推荐市场</div>
+                <div id="topMarketsList" style="display: flex; flex-direction: column; gap: 8px;">
+                  <!-- 动态生成 -->
+                </div>
+              </div>
+
+              <div class="button-row">
+                <button class="btn ghost" id="viewFullReport" style="font-size: 11px; padding: 6px 12px;">
+                  📋 查看完整报告
+                </button>
+                <button class="btn ghost" id="exportConfig" style="font-size: 11px; padding: 6px 12px;">
+                  💾 导出配置
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="card log-card">
           <div class="card-header">
             <h2>运行日志</h2>

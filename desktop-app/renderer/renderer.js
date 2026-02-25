@@ -7095,3 +7095,100 @@ setInterval(() => {
   loadArbSnapshot().catch(() => {});
   loadArbCommandStatus().catch(() => {});
 }, 5000);
+
+// ==================== 市场推荐功能 ====================
+
+const analyzeMarketsBtn = document.getElementById('analyzeMarkets');
+const openMarketRecommenderBtn = document.getElementById('openMarketRecommender');
+const marketRecommendStatus = document.getElementById('marketRecommendStatus');
+const marketAnalysisResult = document.getElementById('marketAnalysisResult');
+const topMarketsList = document.getElementById('topMarketsList');
+
+// 分析市场按钮 - 提示使用推荐工具
+if (analyzeMarketsBtn) {
+  analyzeMarketsBtn.addEventListener('click', () => {
+    pushLog({ type: 'system', level: 'system', message: '💡 请使用"打开推荐工具"按钮启动市场推荐' });
+    pushLog({ type: 'system', level: 'system', message: '📝 或在命令行运行: npm run market:recommend' });
+    pushLog({ type: 'system', level: 'system', message: '📊 推荐工具会自动分析所有市场并显示推荐列表' });
+    marketRecommendStatus.textContent = '使用下方按钮';
+    marketRecommendStatus.style.background = 'rgba(139, 92, 246, 0.2)';
+    marketRecommendStatus.style.color = '#a78bfa';
+  });
+}
+
+// 打开推荐工具按钮 - 在新终端窗口运行市场推荐工具
+if (openMarketRecommenderBtn) {
+  openMarketRecommenderBtn.addEventListener('click', () => {
+    pushLog({ type: 'system', level: 'system', message: '🎯 正在打开市场推荐工具...' });
+    marketRecommendStatus.textContent = '启动中...';
+    marketRecommendStatus.style.background = 'rgba(251, 191, 36, 0.2)';
+    marketRecommendStatus.style.color = '#fbbf24';
+
+    try {
+      // 获取项目根目录
+      const path = require('path');
+      const { spawn } = require('child_process');
+      // 从 renderer 目录向上两级到达项目根目录
+      const projectRoot = path.resolve(__dirname, '../..');
+
+      pushLog({ type: 'system', level: 'system', message: `📂 项目目录: ${projectRoot}` });
+
+      // 根据平台选择命令
+      const isMac = process.platform === 'darwin';
+      const isWindows = process.platform === 'win32';
+
+      let command;
+      if (isWindows) {
+        // Windows: 使用 start 命令在新窗口运行
+        command = `cd /d "${projectRoot}" && start cmd /k "npm run market:recommend"`;
+      } else if (isMac) {
+        // macOS: 使用 osascript 打开新的 Terminal 窗口
+        command = `osascript -e 'tell application "Terminal" to do script "cd \\"${projectRoot}\\" && npm run market:recommend" activate end'`;
+      } else {
+        // Linux: 使用 xterm 或 gnome-terminal
+        command = `cd "${projectRoot}" && (gnome-terminal -- bash -c "npm run market:recommend; exec bash" || xterm -e "npm run market:recommend")`;
+      }
+
+      // 执行命令
+      spawn(command, [], {
+        shell: true,
+        detached: true,
+        stdio: 'ignore'
+      });
+
+      setTimeout(() => {
+        pushLog({ type: 'system', level: 'system', message: '✅ 已在新窗口打开市场推荐工具' });
+        pushLog({ type: 'system', level: 'system', message: '📝 请在新打开的窗口中进行操作' });
+        marketRecommendStatus.textContent = '已启动';
+        marketRecommendStatus.style.background = 'rgba(16, 185, 129, 0.2)';
+        marketRecommendStatus.style.color = '#34d399';
+      }, 500);
+    } catch (error) {
+      pushLog({ type: 'system', level: 'stderr', message: `❌ 打开失败: ${error.message}` });
+      pushLog({ type: 'system', level: 'system', message: '💡 备用方案: 打开终端，运行: npm run market:recommend' });
+      marketRecommendStatus.textContent = '失败';
+      marketRecommendStatus.style.background = 'rgba(239, 68, 68, 0.2)';
+      marketRecommendStatus.style.color = '#f87171';
+    }
+  });
+}
+
+// 查看完整报告按钮
+const viewFullReportBtn = document.getElementById('viewFullReport');
+if (viewFullReportBtn) {
+  viewFullReportBtn.addEventListener('click', () => {
+    pushLog({ type: 'system', level: 'system', message: '📋 完整报告功能开发中...' });
+    // TODO: 实现完整报告弹窗或新页面
+  });
+}
+
+// 导出配置按钮
+const exportConfigBtn = document.getElementById('exportConfig');
+if (exportConfigBtn) {
+  exportConfigBtn.addEventListener('click', () => {
+    pushLog({ type: 'system', level: 'system', message: '💾 导出配置功能开发中...' });
+    // TODO: 实现配置导出功能
+  });
+}
+
+pushLog({ type: 'system', level: 'system', message: '✅ 市场推荐模块已加载' });
