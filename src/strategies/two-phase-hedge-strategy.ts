@@ -18,6 +18,9 @@
 
 import { Market, Position } from '../types.js';
 
+// 策略常量
+const MAX_RATIO = 999;  // 最大持仓比率，用于避免除零错误
+
 export interface TwoPhaseHedgeConfig {
   enabled: boolean;
   tolerance: number;
@@ -68,8 +71,8 @@ export class TwoPhaseHedgeStrategy {
     const noShares = position.no_amount;
     const totalShares = yesShares + noShares;
     const avgShares = totalShares / 2;
-    // HIGH FIX #4: 避免除零，使用有限值代替 Infinity
-    const ratio = (avgShares > 0 && noShares > 0) ? yesShares / noShares : (yesShares > 0 ? 999 : 0);
+    // CRITICAL FIX #1: 避免除零，使用命名常量代替魔法数字
+    const ratio = (avgShares > 0 && noShares > 0) ? yesShares / noShares : (yesShares > 0 ? MAX_RATIO : 0);
     const deviation = avgShares > 0 ? Math.abs(yesShares - noShares) / avgShares : 0;
     const isBalanced = deviation <= this.config.tolerance;
 
