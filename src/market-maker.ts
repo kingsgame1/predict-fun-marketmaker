@@ -6976,4 +6976,122 @@ export class MarketMaker {
     const avgAllIn = totalRevenue / totalShares;
     return { avgAllIn, totalShares };
   }
+
+  /**
+   * MEDIUM FIX #6: API 响应验证辅助方法
+   */
+
+  /**
+   * 验证 Market 对象的基本完整性
+   */
+  private validateMarket(market: unknown): market is Market {
+    if (!market || typeof market !== 'object') {
+      this.logError('Invalid market: not an object', { market });
+      return false;
+    }
+
+    const m = market as Partial<Market>;
+    if (!m.token_id || typeof m.token_id !== 'string') {
+      this.logError('Invalid market: missing or invalid token_id', { market });
+      return false;
+    }
+
+    if (!m.question || typeof m.question !== 'string') {
+      this.logError('Invalid market: missing or invalid question', { token_id: m.token_id });
+      return false;
+    }
+
+    if (!m.outcomes || !Array.isArray(m.outcomes) || m.outcomes.length === 0) {
+      this.logError('Invalid market: missing or invalid outcomes', { token_id: m.token_id });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * 验证 Orderbook 对象的基本完整性
+   */
+  private validateOrderbook(orderbook: unknown, tokenId?: string): orderbook is Orderbook {
+    if (!orderbook || typeof orderbook !== 'object') {
+      this.logError('Invalid orderbook: not an object', { tokenId });
+      return false;
+    }
+
+    const ob = orderbook as Partial<Orderbook>;
+    if (!ob.bids || !Array.isArray(ob.bids)) {
+      this.logError('Invalid orderbook: missing or invalid bids', { tokenId });
+      return false;
+    }
+
+    if (!ob.asks || !Array.isArray(ob.asks)) {
+      this.logError('Invalid orderbook: missing or invalid asks', { tokenId });
+      return false;
+    }
+
+    const bestBid = ob.best_bid;
+    const bestAsk = ob.best_ask;
+    if ((bestBid !== undefined && typeof bestBid !== 'number') ||
+        (bestAsk !== undefined && typeof bestAsk !== 'number')) {
+      this.logError('Invalid orderbook: invalid best_bid or best_ask', { tokenId, bestBid, bestAsk });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * 验证 Position 对象的基本完整性
+   */
+  private validatePosition(position: unknown, tokenId?: string): position is Position {
+    if (!position || typeof position !== 'object') {
+      this.logError('Invalid position: not an object', { tokenId });
+      return false;
+    }
+
+    const p = position as Partial<Position>;
+    if (typeof p.yes_amount !== 'number' || p.yes_amount < 0) {
+      this.logError('Invalid position: invalid yes_amount', { tokenId, yes_amount: p.yes_amount });
+      return false;
+    }
+
+    if (typeof p.no_amount !== 'number' || p.no_amount < 0) {
+      this.logError('Invalid position: invalid no_amount', { tokenId, no_amount: p.no_amount });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * 安全的 API 调用包装器（带验证）
+   */
+  private async safeGetMarket(tokenId: string): Promise<Market | null> {
+    try {
+      const market = await this.api.getMarket(tokenId);
+      if (!this.validateMarket(market)) {
+        return null;
+      }
+      return market;
+    } catch (error) {
+      this.logError(`Failed to get market for ${tokenId}`, { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
+  }
+
+  /**
+   * 安全的订单簿获取（带验证）
+   */
+  private async safeGetOrderbook(tokenId: string): Promise<Orderbook | null> {
+    try {
+      const orderbook = await this.api.getOrderbook(tokenId);
+      if (!this.validateOrderbook(orderbook, tokenId)) {
+        return null;
+      }
+      return orderbook;
+    } catch (error) {
+      this.logError(`Failed to get orderbook for ${tokenId}`, { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
+  }
 }
