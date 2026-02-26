@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MM Lite Console</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>简化版做市 App</h1>
+        <div id="status" class="badge">未运行</div>
+      </header>
+      <section class="row">
+        <button id="startMM">启动做市</button>
+        <button id="stopMM">停止做市</button>
+      </section>
+      <section class="row">
+        <button id="tplPredict">套用 Predict 模板</button>
+        <button id="tplProbable">套用 Probable 模板</button>
+      </section>
+      <section class="hint">
+        模板只需填写必填项：
+        Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>（实盘再填 <code>JWT_TOKEN</code>）；
+        Probable 填 <code>PROBABLE_PRIVATE_KEY</code>。
+        API/WS 默认值按官方文档自动写入。
+      </section>
+      <section>
+        <div class="label">市场筛选与推荐</div>
+        <div class="row">
+          <label>场馆
+            <select id="marketVenue">
+              <option value="predict">Predict</option>
+              <option value="probable">Probable</option>
+            </select>
+          </label>
+          <label>扫描数量
+            <input id="scanCount" type="number" min="10" step="10" value="80" />
+          </label>
+          <label>推荐数量
+            <input id="topCount" type="number" min="5" step="5" value="30" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="scanMarkets">自动推荐市场</button>
+          <button id="applyAutoMarkets">一键应用推荐</button>
+          <button id="applyManualMarkets">应用手动勾选</button>
+          <button id="reloadManualMarkets">读取当前已选</button>
+        </div>
+        <div class="hint">表格展示买一/卖一、买二/卖二流动性（用于第二档挂单参考）。可手动勾选后应用到 <code>MARKET_TOKEN_IDS</code>。</div>
+        <div class="table-wrap">
+          <table id="marketTable">
+            <thead>
+              <tr>
+                <th><input id="selectAllMarkets" type="checkbox" /></th>
+                <th>#</th>
+                <th>Score</th>
+                <th>Spread%</th>
+                <th>Bid</th>
+                <th>Ask</th>
+                <th>买一量</th>
+                <th>卖一量</th>
+                <th>买二量</th>
+                <th>卖二量</th>
+                <th>L1双边$</th>
+                <th>L2双边$</th>
+                <th>Token</th>
+                <th>Question</th>
+              </tr>
+            </thead>
+            <tbody id="marketTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <div class="label">.env 配置</div>
+        <textarea id="envEditor"></textarea>
+        <div class="row">
+          <button id="reloadEnv">重新读取</button>
+          <button id="saveEnv">保存配置</button>
+        </div>
+      </section>
+      <section>
+        <div class="label">日志</div>
+        <pre id="logs"></pre>
+      </section>
+    </div>
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>
