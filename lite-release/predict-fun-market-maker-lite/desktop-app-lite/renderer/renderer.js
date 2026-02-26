@@ -166,14 +166,14 @@ document.getElementById('stopMM').onclick = async () => {
 document.getElementById('tplPredict').onclick = async () => {
   if (!api) return;
   const r = await api.applyTemplate('predict');
-  pushLog(r.ok ? '已应用 Predict 模板' : `模板失败: ${r.stderr || r.stdout || 'unknown'}`);
+  pushLog(r.ok ? '已应用 Predict 模板' : `模板失败: ${r.message || 'unknown'}`);
   await refreshEnv();
 };
 
 document.getElementById('tplProbable').onclick = async () => {
   if (!api) return;
   const r = await api.applyTemplate('probable');
-  pushLog(r.ok ? '已应用 Probable 模板' : `模板失败: ${r.stderr || r.stdout || 'unknown'}`);
+  pushLog(r.ok ? '已应用 Probable 模板' : `模板失败: ${r.message || 'unknown'}`);
   await refreshEnv();
 };
 
