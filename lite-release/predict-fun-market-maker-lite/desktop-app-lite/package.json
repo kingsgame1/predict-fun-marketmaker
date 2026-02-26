@@ -21,7 +21,11 @@
     "files": [
       "electron/**/*",
       "renderer/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "../src/**/*",
+      "../scripts/**/*",
+      "../package.json",
+      "../tsconfig.json"
     ],
     "mac": {
       "category": "public.app-category.finance",
