@@ -7,10 +7,11 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "build": "electron-builder --mac --win --linux",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux"
+    "prebuild": "node build-scripts/copy-source.js",
+    "build": "npm run prebuild && electron-builder --mac --win --linux",
+    "build:mac": "npm run prebuild && electron-builder --mac",
+    "build:win": "npm run prebuild && electron-builder --win",
+    "build:linux": "npm run prebuild && electron-builder --linux"
   },
   "build": {
     "appId": "com.ccjing.predictfunmarketmakerlite",
@@ -23,10 +24,8 @@
       "electron/**/*",
       "renderer/**/*",
       "node_modules/**/*",
-      "../src/**/*",
-      "../scripts/**/*",
-      "../package.json",
-      "../tsconfig.json"
+      "src/**/*",
+      "scripts/**/*"
     ],
     "mac": {
       "category": "public.app-category.finance",
@@ -40,11 +39,17 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "build/icon.ico"
@@ -56,6 +61,24 @@
       ],
       "category": "Finance"
     }
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "@prob/clob": "latest",
+    "@polymarket/clob-client": "^5.2.3",
+    "@polymarket/order-utils": "^3.0.1",
+    "@predictdotfun/sdk": "^1.0.0",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.0",
+    "fs-extra": "^11.3.3",
+    "tsx": "^4.15.0",
+    "typescript": "^5.5.0",
+    "viem": "^2.21.4",
+    "ws": "^8.17.0"
   },
   "devDependencies": {
     "electron": "^30.0.0",
