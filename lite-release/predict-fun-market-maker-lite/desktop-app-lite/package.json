@@ -15,6 +15,7 @@
   "build": {
     "appId": "com.ccjing.predictfunmarketmakerlite",
     "productName": "PredictFun Market Maker Lite",
+    "asar": false,
     "directories": {
       "output": "dist"
     },
