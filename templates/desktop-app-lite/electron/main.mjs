@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,61 @@ const projectRoot = path.resolve(__dirname, '..', '..');
 const envPath = path.join(projectRoot, '.env');
 const rendererPath = path.resolve(__dirname, '..', 'renderer', 'index.html');
 const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+
+/**
+ * 获取用户的 shell PATH 环境变量
+ * macOS GUI 应用不会继承用户的 shell PATH（如 nvm/fnm 路径）
+ */
+function getUserShellPath() {
+  if (process.platform !== 'darwin') return process.env.PATH;
+
+  try {
+    // 获取用户的登录 shell 并执行 echo $PATH
+    const userShell = process.env.SHELL || '/bin/zsh';
+    const shellPath = execSync(`"${userShell}" -l -c 'echo $PATH'`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+
+    if (shellPath && shellPath.includes('/')) {
+      console.log('[PATH] 已加载用户 shell PATH');
+      return shellPath;
+    }
+  } catch (err) {
+    console.warn('[PATH] 获取用户 shell PATH 失败:', err.message);
+  }
+
+  // 回退：尝试常见的 Node.js 安装位置
+  const fallbackPaths = [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    process.env.HOME + '/.nvm/versions/node/v25.2.1/bin',
+    process.env.HOME + '/.nvm/versions/node/v22.14.0/bin',
+    process.env.HOME + '/.nvm/versions/node/v20.18.3/bin',
+    process.env.HOME + '/.fnm/node-versions/*/installation/bin',
+  ].filter(Boolean);
+
+  const existingPaths = (process.env.PATH || '').split(':');
+  const merged = new Set([...existingPaths, ...fallbackPaths]);
+
+  // 检查哪些路径实际存在且包含 node
+  const validPaths = [...merged].filter((p) => {
+    try {
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+
+  return validPaths.join(':');
+}
+
+// 在应用启动时设置 PATH
+const userPath = getUserShellPath();
+if (userPath) {
+  process.env.PATH = userPath;
+  console.log('[PATH] 环境变量已更新');
+}
 
 let win = null;
 let mmProcess = null;
