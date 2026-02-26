@@ -1,96 +1,134 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { spawn, execSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 应用根目录（包含源代码）
-const projectRoot = path.resolve(__dirname, '..');
-const envPath = path.join(projectRoot, '.env');
+// ============================================================
+// 核心路径配置
+// ============================================================
+
+// App 包内的项目根目录（包含 src, scripts, node_modules）
+const appRoot = path.resolve(__dirname, '..');
+
+// 用户配置目录（只存储 .env 文件）
+const userConfigDir = path.join(os.homedir(), '.predict-fun-market-maker-lite');
+const envPath = path.join(userConfigDir, '.env');
+
+// 确保用户配置目录存在
+if (!fs.existsSync(userConfigDir)) {
+  fs.mkdirSync(userConfigDir, { recursive: true });
+  console.log('[INIT] 创建用户配置目录:', userConfigDir);
+}
+
 const rendererPath = path.resolve(__dirname, '..', 'renderer', 'index.html');
 const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
-/**
- * 获取用户的 shell PATH 环境变量
- * macOS GUI 应用不会继承用户的 shell PATH（如 nvm/fnm 路径）
- */
-function getUserShellPath() {
-  if (process.platform !== 'darwin') return process.env.PATH;
+console.log('[INIT] App 根目录:', appRoot);
+console.log('[INIT] 用户配置目录:', userConfigDir);
+console.log('[INIT] .env 路径:', envPath);
 
+// ============================================================
+// PATH 环境变量修复（macOS GUI 应用不继承 shell PATH）
+// ============================================================
+
+function setupPath() {
+  if (process.platform !== 'darwin') {
+    console.log('[PATH] 非 macOS 系统，保持原有 PATH');
+    return;
+  }
+
+  const home = os.homedir();
+  console.log('[PATH] HOME:', home);
+
+  // 方法 1: 从登录 shell 获取 PATH
   try {
-    // 获取用户的登录 shell 并执行 echo $PATH
     const userShell = process.env.SHELL || '/bin/zsh';
     const shellPath = execSync(`"${userShell}" -l -c 'echo $PATH'`, {
       encoding: 'utf8',
       timeout: 5000,
+      env: { ...process.env, HOME: home }
     }).trim();
 
-    if (shellPath && shellPath.includes('/')) {
-      console.log('[PATH] 已加载用户 shell PATH');
-      return shellPath;
+    if (shellPath && shellPath.includes('/bin')) {
+      process.env.PATH = shellPath;
+      console.log('[PATH] ✅ 从 shell 获取 PATH 成功');
+      return;
     }
   } catch (err) {
-    console.warn('[PATH] 获取用户 shell PATH 失败:', err.message);
+    console.warn('[PATH] 从 shell 获取失败:', err.message);
   }
 
-  // 回退：尝试常见的 Node.js 安装位置
-  const home = process.env.HOME || '';
-  const fallbackPaths = [
-    '/usr/local/bin',
-    '/opt/homebrew/bin',
-    `${home}/.nvm/versions/node/*/bin`,
-    `${home}/.fnm/node-versions/*/installation/bin`,
-    `${home}/.volta/bin`,
-  ];
+  // 方法 2: 手动检测 Node.js 安装位置
+  console.log('[PATH] 尝试手动检测 Node.js 路径...');
+  const existingPaths = new Set((process.env.PATH || '').split(':').filter(Boolean));
 
-  const existingPaths = (process.env.PATH || '').split(':');
-  const merged = new Set([...existingPaths]);
-
-  // 展开通配符路径
-  for (const p of fallbackPaths) {
-    if (p.includes('*')) {
-      try {
-        const baseDir = path.dirname(p.replace(/\/\*.*$/, ''));
-        const pattern = p.split('/').pop();
-        if (fs.existsSync(baseDir)) {
-          const dirs = fs.readdirSync(baseDir);
-          for (const dir of dirs) {
-            const fullPath = path.join(baseDir, dir, 'bin');
-            if (fs.existsSync(fullPath)) {
-              merged.add(fullPath);
-            }
-          }
-        }
-      } catch { /* ignore */ }
-    } else {
-      merged.add(p);
-    }
-  }
-
-  // 只保留实际存在的路径
-  const validPaths = [...merged].filter((p) => {
+  // nvm 路径
+  const nvmDir = path.join(home, '.nvm', 'versions', 'node');
+  if (fs.existsSync(nvmDir)) {
     try {
-      return fs.existsSync(p);
-    } catch {
-      return false;
+      const versions = fs.readdirSync(nvmDir);
+      for (const v of versions) {
+        const binPath = path.join(nvmDir, v, 'bin');
+        if (fs.existsSync(binPath)) {
+          existingPaths.add(binPath);
+          console.log('[PATH] 找到 nvm:', binPath);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // fnm 路径
+  const fnmDir = path.join(home, '.fnm', 'node-versions');
+  if (fs.existsSync(fnmDir)) {
+    try {
+      const versions = fs.readdirSync(fnmDir);
+      for (const v of versions) {
+        const binPath = path.join(fnmDir, v, 'installation', 'bin');
+        if (fs.existsSync(binPath)) {
+          existingPaths.add(binPath);
+          console.log('[PATH] 找到 fnm:', binPath);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // volta 路径
+  const voltaBin = path.join(home, '.volta', 'bin');
+  if (fs.existsSync(voltaBin)) {
+    existingPaths.add(voltaBin);
+    console.log('[PATH] 找到 volta:', voltaBin);
+  }
+
+  // Homebrew 路径
+  const homebrewPaths = ['/usr/local/bin', '/opt/homebrew/bin'];
+  for (const p of homebrewPaths) {
+    if (fs.existsSync(p)) {
+      existingPaths.add(p);
     }
-  });
+  }
 
-  return validPaths.join(':');
+  const newPath = [...existingPaths].join(':');
+  process.env.PATH = newPath;
+  console.log('[PATH] ✅ 更新后的 PATH');
 }
 
-// 在应用启动时设置 PATH
-const userPath = getUserShellPath();
-if (userPath) {
-  process.env.PATH = userPath;
-  console.log('[PATH] 环境变量已更新');
-}
+setupPath();
+
+// ============================================================
+// 应用状态
+// ============================================================
 
 let win = null;
 let mmProcess = null;
+
+// ============================================================
+// 配置文件操作
+// ============================================================
 
 function readEnv() {
   if (!fs.existsSync(envPath)) return '';
@@ -137,6 +175,10 @@ function upsertEnv(text, updates) {
   return `${lines.join('\n').replace(/\n+$/g, '')}\n`;
 }
 
+// ============================================================
+// UI 通信
+// ============================================================
+
 function sendLog(message) {
   if (win && !win.isDestroyed()) {
     win.webContents.send('log', { ts: Date.now(), message });
@@ -149,11 +191,14 @@ function sendStatus() {
   }
 }
 
-// 模板应用功能（内嵌，避免 spawn 调用 ASAR 包内文件）
+// ============================================================
+// 模板功能
+// ============================================================
+
 function applyTemplate(venue) {
   try {
-    ensureEnvFile(envPath);
-    const current = fs.readFileSync(envPath, 'utf8');
+    ensureEnvFile();
+    const current = readEnv();
     const existing = parseEnv(current);
 
     const next = venue === 'predict'
@@ -167,7 +212,7 @@ function applyTemplate(venue) {
       sendLog(`已备份旧配置: ${backup}`);
     }
 
-    fs.writeFileSync(envPath, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
+    writeEnv(next);
     return { ok: true };
   } catch (error) {
     return { ok: false, message: error.message };
@@ -283,19 +328,35 @@ MARKET_TOKEN_IDS=${marketIds}
 `;
 }
 
-function ensureEnvFile(filePath) {
-  if (fs.existsSync(filePath)) return;
-  const example = path.join(projectRoot, '.env.example');
-  if (!fs.existsSync(example)) {
-    fs.writeFileSync(filePath, '# PredictFun Market Maker Lite Configuration\n', 'utf8');
-  } else {
-    fs.copyFileSync(example, filePath);
-  }
+function ensureEnvFile() {
+  if (fs.existsSync(envPath)) return;
+  writeEnv('# PredictFun Market Maker Lite Configuration\n');
 }
+
+// ============================================================
+// 命令执行（核心修复：使用 ENV_PATH 指向用户的 .env）
+// ============================================================
 
 function runCommand(command, args, label, pipeToUi = true) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd: projectRoot, shell: false, env: process.env });
+    // 关键：设置 ENV_PATH 环境变量，让源代码知道去哪里找 .env
+    const env = {
+      ...process.env,
+      ENV_PATH: envPath,  // 指向用户目录的 .env
+    };
+
+    // 使用 shell: true，让 shell 自动处理 PATH
+    const fullCommand = `${command} ${args.join(' ')}`;
+    console.log(`[RUN] ${fullCommand}`);
+    console.log(`[RUN] cwd: ${appRoot}`);
+    console.log(`[RUN] ENV_PATH: ${envPath}`);
+
+    const child = spawn(fullCommand, [], {
+      cwd: appRoot,
+      shell: true,  // 使用 shell 模式，自动处理 PATH
+      env: env,
+    });
+
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => {
@@ -308,12 +369,26 @@ function runCommand(command, args, label, pipeToUi = true) {
       stderr += text;
       if (pipeToUi) sendLog(`[${label}] ${text}`);
     });
-    child.on('exit', (code) => resolve({ ok: code === 0, code, stdout, stderr }));
+    child.on('error', (err) => {
+      console.error(`[RUN] Error:`, err);
+      resolve({ ok: false, code: 1, stdout, stderr: err.message });
+    });
+    child.on('exit', (code) => {
+      resolve({ ok: code === 0, code, stdout, stderr });
+    });
   });
 }
 
 async function runRecommendJson(venue, { top = 40, scan = 80, apply = false } = {}) {
-  const args = ['tsx', 'scripts/recommend-markets.ts', '--venue', venue, '--top', String(top), '--scan', String(scan), '--json'];
+  // 添加 --env-path 参数，指向用户目录的 .env
+  const args = [
+    'tsx', 'scripts/recommend-markets.ts',
+    '--venue', venue,
+    '--top', String(top),
+    '--scan', String(scan),
+    '--env', envPath,  // 脚本使用 --env 参数
+    '--json'
+  ];
   if (apply) args.push('--apply');
   const result = await runCommand(npxCmd, args, 'market', false);
   if (!result.ok) {
@@ -329,10 +404,22 @@ async function runRecommendJson(venue, { top = 40, scan = 80, apply = false } = 
 
 function startMM() {
   if (mmProcess) return { ok: false, message: '做市进程已在运行' };
-  mmProcess = spawn(npxCmd, ['tsx', 'src/index.ts'], {
-    cwd: projectRoot,
-    shell: false,
-    env: process.env,
+
+  // 关键：设置 ENV_PATH 环境变量
+  const env = {
+    ...process.env,
+    ENV_PATH: envPath,
+  };
+
+  console.log(`[MM] 启动做市进程`);
+  console.log(`[MM] cwd: ${appRoot}`);
+  console.log(`[MM] ENV_PATH: ${envPath}`);
+
+  // 使用 shell: true 让 shell 自动处理 PATH
+  mmProcess = spawn(`${npxCmd} tsx src/index.ts`, [], {
+    cwd: appRoot,
+    shell: true,  // 使用 shell 模式
+    env: env,
   });
   mmProcess.stdout.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.stderr.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
@@ -371,6 +458,10 @@ function getManualMarketSelection() {
   return { ok: true, tokenIds };
 }
 
+// ============================================================
+// 窗口管理
+// ============================================================
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1100,
@@ -393,6 +484,10 @@ function createWindow() {
   win.loadFile(rendererPath);
 }
 
+// ============================================================
+// 应用生命周期
+// ============================================================
+
 app.whenReady().then(() => {
   createWindow();
 });
@@ -400,6 +495,10 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
+// ============================================================
+// IPC 处理
+// ============================================================
 
 ipcMain.handle('env:read', () => readEnv());
 ipcMain.handle('env:write', (_, text) => {
