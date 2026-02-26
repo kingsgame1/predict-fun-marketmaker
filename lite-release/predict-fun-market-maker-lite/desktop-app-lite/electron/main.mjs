@@ -91,7 +91,7 @@ function applyTemplate(venue) {
       sendLog(`已备份旧配置: ${backup}`);
     }
 
-    fs.writeFileSync(next.endsWith('\n') ? next : `${next}\n`, 'utf8');
+    fs.writeFileSync(envPath, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
     return { ok: true };
   } catch (error) {
     return { ok: false, message: error.message };
