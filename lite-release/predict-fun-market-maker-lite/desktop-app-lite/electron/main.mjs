@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { spawn, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -534,3 +534,11 @@ ipcMain.handle('market:apply-auto', async (_, venue, top, scan) => {
 });
 ipcMain.handle('market:set-manual', (_, tokenIds) => setManualMarketSelection(tokenIds));
 ipcMain.handle('market:get-manual', () => getManualMarketSelection());
+ipcMain.handle('link:open', async (_, url) => {
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});

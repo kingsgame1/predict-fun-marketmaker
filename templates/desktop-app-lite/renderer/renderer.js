@@ -212,3 +212,23 @@ if (!api) {
 pushLog('UI 已加载，可开始操作。');
 refreshEnv();
 refreshStatus();
+
+// 外部链接
+const LINKS = {
+  linkPredict: 'https://predict.fun?ref=B0CE6',
+  linkProbable: 'https://probable.markets/?ref=PNRBS9VL',
+  linkX: 'https://x.com/ccjing_eth',
+  linkTG: 'https://t.me/+VAhPSvs7jrxjYTY1',
+};
+
+Object.entries(LINKS).forEach(([id, url]) => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.onclick = async (e) => {
+      e.preventDefault();
+      if (api) {
+        await api.openExternal(url);
+      }
+    };
+  }
+});

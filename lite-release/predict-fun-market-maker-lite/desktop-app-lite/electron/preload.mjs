@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('liteApp', {
   applyAutoMarkets: (venue, top, scan) => ipcRenderer.invoke('market:apply-auto', venue, top, scan),
   setManualMarkets: (tokenIds) => ipcRenderer.invoke('market:set-manual', tokenIds),
   getManualMarkets: () => ipcRenderer.invoke('market:get-manual'),
+  openExternal: (url) => ipcRenderer.invoke('link:open', url),
   onLog: (cb) => ipcRenderer.on('log', (_, payload) => cb(payload)),
   onStatus: (cb) => ipcRenderer.on('status', (_, payload) => cb(payload)),
 });
