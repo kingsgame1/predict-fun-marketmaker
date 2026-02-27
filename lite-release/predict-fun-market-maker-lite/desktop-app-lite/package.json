@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "main": "electron/main.mjs",
+  "author": {
+    "name": "ccjing",
+    "email": "ccjing.eth@gmail.com"
+  },
+  "homepage": "https://github.com/ccjingeth/predict-fun-marketmaker",
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
@@ -56,10 +61,13 @@
     },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        {
+          "target": "AppImage",
+          "arch": ["x64", "arm64"]
+        }
       ],
-      "category": "Finance"
+      "category": "Finance",
+      "maintainer": "ccjing <ccjing.eth@gmail.com>"
     }
   },
   "devDependencies": {
