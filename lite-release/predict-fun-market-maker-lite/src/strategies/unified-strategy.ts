@@ -1,20 +1,21 @@
 /* eslint-disable */
 /**
- * Unified Strategy - Async Hedging + Dual Track Mode
+ * Unified Strategy - 二档追踪 + 异步对冲 + 双轨并行
  *
  * 核心功能:
- * 1. 异步对冲 (Async Hedging): 二档买单成交后立即市价对冲
- *    - 当二档买单部分成交 q 股时：
- *    - 不取消：剩余 Q-q 订单继续排队赚取积分
- *    - 立即对冲：市价买入反向 q 股
- *    - 状态更新：现在有 q 对 1:1 对冲库存
+ * 1. 二档追踪 (Second Tier Tracking): 实时监控订单簿，保持挂单在第二档
+ *    - 监控第一档价格变化
+ *    - 自动计算第二档价格
+ *    - 判断是否需要重新挂单
+ *    - 减少被吃单的情况
  *
- * 2. 双轨并行 (Dual Track Mode): 同时在买卖两侧赚取积分
- *    - Track A (买入侧): 挂买单在二档 → 赚买入积分
- *    - Track B (卖出侧): 对冲库存挂卖单在二档 → 赚卖出积分
- *    - 最大化积分收益
+ * 2. 异步对冲 (Async Hedging): 二档买单成交后立即市价对冲
+ *    - 不取消剩余订单
+ *    - 立即市价对冲
+ *
+ * 3. 双轨并行 (Dual Track Mode): 同时在买卖两侧赚取积分
  */
-import type { Market, Position, Orderbook } from '../types.js';
+import type { Market, Position, Orderbook, OrderbookEntry } from '../types.js';
 
 // ============================================================================
 // 类型定义
@@ -30,63 +31,76 @@ export interface UnifiedStrategyConfig {
   minSize: number;             // 最小订单大小
   maxSize: number;             // 最大订单大小
 
-  // 价格偏移 (基点, 100bps = 1%)
-  buyOffsetBps: number;        // 买单价格偏移 (从最佳买价向下)
-  sellOffsetBps: number;       // 卖单价格偏移 (从最佳卖价向上)
+  // 二档追踪
+  tickSize: number;            // 最小价格变动 (default: 0.01 = 1 cent)
+  minSpreadCents: number;      // 最小价差 (cents) - 与第一档的最小距离
+  maxSpreadCents: number;      // 最大价差 (cents) - 与第一档的最大距离
+  repriceThresholdCents: number; // 重新挂单阈值 (cents) - 价格偏移超过此值需要重新挂单
+
+  // 价格偏移 (基点, 100bps = 1%) - 仅用于动态偏移模式
+  buyOffsetBps: number;
+  sellOffsetBps: number;
 
   // 对冲设置
-  hedgeSlippageBps: number;    // 对冲滑点 (基点)
-  maxUnhedgedShares: number;   // 最大未对冲股数 (风险控制)
+  hedgeSlippageBps: number;
+  maxUnhedgedShares: number;
 
   // 模式开关
-  asyncHedging: boolean;       // 异步对冲模式
-  dualTrackMode: boolean;      // 双轨并行模式
-  dynamicOffsetMode: boolean;  // 动态偏移模式
+  asyncHedging: boolean;
+  dualTrackMode: boolean;
+  dynamicOffsetMode: boolean;
 }
 
 export enum UnifiedState {
-  EMPTY = 'EMPTY',             // 空仓状态 - 只买入
-  ACCUMULATING = 'ACCUMULATING', // 累积状态 - 积累对冲库存
-  HEDGED = 'HEDGED',           // 已对冲状态 - 等待对冲完成
-  DUAL_TRACK = 'DUAL_TRACK',   // 双轨并行状态 - 同时买卖
+  EMPTY = 'EMPTY',
+  ACCUMULATING = 'ACCUMULATING',
+  HEDGED = 'HEDGED',
+  DUAL_TRACK = 'DUAL_TRACK',
 }
 
 export interface DualTrackState {
   // 挂单状态
-  pendingBuyShares: number;    // 挂单中的买单数量
-  pendingBuyPrice: number;     // 买单价格
-  pendingSellShares: number;   // 挂单中的卖单数量
-  pendingSellPrice: number;    // 卖单价格
+  pendingBuyShares: number;
+  pendingBuyPrice: number;
+  pendingSellShares: number;
+  pendingSellPrice: number;
+
+  // 追踪的第一档价格
+  trackedBidPrice: number;     // 追踪的买一价
+  trackedAskPrice: number;     // 追踪的卖一价
+  trackedAt: number;           // 追踪时间
 
   // 对冲状态
-  hedgedShares: number;        // 已对冲的股数 (可卖出的库存)
-  unhedgedShares: number;      // 未对冲的股数 (风险敞口)
+  hedgedShares: number;
+  unhedgedShares: number;
 
   // 成交统计
-  totalBuyFilled: number;      // 累计买单成交
-  totalHedgeFilled: number;    // 累计对冲成交
-  totalSellFilled: number;     // 累计卖单成交
+  totalBuyFilled: number;
+  totalHedgeFilled: number;
+  totalSellFilled: number;
+  totalReprices: number;       // 重新挂单次数
 
   // 积分统计
-  buyPointsEarned: number;     // 买入侧积分
-  sellPointsEarned: number;    // 卖出侧积分
+  buyPointsEarned: number;
+  sellPointsEarned: number;
 
   // 时间戳
-  lastBuyFillAt: number;       // 最后买单成交时间
-  lastSellFillAt: number;      // 最后卖单成交时间
-  lastHedgeAt: number;         // 最后对冲时间
+  lastBuyFillAt: number;
+  lastSellFillAt: number;
+  lastHedgeAt: number;
+  lastRepriceAt: number;
 
   // 价格追踪
-  avgBuyPrice: number;         // 平均买入价格
-  avgHedgePrice: number;       // 平均对冲价格
+  avgBuyPrice: number;
+  avgHedgePrice: number;
 }
 
 export interface HedgeInstruction {
   shouldHedge: boolean;
   shares: number;
-  side: 'YES' | 'NO';          // 对冲方向 (买入哪一边)
-  price: number;               // 建议对冲价格
-  urgency: 'LOW' | 'MEDIUM' | 'HIGH'; // 对冲紧急程度
+  side: 'YES' | 'NO';
+  price: number;
+  urgency: 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
 export interface DualTrackOrders {
@@ -102,6 +116,18 @@ export interface DualTrackOrders {
   } | null;
 }
 
+export interface RepriceDecision {
+  needsReprice: boolean;
+  reason: string;
+  newBuyPrice?: number;
+  newSellPrice?: number;
+  currentBuyPrice: number;
+  currentSellPrice: number;
+  targetBuyPrice: number;
+  targetSellPrice: number;
+  priceDelta: number;          // 价格偏移量 (cents)
+}
+
 // ============================================================================
 // 默认配置
 // ============================================================================
@@ -111,13 +137,25 @@ export const DEFAULT_CONFIG: UnifiedStrategyConfig = {
   tolerance: 0.05,
   minSize: 10,
   maxSize: 500,
-  buyOffsetBps: 100,           // 1% 偏移
-  sellOffsetBps: 100,          // 1% 偏移
-  hedgeSlippageBps: 250,       // 2.5% 滑点
-  maxUnhedgedShares: 100,      // 最多 100 股未对冲
+
+  // 二档追踪配置
+  tickSize: 0.01,              // 1 cent
+  minSpreadCents: 1,           // 最小距离 1 cent
+  maxSpreadCents: 6,           // 最大距离 6 cents (Predict.fun 积分要求)
+  repriceThresholdCents: 1,    // 偏移超过 1 cent 需要重新挂单
+
+  // 价格偏移
+  buyOffsetBps: 100,
+  sellOffsetBps: 100,
+
+  // 对冲设置
+  hedgeSlippageBps: 250,
+  maxUnhedgedShares: 100,
+
+  // 模式开关
   asyncHedging: true,
   dualTrackMode: true,
-  dynamicOffsetMode: true,
+  dynamicOffsetMode: false,    // 默认使用固定二档追踪
 };
 
 // ============================================================================
@@ -165,16 +203,21 @@ export class UnifiedStrategy {
       pendingBuyPrice: 0,
       pendingSellShares: 0,
       pendingSellPrice: 0,
+      trackedBidPrice: 0,
+      trackedAskPrice: 0,
+      trackedAt: 0,
       hedgedShares: 0,
       unhedgedShares: 0,
       totalBuyFilled: 0,
       totalHedgeFilled: 0,
       totalSellFilled: 0,
+      totalReprices: 0,
       buyPointsEarned: 0,
       sellPointsEarned: 0,
       lastBuyFillAt: 0,
       lastSellFillAt: 0,
       lastHedgeAt: 0,
+      lastRepriceAt: 0,
       avgBuyPrice: 0,
       avgHedgePrice: 0,
     };
@@ -189,12 +232,143 @@ export class UnifiedStrategy {
   }
 
   // --------------------------------------------------------------------------
-  // 核心分析
+  // 核心: 二档追踪
   // --------------------------------------------------------------------------
 
   /**
-   * 分析当前市场状态，返回状态和建议
+   * 计算第二档价格
+   *
+   * 逻辑:
+   * - 买二价 = 买一价 - spread
+   * - 卖二价 = 卖一价 + spread
+   *
+   * spread 在 [minSpreadCents, maxSpreadCents] 范围内
    */
+  calculateSecondTierPrices(
+    bestBid: number,
+    bestAsk: number
+  ): { secondBid: number; secondAsk: number } {
+    const tickSize = this.config.tickSize;
+    const minSpread = this.config.minSpreadCents * tickSize;
+    const maxSpread = this.config.maxSpreadCents * tickSize;
+
+    // 计算第二档价格
+    // 买二价 = 买一价 - minSpread (尽量靠近第一档，但不在第一档)
+    // 卖二价 = 卖一价 + minSpread
+    const secondBid = Math.max(0.01, bestBid - minSpread);
+    const secondAsk = Math.min(0.99, bestAsk + minSpread);
+
+    return { secondBid, secondAsk };
+  }
+
+  /**
+   * 检查是否需要重新挂单
+   *
+   * 触发重新挂单的条件:
+   * 1. 当前挂单价格与目标价格偏移超过阈值
+   * 2. 当前挂单变成了第一档 (被吃单风险)
+   * 3. 当前挂单距离第一档太远 (超过 maxSpreadCents)
+   */
+  checkRepriceNeeded(
+    tokenId: string,
+    orderbook: Orderbook,
+    currentBuyOrderPrice?: number,
+    currentSellOrderPrice?: number
+  ): RepriceDecision {
+    const state = this.getState(tokenId);
+    const tickSize = this.config.tickSize;
+    const threshold = this.config.repriceThresholdCents * tickSize;
+    const maxSpread = this.config.maxSpreadCents * tickSize;
+
+    // 获取订单簿第一档
+    const bestBid = orderbook.best_bid ?? (orderbook.bids[0] ? parseFloat(orderbook.bids[0].price) : 0);
+    const bestAsk = orderbook.best_ask ?? (orderbook.asks[0] ? parseFloat(orderbook.asks[0].price) : 0);
+
+    if (bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
+      return {
+        needsReprice: false,
+        reason: 'Invalid orderbook',
+        currentBuyPrice: currentBuyOrderPrice ?? 0,
+        currentSellPrice: currentSellOrderPrice ?? 0,
+        targetBuyPrice: 0,
+        targetSellPrice: 0,
+        priceDelta: 0,
+      };
+    }
+
+    // 计算目标第二档价格
+    const { secondBid, secondAsk } = this.calculateSecondTierPrices(bestBid, bestAsk);
+
+    // 当前挂单价格
+    const currentBuy = currentBuyOrderPrice ?? state.pendingBuyPrice;
+    const currentSell = currentSellOrderPrice ?? state.pendingSellPrice;
+
+    // 计算价格偏移
+    const buyDelta = currentBuy > 0 ? Math.abs(currentBuy - secondBid) : 0;
+    const sellDelta = currentSell > 0 ? Math.abs(currentSell - secondAsk) : 0;
+    const maxDelta = Math.max(buyDelta, sellDelta);
+
+    // 检查是否需要重新挂单
+    let needsReprice = false;
+    let reason = '';
+
+    // 1. 价格偏移超过阈值
+    if (buyDelta > threshold || sellDelta > threshold) {
+      needsReprice = true;
+      reason = `Price drift: buyΔ=${(buyDelta * 100).toFixed(2)}c sellΔ=${(sellDelta * 100).toFixed(2)}c`;
+    }
+
+    // 2. 检查是否变成了第一档
+    if (currentBuy > 0 && currentBuy >= bestBid - tickSize / 2) {
+      needsReprice = true;
+      reason = `Buy order at best bid! (${currentBuy} >= ${bestBid})`;
+    }
+    if (currentSell > 0 && currentSell <= bestAsk + tickSize / 2) {
+      needsReprice = true;
+      reason = `Sell order at best ask! (${currentSell} <= ${bestAsk})`;
+    }
+
+    // 3. 检查距离第一档是否太远
+    if (currentBuy > 0 && bestBid - currentBuy > maxSpread) {
+      needsReprice = true;
+      reason = `Buy order too far from best bid (${((bestBid - currentBuy) * 100).toFixed(2)}c > ${this.config.maxSpreadCents}c)`;
+    }
+    if (currentSell > 0 && currentSell - bestAsk > maxSpread) {
+      needsReprice = true;
+      reason = `Sell order too far from best ask (${((currentSell - bestAsk) * 100).toFixed(2)}c > ${this.config.maxSpreadCents}c)`;
+    }
+
+    // 更新追踪的第一档价格
+    state.trackedBidPrice = bestBid;
+    state.trackedAskPrice = bestAsk;
+    state.trackedAt = Date.now();
+
+    return {
+      needsReprice,
+      reason,
+      newBuyPrice: needsReprice ? secondBid : undefined,
+      newSellPrice: needsReprice ? secondAsk : undefined,
+      currentBuyPrice: currentBuy,
+      currentSellPrice: currentSell,
+      targetBuyPrice: secondBid,
+      targetSellPrice: secondAsk,
+      priceDelta: maxDelta * 100, // 转换为 cents
+    };
+  }
+
+  /**
+   * 记录重新挂单
+   */
+  recordReprice(tokenId: string): void {
+    const state = this.getState(tokenId);
+    state.totalReprices++;
+    state.lastRepriceAt = Date.now();
+  }
+
+  // --------------------------------------------------------------------------
+  // 核心分析
+  // --------------------------------------------------------------------------
+
   analyze(
     market: Market,
     position: Position,
@@ -207,59 +381,58 @@ export class UnifiedStrategy {
     buySize: number;
     sellSize: number;
     hedgeInstruction: HedgeInstruction;
+    repriceDecision?: RepriceDecision;
   } {
     const state = this.getState(market.token_id);
     const yes = position.yes_amount || 0;
     const no = position.no_amount || 0;
     const total = yes + no;
 
-    // 计算仓位平衡度
     const avg = total / 2;
     const deviation = avg > 0 ? Math.abs(yes - no) / avg : 0;
     const balanced = deviation <= this.config.tolerance;
 
-    // 计算未对冲风险
     const unhedgedRisk = state.unhedgedShares;
 
-    // 确定当前状态
     let currentState: UnifiedState;
     let shouldBuy = false;
     let shouldSell = false;
 
     if (total === 0) {
-      // 空仓：开始买入
       currentState = UnifiedState.EMPTY;
       shouldBuy = true;
     } else if (unhedgedRisk > 0) {
-      // 有未对冲仓位：等待对冲
       currentState = UnifiedState.HEDGED;
-      shouldBuy = false; // 对冲期间暂停新买入
-      shouldSell = state.hedgedShares > 0; // 可以卖出已对冲的部分
+      shouldBuy = false;
+      shouldSell = state.hedgedShares > 0;
     } else if (balanced && state.hedgedShares >= this.config.minSize) {
-      // 仓位平衡且有足够对冲库存：双轨并行
       currentState = UnifiedState.DUAL_TRACK;
       shouldBuy = true;
       shouldSell = true;
     } else {
-      // 累积阶段
       currentState = UnifiedState.ACCUMULATING;
       shouldBuy = true;
       shouldSell = state.hedgedShares > 0;
     }
 
-    // 计算订单大小
     const baseSize = Math.max(this.config.minSize, 10);
     const buySize = shouldBuy ? Math.min(baseSize, this.config.maxSize) : 0;
     const sellSize = shouldSell
       ? Math.min(state.hedgedShares, baseSize, this.config.maxSize)
       : 0;
 
-    // 生成对冲指令
-    const hedgeInstruction = this.generateHedgeInstruction(
-      state,
-      yesPrice,
-      orderbook
-    );
+    const hedgeInstruction = this.generateHedgeInstruction(state, yesPrice, orderbook);
+
+    // 检查是否需要重新挂单
+    let repriceDecision: RepriceDecision | undefined;
+    if (orderbook && (state.pendingBuyShares > 0 || state.pendingSellShares > 0)) {
+      repriceDecision = this.checkRepriceNeeded(
+        market.token_id,
+        orderbook,
+        state.pendingBuyPrice,
+        state.pendingSellPrice
+      );
+    }
 
     return {
       state: currentState,
@@ -268,12 +441,10 @@ export class UnifiedStrategy {
       buySize,
       sellSize,
       hedgeInstruction,
+      repriceDecision,
     };
   }
 
-  /**
-   * 生成对冲指令
-   */
   private generateHedgeInstruction(
     state: DualTrackState,
     yesPrice: number,
@@ -291,15 +462,13 @@ export class UnifiedStrategy {
 
     const shares = state.unhedgedShares;
 
-    // 计算对冲价格 (使用 NO 的 ask 价格)
     const noAsk = orderbook?.best_ask
-      ? 1 - orderbook.best_ask + 0.01 // NO ask = 1 - YES bid + spread
+      ? 1 - orderbook.best_ask + 0.01
       : (1 - yesPrice) * 1.01;
 
     const slippage = this.config.hedgeSlippageBps / 10000;
     const hedgePrice = Math.min(0.99, noAsk * (1 + slippage));
 
-    // 确定紧急程度
     let urgency: 'LOW' | 'MEDIUM' | 'HIGH';
     if (shares >= this.config.maxUnhedgedShares) {
       urgency = 'HIGH';
@@ -312,88 +481,78 @@ export class UnifiedStrategy {
     return {
       shouldHedge: true,
       shares,
-      side: 'NO', // 买入 YES 后对冲 NO
+      side: 'NO',
       price: hedgePrice,
       urgency,
     };
   }
 
   // --------------------------------------------------------------------------
-  // 价格计算
+  // 订单建议
   // --------------------------------------------------------------------------
 
   /**
-   * 计算买卖价格（二档价格）
-   *
-   * 关键逻辑：
-   * - 买单价格 = 最佳买价 * (1 - buyOffset) → 比最佳买价更低
-   * - 卖单价格 = 最佳卖价 * (1 - sellOffset) → 比最佳卖价更高
+   * 获取双轨订单建议 (使用二档追踪)
    */
-  suggestPrices(
-    yesPrice: number,
-    bestBid?: number,
-    bestAsk?: number
-  ): {
-    bid: number;   // 买入价格 (YES 侧)
-    ask: number;   // 卖出价格 (YES 侧)
-    noBid: number; // NO 侧买入价格
-    noAsk: number; // NO 侧卖出价格
-  } {
-    // 基础偏移
-    let buyOffset = this.config.buyOffsetBps / 10000;
-    let sellOffset = this.config.sellOffsetBps / 10000;
+  getDualTrackOrders(
+    tokenId: string,
+    orderbook: Orderbook,
+    position: Position
+  ): DualTrackOrders & { repriceDecision?: RepriceDecision } {
+    if (!this.config.dualTrackMode) {
+      return { buyOrder: null, sellOrder: null };
+    }
 
-    // 动态偏移模式：可以根据波动性调整
-    // TODO: 实现 volatility-based 动态调整
+    const state = this.getState(tokenId);
+    const bestBid = orderbook.best_bid ?? (orderbook.bids[0] ? parseFloat(orderbook.bids[0].price) : 0);
+    const bestAsk = orderbook.best_ask ?? (orderbook.asks[0] ? parseFloat(orderbook.asks[0].price) : 0);
 
-    // 使用提供的最优价格，或基于 yesPrice 估算
-    const bid = bestBid ?? yesPrice * 0.99;
-    const ask = bestAsk ?? yesPrice * 1.01;
+    if (bestBid <= 0 || bestAsk <= 0) {
+      return { buyOrder: null, sellOrder: null };
+    }
 
-    // YES 侧价格
-    const yesBid = Math.max(0.01, bid * (1 - buyOffset));  // 买得更便宜
-    const yesAsk = Math.min(0.99, ask * (1 + sellOffset)); // 卖得更贵
+    // 计算第二档价格
+    const { secondBid, secondAsk } = this.calculateSecondTierPrices(bestBid, bestAsk);
 
-    // NO 侧价格 (对称)
-    const noBid = Math.max(0.01, (1 - ask) * (1 - buyOffset));
-    const noAsk = Math.min(0.99, (1 - bid) * (1 + sellOffset));
+    const analysis = this.analyze(
+      { token_id: tokenId } as Market,
+      position,
+      (bestBid + bestAsk) / 2,
+      orderbook
+    );
+
+    let buyOrder: DualTrackOrders['buyOrder'] = null;
+    let sellOrder: DualTrackOrders['sellOrder'] = null;
+
+    // Track A: 买单（二档买入 YES）
+    if (analysis.shouldBuy && analysis.buySize > 0) {
+      buyOrder = {
+        shares: analysis.buySize,
+        price: secondBid,
+        side: 'YES',
+      };
+    }
+
+    // Track B: 卖单（二档卖出 YES）
+    if (analysis.shouldSell && state.hedgedShares > 0 && analysis.sellSize > 0) {
+      sellOrder = {
+        shares: Math.min(state.hedgedShares, analysis.sellSize),
+        price: secondAsk,
+        side: 'YES',
+      };
+    }
 
     return {
-      bid: yesBid,
-      ask: yesAsk,
-      noBid,
-      noAsk,
+      buyOrder,
+      sellOrder,
+      repriceDecision: analysis.repriceDecision,
     };
-  }
-
-  /**
-   * 计算对冲价格
-   */
-  calculateHedgePrice(
-    yesPrice: number,
-    bestAsk: number,
-    side: 'YES' | 'NO'
-  ): number {
-    const slippage = this.config.hedgeSlippageBps / 10000;
-
-    if (side === 'NO') {
-      // 对冲 NO：买入 NO
-      // NO 的 ask ≈ 1 - YES 的 bid
-      const noAsk = 1 - yesPrice + 0.01;
-      return Math.min(0.99, noAsk * (1 + slippage));
-    } else {
-      // 对冲 YES：买入 YES
-      return Math.min(0.99, bestAsk * (1 + slippage));
-    }
   }
 
   // --------------------------------------------------------------------------
   // 挂单管理
   // --------------------------------------------------------------------------
 
-  /**
-   * 更新挂单状态
-   */
   updatePendingOrders(
     tokenId: string,
     buyShares: number,
@@ -408,65 +567,10 @@ export class UnifiedStrategy {
     state.pendingSellPrice = sellPrice;
   }
 
-  /**
-   * 获取双轨订单建议
-   */
-  getDualTrackOrders(
-    tokenId: string,
-    yesPrice: number,
-    bestBid: number,
-    bestAsk: number,
-    position: Position
-  ): DualTrackOrders {
-    if (!this.config.dualTrackMode) {
-      return { buyOrder: null, sellOrder: null };
-    }
-
-    const state = this.getState(tokenId);
-    const prices = this.suggestPrices(yesPrice, bestBid, bestAsk);
-    const analysis = this.analyze(
-      { token_id: tokenId } as Market,
-      position,
-      yesPrice
-    );
-
-    let buyOrder: DualTrackOrders['buyOrder'] = null;
-    let sellOrder: DualTrackOrders['sellOrder'] = null;
-
-    // Track A: 买单（二档买入 YES）
-    if (analysis.shouldBuy && analysis.buySize > 0) {
-      buyOrder = {
-        shares: analysis.buySize,
-        price: prices.bid,
-        side: 'YES',
-      };
-    }
-
-    // Track B: 卖单（二档卖出 YES）- 使用对冲库存
-    if (analysis.shouldSell && state.hedgedShares > 0 && analysis.sellSize > 0) {
-      sellOrder = {
-        shares: Math.min(state.hedgedShares, analysis.sellSize),
-        price: prices.ask,
-        side: 'YES',
-      };
-    }
-
-    return { buyOrder, sellOrder };
-  }
-
   // --------------------------------------------------------------------------
   // 成交处理
   // --------------------------------------------------------------------------
 
-  /**
-   * 处理买单成交
-   *
-   * 核心逻辑：
-   * 1. 更新成交统计
-   * 2. 更新平均买入价格
-   * 3. 增加未对冲股数
-   * 4. 返回对冲指令
-   */
   onBuyFill(
     tokenId: string,
     filledShares: number,
@@ -476,25 +580,20 @@ export class UnifiedStrategy {
     const state = this.getState(tokenId);
     const now = Date.now();
 
-    // 更新成交统计
     state.totalBuyFilled += filledShares;
     state.lastBuyFillAt = now;
-
-    // 更新挂单中的买单数量
     state.pendingBuyShares = Math.max(0, state.pendingBuyShares - filledShares);
 
-    // 更新平均买入价格
-    const totalCost = state.avgBuyPrice * (state.totalBuyFilled - filledShares);
-    state.avgBuyPrice = (totalCost + filledShares * fillPrice) / state.totalBuyFilled;
+    if (state.totalBuyFilled > 0) {
+      const totalCost = state.avgBuyPrice * (state.totalBuyFilled - filledShares);
+      state.avgBuyPrice = (totalCost + filledShares * fillPrice) / state.totalBuyFilled;
+    }
 
-    // 增加未对冲股数
     state.unhedgedShares += filledShares;
 
-    // 计算积分
     const points = this.calculatePoints(filledShares, fillPrice, 'BUY');
     state.buyPointsEarned += points;
 
-    // 生成对冲指令
     if (this.config.asyncHedging && state.unhedgedShares > 0) {
       const urgency = state.unhedgedShares >= this.config.maxUnhedgedShares
         ? 'HIGH'
@@ -505,8 +604,8 @@ export class UnifiedStrategy {
       return {
         shouldHedge: true,
         shares: state.unhedgedShares,
-        side: side === 'YES' ? 'NO' : 'YES', // 对冲反向
-        price: fillPrice, // 实际对冲价格需要从 orderbook 计算
+        side: side === 'YES' ? 'NO' : 'YES',
+        price: fillPrice,
         urgency,
       };
     }
@@ -520,9 +619,6 @@ export class UnifiedStrategy {
     };
   }
 
-  /**
-   * 处理卖单成交
-   */
   onSellFill(
     tokenId: string,
     filledShares: number,
@@ -531,24 +627,15 @@ export class UnifiedStrategy {
     const state = this.getState(tokenId);
     const now = Date.now();
 
-    // 更新成交统计
     state.totalSellFilled += filledShares;
     state.lastSellFillAt = now;
-
-    // 更新挂单中的卖单数量
     state.pendingSellShares = Math.max(0, state.pendingSellShares - filledShares);
-
-    // 减少对冲库存
     state.hedgedShares = Math.max(0, state.hedgedShares - filledShares);
 
-    // 计算积分
     const points = this.calculatePoints(filledShares, fillPrice, 'SELL');
     state.sellPointsEarned += points;
   }
 
-  /**
-   * 记录对冲成交
-   */
   onHedgeFill(
     tokenId: string,
     hedgedShares: number,
@@ -557,35 +644,26 @@ export class UnifiedStrategy {
     const state = this.getState(tokenId);
     const now = Date.now();
 
-    // 更新对冲统计
     state.totalHedgeFilled += hedgedShares;
     state.hedgedShares += hedgedShares;
     state.lastHedgeAt = now;
-
-    // 减少未对冲股数
     state.unhedgedShares = Math.max(0, state.unhedgedShares - hedgedShares);
 
-    // 更新平均对冲价格
-    const totalCost = state.avgHedgePrice * (state.totalHedgeFilled - hedgedShares);
-    state.avgHedgePrice = (totalCost + hedgedShares * hedgePrice) / state.totalHedgeFilled;
+    if (state.totalHedgeFilled > 0) {
+      const totalCost = state.avgHedgePrice * (state.totalHedgeFilled - hedgedShares);
+      state.avgHedgePrice = (totalCost + hedgedShares * hedgePrice) / state.totalHedgeFilled;
+    }
   }
 
   // --------------------------------------------------------------------------
   // 积分计算
   // --------------------------------------------------------------------------
 
-  /**
-   * 计算赚取的积分
-   *
-   * 简化模型：基于成交金额
-   * 实际积分 = 订单金额 × 持仓时间 × 平台系数
-   */
   calculatePoints(
     shares: number,
     price: number,
     side: 'BUY' | 'SELL'
   ): number {
-    // 简化：每 $1 成交额 = 1 积分
     const value = shares * price;
     return value;
   }
@@ -594,74 +672,72 @@ export class UnifiedStrategy {
   // 统计与报告
   // --------------------------------------------------------------------------
 
-  /**
-   * 获取统计摘要
-   */
   getSummary(tokenId: string): {
     totalBuyFilled: number;
     totalSellFilled: number;
     totalHedgeFilled: number;
+    totalReprices: number;
     totalPoints: number;
     hedgedShares: number;
     unhedgedShares: number;
     avgBuyPrice: number;
     avgHedgePrice: number;
     pnl: number;
+    currentSpread: { buy: number; sell: number };
   } {
     const state = this.getState(tokenId);
 
-    // 估算 PnL
-    // 买入成本 = totalBuyFilled * avgBuyPrice
-    // 对冲成本 = totalHedgeFilled * avgHedgePrice
-    // 卖出收入 = totalSellFilled * avgSellPrice (简化使用 avgBuyPrice)
     const buyCost = state.totalBuyFilled * state.avgBuyPrice;
     const hedgeCost = state.totalHedgeFilled * state.avgHedgePrice;
-    const sellRevenue = state.totalSellFilled * state.avgBuyPrice; // 简化
+    const sellRevenue = state.totalSellFilled * state.avgBuyPrice;
     const pnl = sellRevenue - buyCost - hedgeCost;
+
+    // 计算当前挂单与第一档的距离
+    const buySpread = state.trackedBidPrice > 0 && state.pendingBuyPrice > 0
+      ? (state.trackedBidPrice - state.pendingBuyPrice) * 100
+      : 0;
+    const sellSpread = state.trackedAskPrice > 0 && state.pendingSellPrice > 0
+      ? (state.pendingSellPrice - state.trackedAskPrice) * 100
+      : 0;
 
     return {
       totalBuyFilled: state.totalBuyFilled,
       totalSellFilled: state.totalSellFilled,
       totalHedgeFilled: state.totalHedgeFilled,
+      totalReprices: state.totalReprices,
       totalPoints: state.buyPointsEarned + state.sellPointsEarned,
       hedgedShares: state.hedgedShares,
       unhedgedShares: state.unhedgedShares,
       avgBuyPrice: state.avgBuyPrice,
       avgHedgePrice: state.avgHedgePrice,
       pnl,
+      currentSpread: { buy: buySpread, sell: sellSpread },
     };
   }
 
-  /**
-   * 打印状态摘要
-   */
   printSummary(tokenId: string): void {
     const s = this.getState(tokenId);
     const summary = this.getSummary(tokenId);
 
     console.log(`\n╔${'═'.repeat(70)}╗`);
-    console.log(`║ 📊 Unified Strategy - Dual Track State`);
+    console.log(`║ 📊 Unified Strategy - 二档追踪 + 双轨并行`);
+    console.log(`╠${'═'.repeat(70)}╣`);
+    console.log(`║ 📌 订单簿追踪:`);
+    console.log(`║    买一: $${s.trackedBidPrice.toFixed(4)} | 卖一: $${s.trackedAskPrice.toFixed(4)}`);
+    console.log(`║    买二: $${s.pendingBuyPrice.toFixed(4)} (${summary.currentSpread.buy.toFixed(1)}c)`);
+    console.log(`║    卖二: $${s.pendingSellPrice.toFixed(4)} (${summary.currentSpread.sell.toFixed(1)}c)`);
     console.log(`╠${'═'.repeat(70)}╣`);
     console.log(`║ 📌 挂单状态:`);
-    console.log(`║    Track A (Buy):  ${s.pendingBuyShares} shares @ $${s.pendingBuyPrice.toFixed(4)}`);
-    console.log(`║    Track B (Sell): ${s.pendingSellShares} shares @ $${s.pendingSellPrice.toFixed(4)}`);
-    console.log(`╠${'═'.repeat(70)}╣`);
-    console.log(`║ 📌 对冲状态:`);
-    console.log(`║    Hedged: ${s.hedgedShares} shares | Unhedged: ${s.unhedgedShares} shares`);
-    console.log(`║    Avg Buy: $${s.avgBuyPrice.toFixed(4)} | Avg Hedge: $${s.avgHedgePrice.toFixed(4)}`);
+    console.log(`║    Track A (买): ${s.pendingBuyShares} 股`);
+    console.log(`║    Track B (卖): ${s.pendingSellShares} 股`);
     console.log(`╠${'═'.repeat(70)}╣`);
     console.log(`║ 📌 成交统计:`);
-    console.log(`║    Buy=${s.totalBuyFilled} | Hedge=${s.totalHedgeFilled} | Sell=${s.totalSellFilled}`);
-    console.log(`║    Points: Buy=${s.buyPointsEarned.toFixed(2)} | Sell=${s.sellPointsEarned.toFixed(2)}`);
-    console.log(`║    Total Points: ${summary.totalPoints.toFixed(2)}`);
+    console.log(`║    买=${s.totalBuyFilled} | 对冲=${s.totalHedgeFilled} | 卖=${s.totalSellFilled}`);
+    console.log(`║    重新挂单次数: ${s.totalReprices}`);
     console.log(`╠${'═'.repeat(70)}╣`);
-    console.log(`║ 📌 盈亏估算: $${summary.pnl.toFixed(2)}`);
+    console.log(`║ 📌 积分: ${summary.totalPoints.toFixed(2)} | PnL: $${summary.pnl.toFixed(2)}`);
     console.log(`╚${'═'.repeat(70)}╝`);
   }
 }
-
-// ============================================================================
-// 导出单例
-// ============================================================================
 
 export const unifiedStrategy = new UnifiedStrategy();
