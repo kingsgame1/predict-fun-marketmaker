@@ -594,19 +594,26 @@ export class UnifiedStrategy {
     const points = this.calculatePoints(filledShares, fillPrice, 'BUY');
     state.buyPointsEarned += points;
 
+    // 🔥 核心逻辑：被吃单后立即对冲，不等待累积！
+    // 无论数量多少，都立即以 HIGH urgency 对冲
     if (this.config.asyncHedging && state.unhedgedShares > 0) {
-      const urgency = state.unhedgedShares >= this.config.maxUnhedgedShares
-        ? 'HIGH'
-        : state.unhedgedShares >= this.config.maxUnhedgedShares / 2
-          ? 'MEDIUM'
-          : 'LOW';
+      // 计算对冲价格：使用滑点补偿
+      const slippage = this.config.hedgeSlippageBps / 10000;
+      // 如果买的是 YES，对冲买 NO，需要用 NO 的卖价
+      const hedgeSide = side === 'YES' ? 'NO' : 'YES';
+      // 对冲价格：1 - 成交价 + 滑点 (确保能成交)
+      const hedgePrice = hedgeSide === 'NO'
+        ? Math.min(0.99, (1 - fillPrice) * (1 + slippage))
+        : Math.min(0.99, fillPrice * (1 + slippage));
+
+      console.log(`⚡ [AsyncHedge] 买 ${side} 成交 ${filledShares} 股 @ $${fillPrice.toFixed(4)}，立即对冲买 ${hedgeSide} ${state.unhedgedShares} 股`);
 
       return {
         shouldHedge: true,
-        shares: state.unhedgedShares,
-        side: side === 'YES' ? 'NO' : 'YES',
-        price: fillPrice,
-        urgency,
+        shares: state.unhedgedShares,  // 对冲所有未对冲的
+        side: hedgeSide,
+        price: hedgePrice,
+        urgency: 'HIGH',  // 🔥 始终 HIGH，立即执行！
       };
     }
 

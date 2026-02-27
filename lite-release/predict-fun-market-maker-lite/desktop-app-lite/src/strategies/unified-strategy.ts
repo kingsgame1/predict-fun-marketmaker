@@ -45,27 +45,10 @@ export interface UnifiedStrategyConfig {
   hedgeSlippageBps: number;
   maxUnhedgedShares: number;
 
-  // 流动性要求 (用于市场筛选)
-  minLiquidityUsd: number;     // 最小流动性要求 (USD)
-  minDepthShares: number;      // 最小深度要求 (shares)
-  maxSpreadPercent: number;    // 最大价差百分比
-
   // 模式开关
   asyncHedging: boolean;
   dualTrackMode: boolean;
   dynamicOffsetMode: boolean;
-}
-
-// 流动性评估结果
-export interface LiquidityAssessment {
-  yesLiquidity: number;        // YES 侧流动性 (USD)
-  noLiquidity: number;         // NO 侧流动性 (USD)
-  yesDepth: number;            // YES 侧深度 (shares)
-  noDepth: number;             // NO 侧深度 (shares)
-  yesSpread: number;           // YES 侧价差 (%)
-  noSpread: number;            // NO 侧价差 (%)
-  isSuitable: boolean;         // 是否适合做市
-  reason: string;              // 评估原因
 }
 
 export enum UnifiedState {
@@ -168,11 +151,6 @@ export const DEFAULT_CONFIG: UnifiedStrategyConfig = {
   // 对冲设置
   hedgeSlippageBps: 250,
   maxUnhedgedShares: 100,
-
-  // 流动性要求 (用于市场筛选)
-  minLiquidityUsd: 1000,       // 最小 $1000 流动性
-  minDepthShares: 100,         // 最小 100 股深度
-  maxSpreadPercent: 0.10,      // 最大 10% 价差
 
   // 模式开关
   asyncHedging: true,
@@ -388,150 +366,6 @@ export class UnifiedStrategy {
   }
 
   // --------------------------------------------------------------------------
-  // 流动性评估 (市场筛选)
-  // --------------------------------------------------------------------------
-
-  /**
-   * 评估市场流动性 - 关键: YES 和 NO 两边都需要有足够流动性
-   *
-   * 为什么重要:
-   * 1. 对冲时需要在 NO 侧市价买入，如果 NO 侧流动性不足会产生大滑点
-   * 2. 卖出时需要在 YES 侧市价卖出，如果 YES 侧流动性不足也会有大滑点
-   * 3. 双边流动性充足才能保证对冲成本可控
-   */
-  assessLiquidity(
-    yesOrderbook: Orderbook,
-    noOrderbook: Orderbook
-  ): LiquidityAssessment {
-    // 计算 YES 侧流动性
-    const yesDepth = this.calculateDepth(yesOrderbook);
-    const yesLiquidity = this.calculateLiquidity(yesOrderbook);
-    const yesSpread = this.calculateSpread(yesOrderbook);
-
-    // 计算 NO 侧流动性
-    const noDepth = this.calculateDepth(noOrderbook);
-    const noLiquidity = this.calculateLiquidity(noOrderbook);
-    const noSpread = this.calculateSpread(noOrderbook);
-
-    // 检查是否满足要求
-    const reasons: string[] = [];
-
-    if (yesLiquidity < this.config.minLiquidityUsd) {
-      reasons.push(`YES流动性不足: $${yesLiquidity.toFixed(0)} < $${this.config.minLiquidityUsd}`);
-    }
-    if (noLiquidity < this.config.minLiquidityUsd) {
-      reasons.push(`NO流动性不足: $${noLiquidity.toFixed(0)} < $${this.config.minLiquidityUsd}`);
-    }
-    if (yesDepth < this.config.minDepthShares) {
-      reasons.push(`YES深度不足: ${yesDepth} < ${this.config.minDepthShares} 股`);
-    }
-    if (noDepth < this.config.minDepthShares) {
-      reasons.push(`NO深度不足: ${noDepth} < ${this.config.minDepthShares} 股`);
-    }
-    if (yesSpread > this.config.maxSpreadPercent) {
-      reasons.push(`YES价差过大: ${(yesSpread * 100).toFixed(1)}% > ${(this.config.maxSpreadPercent * 100)}%`);
-    }
-    if (noSpread > this.config.maxSpreadPercent) {
-      reasons.push(`NO价差过大: ${(noSpread * 100).toFixed(1)}% > ${(this.config.maxSpreadPercent * 100)}%`);
-    }
-
-    const isSuitable = reasons.length === 0;
-    const reason = isSuitable
-      ? `✅ 适合做市: YES=$${yesLiquidity.toFixed(0)}/${yesDepth}股 NO=$${noLiquidity.toFixed(0)}/${noDepth}股`
-      : `❌ 不适合: ${reasons.join('; ')}`;
-
-    return {
-      yesLiquidity,
-      noLiquidity,
-      yesDepth,
-      noDepth,
-      yesSpread,
-      noSpread,
-      isSuitable,
-      reason,
-    };
-  }
-
-  /**
-   * 计算订单簿深度 (前 3 档的总股数)
-   */
-  private calculateDepth(orderbook: Orderbook): number {
-    const bidDepth = orderbook.bids.slice(0, 3).reduce((sum, b) => sum + parseFloat(b.shares), 0);
-    const askDepth = orderbook.asks.slice(0, 3).reduce((sum, a) => sum + parseFloat(a.shares), 0);
-    return Math.min(bidDepth, askDepth); // 取较小值，两边都要有深度
-  }
-
-  /**
-   * 计算订单簿流动性 (前 3 档的总价值 USD)
-   */
-  private calculateLiquidity(orderbook: Orderbook): number {
-    const bidValue = orderbook.bids.slice(0, 3).reduce((sum, b) => {
-      const price = parseFloat(b.price);
-      const shares = parseFloat(b.shares);
-      return sum + price * shares;
-    }, 0);
-    const askValue = orderbook.asks.slice(0, 3).reduce((sum, a) => {
-      const price = parseFloat(a.price);
-      const shares = parseFloat(a.shares);
-      return sum + price * shares;
-    }, 0);
-    return Math.min(bidValue, askValue);
-  }
-
-  /**
-   * 计算价差百分比
-   */
-  private calculateSpread(orderbook: Orderbook): number {
-    const bestBid = orderbook.best_bid ?? parseFloat(orderbook.bids[0]?.price ?? '0');
-    const bestAsk = orderbook.best_ask ?? parseFloat(orderbook.asks[0]?.price ?? '1');
-    if (bestBid <= 0 || bestAsk <= 0) return 1; // 返回 100% 表示无效
-    return (bestAsk - bestBid) / bestBid;
-  }
-
-  /**
-   * 快速检查市场是否适合做市 (不需要创建 Orderbook 对象)
-   */
-  isMarketSuitable(
-    yesBestBid: number,
-    yesBestAsk: number,
-    yesDepth: number,
-    noBestBid: number,
-    noBestAsk: number,
-    noDepth: number
-  ): { suitable: boolean; reason: string } {
-    // 检查 YES 侧
-    if (yesBestBid <= 0 || yesBestAsk <= 0) {
-      return { suitable: false, reason: 'YES 侧订单簿无效' };
-    }
-    if (yesDepth < this.config.minDepthShares) {
-      return { suitable: false, reason: `YES 深度不足: ${yesDepth} 股` };
-    }
-
-    // 检查 NO 侧
-    if (noBestBid <= 0 || noBestAsk <= 0) {
-      return { suitable: false, reason: 'NO 侧订单簿无效' };
-    }
-    if (noDepth < this.config.minDepthShares) {
-      return { suitable: false, reason: `NO 深度不足: ${noDepth} 股` };
-    }
-
-    // 检查价差
-    const yesSpread = (yesBestAsk - yesBestBid) / yesBestBid;
-    const noSpread = (noBestAsk - noBestBid) / noBestBid;
-    if (yesSpread > this.config.maxSpreadPercent) {
-      return { suitable: false, reason: `YES 价差过大: ${(yesSpread * 100).toFixed(1)}%` };
-    }
-    if (noSpread > this.config.maxSpreadPercent) {
-      return { suitable: false, reason: `NO 价差过大: ${(noSpread * 100).toFixed(1)}%` };
-    }
-
-    return {
-      suitable: true,
-      reason: `✅ YES:${yesDepth}股/${(yesSpread * 100).toFixed(1)}% NO:${noDepth}股/${(noSpread * 100).toFixed(1)}%`,
-    };
-  }
-
-  // --------------------------------------------------------------------------
   // 核心分析
   // --------------------------------------------------------------------------
 
@@ -737,14 +571,6 @@ export class UnifiedStrategy {
   // 成交处理
   // --------------------------------------------------------------------------
 
-  /**
-   * 处理买单成交 - 被吃单后立即对冲!
-   *
-   * 核心逻辑:
-   * 1. 任何被吃单的情况都需要立即对冲 (urgency = HIGH)
-   * 2. 不等待累积到 maxUnhedgedShares
-   * 3. 减少损失范围
-   */
   onBuyFill(
     tokenId: string,
     filledShares: number,
@@ -768,25 +594,26 @@ export class UnifiedStrategy {
     const points = this.calculatePoints(filledShares, fillPrice, 'BUY');
     state.buyPointsEarned += points;
 
-    // 🔥 核心改变: 被吃单后立即对冲，不等待!
-    if (this.config.asyncHedging && filledShares > 0) {
-      // 计算对冲价格 (使用 NO 侧 ask 价 + 滑点)
-      const hedgePrice = side === 'YES'
-        ? Math.min(0.99, (1 - fillPrice) * (1 + this.config.hedgeSlippageBps / 10000))
-        : Math.min(0.99, fillPrice * (1 + this.config.hedgeSlippageBps / 10000));
+    // 🔥 核心逻辑：被吃单后立即对冲，不等待累积！
+    // 无论数量多少，都立即以 HIGH urgency 对冲
+    if (this.config.asyncHedging && state.unhedgedShares > 0) {
+      // 计算对冲价格：使用滑点补偿
+      const slippage = this.config.hedgeSlippageBps / 10000;
+      // 如果买的是 YES，对冲买 NO，需要用 NO 的卖价
+      const hedgeSide = side === 'YES' ? 'NO' : 'YES';
+      // 对冲价格：1 - 成交价 + 滑点 (确保能成交)
+      const hedgePrice = hedgeSide === 'NO'
+        ? Math.min(0.99, (1 - fillPrice) * (1 + slippage))
+        : Math.min(0.99, fillPrice * (1 + slippage));
 
-      // 🔥 立即对冲 = HIGH urgency
-      // 原因: 被吃单意味着价格在往不利方向移动，越晚对冲损失越大
-      const urgency: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH';
-
-      console.log(`⚡ [UnifiedStrategy] 被吃单! 立即对冲 ${filledShares} 股 ${side} → ${side === 'YES' ? 'NO' : 'YES'} @ ${hedgePrice.toFixed(4)}`);
+      console.log(`⚡ [AsyncHedge] 买 ${side} 成交 ${filledShares} 股 @ $${fillPrice.toFixed(4)}，立即对冲买 ${hedgeSide} ${state.unhedgedShares} 股`);
 
       return {
         shouldHedge: true,
-        shares: filledShares, // 只对冲刚成交的部分
-        side: side === 'YES' ? 'NO' : 'YES',
+        shares: state.unhedgedShares,  // 对冲所有未对冲的
+        side: hedgeSide,
         price: hedgePrice,
-        urgency,
+        urgency: 'HIGH',  // 🔥 始终 HIGH，立即执行！
       };
     }
 

@@ -92,6 +92,9 @@ export class MarketMaker {
   private recheckCooldownUntil: Map<string, number> = new Map();
   private fillPressure: Map<string, { score: number; ts: number }> = new Map();
   private cancelBoost: Map<string, { value: number; ts: number }> = new Map();
+  // YES/NO token 配对缓存 (key: tokenId, value: 配对的 tokenId)
+  private pairedTokenCache: Map<string, string> = new Map();
+  private pairedTokenCacheAt: number = 0;
   private nearTouchPenalty: Map<string, { value: number; ts: number }> = new Map();
   private fillPenalty: Map<string, { value: number; ts: number }> = new Map();
   private layerPanicUntil: Map<string, number> = new Map();
@@ -4615,6 +4618,63 @@ export class MarketMaker {
       return;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // UNIFIED STRATEGY: 异步对冲 (Async Hedging)
+    // 当二档挂单被吃时，立即对冲，不取消剩余订单
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (this.unifiedStrategy?.isEnabled()) {
+      const filledShares = Math.abs(delta);
+      // delta > 0 表示 YES 增加（买了 YES），需要对冲买 NO
+      // delta < 0 表示 NO 增加（买了 NO），需要对冲买 YES
+      const fillSide: 'YES' | 'NO' = delta > 0 ? 'YES' : 'NO';
+
+      // 获取成交价格（从订单簿或使用估算）
+      const orderbook = await this.api.getOrderbook(tokenId);
+      const fillPrice = fillSide === 'YES'
+        ? (orderbook.best_bid ?? 0.5)  // YES 成交价约等于买一价
+        : (1 - (orderbook.best_ask ?? 0.5));  // NO 成交价 = 1 - YES 卖一价
+
+      // 调用策略获取对冲指令
+      const hedgeInstruction = this.unifiedStrategy.onBuyFill(tokenId, filledShares, fillPrice, fillSide);
+
+      if (hedgeInstruction.shouldHedge && hedgeInstruction.urgency === 'HIGH') {
+        console.log(`🚀 [UnifiedStrategy] 异步对冲触发: ${hedgeInstruction.shares} ${hedgeInstruction.side} @ $${hedgeInstruction.price.toFixed(4)}`);
+
+        // 执行即时对冲（市价单）
+        try {
+          // 查找配对的 token (YES -> NO 或 NO -> YES)
+          const hedgeTokenId = await this.findPairedToken(tokenId, hedgeInstruction.side);
+
+          if (!hedgeTokenId) {
+            console.warn(`⚠️ [UnifiedStrategy] 无法找到配对的 ${hedgeInstruction.side} token，使用原有对冲逻辑`);
+          } else {
+            // 使用配对 token 执行对冲
+            const hedgeMarket = await this.api.getMarket(hedgeTokenId);
+            const hedgeOrderbook = await this.api.getOrderbook(hedgeTokenId);
+
+            const payload = await this.orderManager.buildMarketOrderPayload({
+              market: hedgeMarket,
+              side: 'BUY',  // 对冲总是买入
+              shares: hedgeInstruction.shares,
+              orderbook: hedgeOrderbook,
+              slippageBps: String(this.config.unifiedStrategyHedgeSlippageBps ?? 250),
+            });
+            await this.api.createOrder(payload);
+            console.log(`✅ [UnifiedStrategy] 对冲成交: ${hedgeInstruction.shares} ${hedgeInstruction.side} (token: ${hedgeTokenId.slice(0, 8)}...)`);
+
+            // 更新策略状态：记录对冲完成
+            this.unifiedStrategy.onHedgeFill(tokenId, hedgeInstruction.shares, hedgeInstruction.price);
+            this.lastHedgeAt.set(tokenId, Date.now());
+            return;  // 对冲完成，不继续原有逻辑
+          }
+        } catch (error) {
+          console.error(`❌ [UnifiedStrategy] 对冲失败:`, error);
+          // 失败后继续原有对冲逻辑
+        }
+      }
+    }
+
+    // 原有对冲逻辑（作为备用）
     const lastHedge = this.lastHedgeAt.get(tokenId) || 0;
     if (Date.now() - lastHedge < (this.config.minOrderIntervalMs ?? 3000)) {
       return;
@@ -4639,6 +4699,71 @@ export class MarketMaker {
 
     await this.flattenOnPredict(tokenId, delta, shares);
     this.lastHedgeAt.set(tokenId, Date.now());
+  }
+
+  /**
+   * 查找配对的 YES/NO token
+   * @param tokenId 当前 token ID
+   * @param targetSide 目标方向 ('YES' 或 'NO')
+   * @returns 配对的 token ID，如果找不到返回 null
+   */
+  private async findPairedToken(tokenId: string, targetSide: 'YES' | 'NO'): Promise<string | null> {
+    // 检查缓存（缓存有效期 5 分钟）
+    const cacheKey = `${tokenId}:${targetSide}`;
+    const now = Date.now();
+    if (now - this.pairedTokenCacheAt < 5 * 60 * 1000) {
+      const cached = this.pairedTokenCache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    }
+
+    try {
+      // 获取当前市场信息
+      const currentMarket = await this.api.getMarket(tokenId);
+      const conditionId = currentMarket.condition_id || currentMarket.event_id;
+
+      if (!conditionId) {
+        console.warn(`⚠️ [findPairedToken] 市场 ${tokenId} 没有 condition_id`);
+        return null;
+      }
+
+      // 获取所有市场并查找配对
+      const allMarkets = await this.api.getMarkets();
+      const pairedMarket = allMarkets.find(m =>
+        (m.condition_id === conditionId || m.event_id === conditionId) &&
+        m.token_id !== tokenId &&
+        m.outcome?.toUpperCase() === targetSide
+      );
+
+      if (pairedMarket) {
+        // 更新缓存
+        this.pairedTokenCache.set(cacheKey, pairedMarket.token_id);
+        this.pairedTokenCacheAt = now;
+        console.log(`🔗 [findPairedToken] 找到配对: ${tokenId.slice(0, 8)}... -> ${pairedMarket.token_id.slice(0, 8)}... (${targetSide})`);
+        return pairedMarket.token_id;
+      }
+
+      // 如果没找到精确匹配，尝试通过 question 匹配
+      const questionMatch = allMarkets.find(m =>
+        m.question === currentMarket.question &&
+        m.token_id !== tokenId &&
+        m.outcome?.toUpperCase() === targetSide
+      );
+
+      if (questionMatch) {
+        this.pairedTokenCache.set(cacheKey, questionMatch.token_id);
+        this.pairedTokenCacheAt = now;
+        console.log(`🔗 [findPairedToken] 通过 question 找到配对: ${questionMatch.token_id.slice(0, 8)}... (${targetSide})`);
+        return questionMatch.token_id;
+      }
+
+      console.warn(`⚠️ [findPairedToken] 无法找到 ${targetSide} 配对 token for ${tokenId.slice(0, 8)}...`);
+      return null;
+    } catch (error) {
+      console.error(`❌ [findPairedToken] 查找配对失败:`, error);
+      return null;
+    }
   }
 
   private async buildCrossHedgeLeg(
