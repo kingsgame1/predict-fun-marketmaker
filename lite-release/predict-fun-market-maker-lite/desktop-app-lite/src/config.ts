@@ -1111,8 +1111,8 @@ export function loadConfig(): Config {
       : undefined,
     refreshInterval: parseInt(process.env.REFRESH_INTERVAL || '5000'),
     enableTrading: process.env.ENABLE_TRADING === 'true',
-    // Unified Strategy Config
-    unifiedStrategyEnabled: process.env.UNIFIED_STRATEGY_ENABLED === 'true',
+    // Unified Strategy Config (默认启用)
+    unifiedStrategyEnabled: process.env.UNIFIED_STRATEGY_ENABLED !== 'false',  // 默认 true
     unifiedStrategyTolerance: parseFloat(process.env.UNIFIED_STRATEGY_TOLERANCE || '0.05'),
     unifiedStrategyMinSize: parseFloat(process.env.UNIFIED_STRATEGY_MIN_SIZE || '10'),
     unifiedStrategyMaxSize: parseFloat(process.env.UNIFIED_STRATEGY_MAX_SIZE || '500'),
