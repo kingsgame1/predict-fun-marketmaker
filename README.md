@@ -1,133 +1,140 @@
-# Predict.fun Market Maker - 简化版
+# PredictFun Market Maker Lite
 
-自动化做市商机器人，为 [Predict.fun](https://predict.fun/?ref=B0CE6) 市场提供流动性并赚取积分。
+自动化做市商桌面应用，支持 [Predict.fun](https://predict.fun?ref=B0CE6) 和 [Probable](https://probable.markets/?ref=PNRBS9VL) 双平台，提供流动性并赚取积分。
 
 ## ✨ 功能特点
 
-- ✅ **自动做市商挂单** - 智能报价，提供流动性
-- ✅ **风险控制系统** - 自动止损，仓位管理
-- ✅ **WebSocket实时数据** - 低延迟市场数据
-- ✅ **桌面客户端** - 可视化界面，易于操作
-- ✅ **完全免费** - 无需激活，开箱即用
-- ✅ **简单易用** - 适合新手赚取积分
+- 🖥️ **桌面客户端** - 可视化界面，易于操作
+- 🔀 **双平台支持** - Predict 和 Probable 一键切换
+- 📊 **自动做市挂单** - 智能报价，提供流动性
+- ⚖️ **YES/NO 对冲策略** - 自动风险对冲
+- 🔍 **智能市场推荐** - 自动扫描推荐最佳市场
+- 📡 **WebSocket 实时数据** - 低延迟市场数据
+- 🛡️ **风险控制系统** - 自动止损，仓位管理
+- 🔒 **本地私钥存储** - 安全可靠，不上传服务器
+
+## 📥 下载安装
+
+前往 [GitHub Releases](https://github.com/ccjingeth/predict-fun-marketmaker/releases) 下载最新版本：
+
+| 平台 | 文件 |
+|------|------|
+| macOS (Apple Silicon) | `PredictFun-Market-Maker-Lite-{version}-arm64.dmg` |
+| Windows | `PredictFun-Market-Maker-Lite-{version}-x64.exe` |
+
+### macOS 安装后
+
+如果提示"无法验证开发者"，运行：
+```bash
+xattr -cr "/Applications/PredictFun Market Maker Lite.app"
+```
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 第一步：选择平台并套用模板
 
-```bash
-npm install
+1. 打开应用
+2. 点击 **"套用 Predict 模板"** 或 **"套用 Probable 模板"**
+3. 这会创建配置文件到 `~/.predict-fun-market-maker-lite/.env`
+
+### 第二步：填写必填配置
+
+点击 **"编辑配置"** 按钮，填写以下信息：
+
+#### Predict 平台
+```env
+API_KEY=你的Predict_API_KEY        # 必填
+PRIVATE_KEY=你的钱包私钥             # 必填（不带0x）
+JWT_TOKEN=你的JWT令牌               # 实盘交易时必填
+PREDICT_ACCOUNT_ADDRESS=你的账户地址  # 推荐填写
 ```
 
-### 2. 配置环境
-
-```bash
-cp .env.example .env
-# 编辑 .env 文件，填写API密钥等配置
+#### Probable 平台
+```env
+PROBABLE_PRIVATE_KEY=你的私钥       # 必填
+PRIVATE_KEY=你的私钥（可留空）       # 兼容字段
 ```
 
-**必填配置**：
-- `API_KEY` - Predict.fun API密钥
-- `JWT_TOKEN` - JWT令牌
-- `PRIVATE_KEY` - 钱包私钥（64位十六进制，不带0x）
-- `PREDICT_ACCOUNT_ADDRESS` - 账户地址（0x开头的42位地址）
+### 第三步：选择市场
 
-### 3. 启动程序
+两种方式：
 
-```bash
-npm start
-```
+**方式一：自动推荐**
+1. 点击 **"扫描推荐市场"**
+2. 系统自动扫描并评分市场
+3. 点击 **"应用推荐"** 自动选择最佳市场
 
-桌面客户端会自动打开，提供：
-- 📊 系统状态检查（Node.js、NPM、项目、配置文件）
-- 🎯 一键启动做市商功能
-- ⚙️ 快捷配置管理
-- 📁 项目文件管理
-- 🔄 实时状态刷新
+**方式二：手动输入**
+1. 在市场 Token ID 输入框中填写
+2. 多个用逗号分隔
+3. 点击 **"设置"** 保存
 
-**命令行模式**（如果不需要界面）：
-```bash
-npm run start:cli
-```
+### 第四步：启动做市
+
+1. 确认配置正确
+2. 点击 **"启动做市"** 按钮
+3. 观察日志输出
 
 ## ⚙️ 配置说明
 
-### 做市商配置
+### 核心配置
 
-```env
-MM_ENABLED=true                    # 启用做市商
-MM_POSITION_SIZE=0.05              # 仓位比例（5%）
-ORDER_SIZE=10                      # 订单大小（美元）
-MAX_POSITION=100                   # 最大持仓（美元）
-```
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `MM_VENUE` | 平台选择 | `predict` / `probable` |
+| `ENABLE_TRADING` | 启用实盘交易 | `false` |
+| `AUTO_CONFIRM` | 自动确认交易 | `false` |
+| `MARKET_TOKEN_IDS` | 市场 Token ID 列表 | 空（自动推荐） |
 
-### 价差配置
+### 做市策略配置
 
-```env
-SPREAD=0.02                        # 基础价差（2%）
-MIN_SPREAD=0.01                    # 最小价差（1%）
-MAX_SPREAD=0.08                    # 最大价差（8%）
-```
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `MM_POSITION_SIZE` | 仓位比例 | `0.05` |
+| `ORDER_SIZE` | 订单大小（美元） | `10` |
+| `MAX_POSITION` | 最大持仓（美元） | `100` |
+| `SPREAD` | 基础价差 | `0.02` |
+| `MIN_SPREAD` | 最小价差 | `0.01` |
+| `MAX_SPREAD` | 最大价差 | `0.08` |
 
-### 风险控制
+### YES/NO 对冲策略
 
-```env
-MAX_DAILY_LOSS=200                 # 每日最大亏损（美元）
-```
+当 `UNIFIED_MARKET_MAKER_ENABLED=true` 时，系统会自动进行 YES/NO 对冲：
+- 买入 YES 时，自动买入 NO 进行风险对冲
+- 降低单边风险
 
-## 💡 使用建议
+## 🔗 注册链接
 
-### 新手推荐配置
+使用以下链接注册支持开发者：
 
-```env
-MM_ENABLED=true
-ORDER_SIZE=5                       # 小单开始
-MAX_POSITION=50                    # 小仓位
-MAX_DAILY_LOSS=50                  # 低止损
-SPREAD=0.02
-SIMULATION_MODE=true               # 先模拟测试
-```
-
-### 实盘模式
-
-确认配置正确后，设置为实盘：
-
-```env
-SIMULATION_MODE=false
-```
-
-## 📊 功能对比
-
-| 功能 | 简化版 | 说明 |
-|------|--------|------|
-| 做市商挂单 | ✅ | 自动提供流动性 |
-| 智能报价 | ✅ | 根据市场调整价差 |
-| 风险控制 | ✅ | 止损、仓位管理 |
-| WebSocket | ✅ | 实时市场数据 |
-| 套利机器人 | ❌ | 不包含 |
-| 高频交易 | ❌ | 不包含 |
+| 平台 | 链接 |
+|------|------|
+| Predict.fun | [https://predict.fun?ref=B0CE6](https://predict.fun?ref=B0CE6) |
+| Probable | [https://probable.markets/?ref=PNRBS9VL](https://probable.markets/?ref=PNRBS9VL) |
 
 ## 🛡️ 安全提示
 
-1. ⚠️ **永远不要将私钥提交到Git仓库**
-2. 🧪 建议先使用 `SIMULATION_MODE=true` 测试
-3. 💰 设置合理的止损和限额
-4. 📈 定期查看交易记录
+1. 🔒 **私钥仅存储在本地** - 不会上传到任何服务器
+2. ⚠️ **永远不要将私钥提交到 Git 仓库**
+3. 🧪 建议先用默认配置观察，确认无误后再启用交易
+4. 💰 设置合理的止损和限额
 5. ⚖️ 不要使用全部资金进行交易
 
-## 🔗 相关链接
+## 📁 文件位置
 
-- [Predict.fun](https://predict.fun?ref=B0CE6)
-- [推荐邀请链接](https://predict.fun?ref=B0CE6)
-- Twitter: [@ccjing_eth](https://twitter.com/ccjing_eth)
+| 文件 | 路径 |
+|------|------|
+| 配置文件 | `~/.predict-fun-market-maker-lite/.env` |
+| 配置备份 | `~/.predict-fun-market-maker-lite/.env.bak.{时间戳}` |
 
 ## 📝 更新日志
 
-### v1.0.0 (2025-02-24)
-- ✅ 初始发布
-- ✅ 做市商挂单功能
-- ✅ 风险控制系统
-- ✅ WebSocket实时数据
+### v1.6.5
+- ✅ 支持 Predict 和 Probable 双平台
+- ✅ 桌面客户端可视化界面
+- ✅ 智能市场推荐系统
+- ✅ YES/NO 自动对冲策略
+- ✅ 本地私钥安全存储
 
 ## 📄 许可证
 
@@ -139,7 +146,8 @@ MIT License
 
 ---
 
-**版本**: 1.0.0 (简化版)
-**更新**: 2025-02-24
-**平台**: [Predict.fun](https://predict.fun?ref=B0CE6)
-**网络**: BSC (BNB Smart Chain)
+**开发者**: [@ccjing_eth](https://x.com/ccjing_eth)
+
+**注册链接**:
+- [Predict.fun](https://predict.fun?ref=B0CE6)
+- [Probable](https://probable.markets/?ref=PNRBS9VL)
