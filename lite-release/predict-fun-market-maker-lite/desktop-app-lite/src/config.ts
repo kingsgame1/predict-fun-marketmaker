@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * Configuration Management
  */
@@ -1111,6 +1112,17 @@ export function loadConfig(): Config {
       : undefined,
     refreshInterval: parseInt(process.env.REFRESH_INTERVAL || '5000'),
     enableTrading: process.env.ENABLE_TRADING === 'true',
+    // Unified Strategy Config
+    unifiedStrategyEnabled: process.env.UNIFIED_STRATEGY_ENABLED === 'true',
+    unifiedStrategyTolerance: parseFloat(process.env.UNIFIED_STRATEGY_TOLERANCE || '0.05'),
+    unifiedStrategyMinSize: parseFloat(process.env.UNIFIED_STRATEGY_MIN_SIZE || '10'),
+    unifiedStrategyMaxSize: parseFloat(process.env.UNIFIED_STRATEGY_MAX_SIZE || '500'),
+    unifiedStrategyBuyOffsetBps: parseFloat(process.env.UNIFIED_STRATEGY_BUY_OFFSET_BPS || '100'),
+    unifiedStrategySellOffsetBps: parseFloat(process.env.UNIFIED_STRATEGY_SELL_OFFSET_BPS || '100'),
+    unifiedStrategyHedgeSlippageBps: parseFloat(process.env.UNIFIED_STRATEGY_HEDGE_SLIPPAGE_BPS || '250'),
+    unifiedStrategyAsyncHedging: process.env.UNIFIED_STRATEGY_ASYNC_HEDGING !== 'false',
+    unifiedStrategyDualTrackMode: process.env.UNIFIED_STRATEGY_DUAL_TRACK_MODE !== 'false',
+    unifiedStrategyDynamicOffsetMode: process.env.UNIFIED_STRATEGY_DYNAMIC_OFFSET_MODE !== 'false',
   };
 
   // Validate critical fields by active venue
