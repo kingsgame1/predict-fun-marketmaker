@@ -216,3 +216,13 @@ function main() {
 }
 
 main();
+ENABLE_TRADING=true
+AUTO_CONFIRM=true
+
+# ---- 统一策略开关（自动）----
+UNIFIED_STRATEGY_ENABLED=true
+
+# ---- 市场筛选（可选）----
+# 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
+MARKET_TOKEN_IDS=${marketIds}
+`'
