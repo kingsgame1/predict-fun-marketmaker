@@ -14,6 +14,7 @@ import { findBestMatch } from './external/match.js';
 import type { PlatformLeg, PlatformMarket } from './external/types.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { UnifiedStrategy } from './strategies/unified-strategy.js';
 
 interface QuotePrices {
   bidPrice: number;
@@ -135,6 +136,7 @@ export class MarketMaker {
   private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private cancelBurst: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
+  private unifiedStrategy?: UnifiedStrategy;
 
   constructor(api: MakerApi, config: Config, orderManagerFactory?: () => Promise<MakerOrderManager>) {
     this.api = api;
@@ -145,6 +147,22 @@ export class MarketMaker {
     }
     if (this.config.hedgeMode === 'CROSS' || this.config.crossPlatformEnabled) {
       this.crossAggregator = new CrossPlatformAggregator(this.config);
+    }
+    // Initialize Unified Strategy if enabled
+    if (this.config.unifiedStrategyEnabled) {
+      this.unifiedStrategy = new UnifiedStrategy({
+        enabled: true,
+        tolerance: this.config.unifiedStrategyTolerance ?? 0.05,
+        minSize: this.config.unifiedStrategyMinSize ?? 10,
+        maxSize: this.config.unifiedStrategyMaxSize ?? 500,
+        buyOffsetBps: this.config.unifiedStrategyBuyOffsetBps ?? 100,
+        sellOffsetBps: this.config.unifiedStrategySellOffsetBps ?? 100,
+        hedgeSlippageBps: this.config.unifiedStrategyHedgeSlippageBps ?? 250,
+        asyncHedging: this.config.unifiedStrategyAsyncHedging ?? true,
+        dualTrackMode: this.config.unifiedStrategyDualTrackMode ?? true,
+        dynamicOffsetMode: this.config.unifiedStrategyDynamicOffsetMode ?? true,
+      });
+      console.log('✅ Unified Strategy initialized (Async Hedging + Dual Track Mode)');
     }
   }
 
