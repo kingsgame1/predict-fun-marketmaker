@@ -158,11 +158,12 @@ export class MarketMaker {
         buyOffsetBps: this.config.unifiedStrategyBuyOffsetBps ?? 100,
         sellOffsetBps: this.config.unifiedStrategySellOffsetBps ?? 100,
         hedgeSlippageBps: this.config.unifiedStrategyHedgeSlippageBps ?? 250,
+        maxUnhedgedShares: this.config.unifiedStrategyMaxUnhedgedShares ?? 100,
         asyncHedging: this.config.unifiedStrategyAsyncHedging ?? true,
         dualTrackMode: this.config.unifiedStrategyDualTrackMode ?? true,
         dynamicOffsetMode: this.config.unifiedStrategyDynamicOffsetMode ?? true,
       });
-      console.log('✅ Unified Strategy initialized (Async Hedging + Dual Track Mode)');
+      console.log('✅ Unified Strategy initialized (二档追踪 + 异步对冲 + 双轨并行)');
     }
   }
 
@@ -3564,6 +3565,59 @@ export class MarketMaker {
     if (!this.lastFillAt.has(tokenId)) {
       this.lastFillAt.set(tokenId, Date.now());
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // UNIFIED STRATEGY: 二档追踪 + 异步对冲 + 双轨并行
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (this.unifiedStrategy?.isEnabled()) {
+      const position = this.positions.get(tokenId) ?? {
+        token_id: tokenId,
+        question: market.question,
+        yes_amount: 0,
+        no_amount: 0,
+        total_value: 0,
+        avg_entry_price: 0,
+        current_price: orderbook.mid_price ?? ((orderbook.best_bid ?? 0) + (orderbook.best_ask ?? 1)) / 2,
+        pnl: 0,
+      };
+
+      // 获取双轨订单建议
+      const orders = this.unifiedStrategy.getDualTrackOrders(tokenId, orderbook, position);
+
+      // 检查是否需要重新挂单
+      if (orders.repriceDecision?.needsReprice) {
+        console.log(`🔄 [UnifiedStrategy] Reprice needed for ${tokenId}: ${orders.repriceDecision.reason}`);
+        // 取消旧订单
+        await this.cancelOrdersForMarket(tokenId);
+        this.unifiedStrategy.recordReprice(tokenId);
+      }
+
+      // 执行双轨订单
+      if (orders.buyOrder) {
+        console.log(`📈 [UnifiedStrategy] Track A (Buy): ${orders.buyOrder.shares} shares @ $${orders.buyOrder.price.toFixed(4)}`);
+        // 更新挂单状态
+        this.unifiedStrategy.updatePendingOrders(
+          tokenId,
+          orders.buyOrder.shares,
+          orders.buyOrder.price,
+          orders.sellOrder?.shares ?? 0,
+          orders.sellOrder?.price ?? 0
+        );
+      }
+
+      if (orders.sellOrder) {
+        console.log(`📉 [UnifiedStrategy] Track B (Sell): ${orders.sellOrder.shares} shares @ $${orders.sellOrder.price.toFixed(4)}`);
+      }
+
+      // 打印策略状态摘要
+      this.unifiedStrategy.printSummary(tokenId);
+
+      // 如果策略处理了这个市场，跳过默认逻辑
+      if (orders.buyOrder || orders.sellOrder) {
+        return;
+      }
+    }
+    // ═══════════════════════════════════════════════════════════════════════════
 
     const now = Date.now();
     if (this.wsEmergencyGlobalUntil > now) {
