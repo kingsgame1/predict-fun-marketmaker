@@ -964,7 +964,7 @@ export function loadConfig(): Config {
     crossPlatformSuccessChunkDelayTightenMs: parseInt(process.env.CROSS_PLATFORM_SUCCESS_CHUNK_DELAY_TIGHTEN_MS || '0'),
     crossPlatformFailureChunkFactorDown: parseFloat(process.env.CROSS_PLATFORM_FAILURE_CHUNK_FACTOR_DOWN || '0'),
     crossPlatformSuccessChunkFactorUp: parseFloat(process.env.CROSS_PLATFORM_SUCCESS_CHUNK_FACTOR_UP || '0'),
-    autoConfirmAll: process.env.AUTO_CONFIRM === 'true',
+    autoConfirmAll: process.env.AUTO_CONFIRM !== 'false',  // 默认 true
     crossPlatformRequireWs: process.env.CROSS_PLATFORM_REQUIRE_WS === 'true',
     crossPlatformMappingPath: process.env.CROSS_PLATFORM_MAPPING_PATH || 'cross-platform-mapping.json',
     crossPlatformUseMapping: process.env.CROSS_PLATFORM_USE_MAPPING !== 'false',
@@ -1110,7 +1110,7 @@ export function loadConfig(): Config {
       ? process.env.MARKET_TOKEN_IDS.split(',').map((s) => s.trim())
       : undefined,
     refreshInterval: parseInt(process.env.REFRESH_INTERVAL || '5000'),
-    enableTrading: process.env.ENABLE_TRADING === 'true',
+    enableTrading: process.env.ENABLE_TRADING !== 'false',  // 默认 true
     // Unified Strategy Config (默认启用)
     unifiedStrategyEnabled: process.env.UNIFIED_STRATEGY_ENABLED !== 'false',  // 默认 true
     unifiedStrategyTolerance: parseFloat(process.env.UNIFIED_STRATEGY_TOLERANCE || '0.05'),
