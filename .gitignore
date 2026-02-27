@@ -7,6 +7,51 @@ dist/
 # Electron build outputs
 desktop-app/dist-pack/
 desktop-app/dist/
+lite-release/*/desktop-app-lite/dist/
 *.dmg
 *.exe
 *.zip
+*.blockmap
+
+# Test and debug files
+test-*.ts
+analyze-*.ts
+check-*.ts
+explore-*.ts
+verify-*.ts
+deep-*.ts
+simulate-*.ts
+debug-*.ts
+*.cjs
+
+# Documentation (keep main README)
+ADDITIONAL_FIXES_COMPLETE.md
+ALL_FIXES_COMPLETE.md
+API_RESEARCH_OUTCOME.md
+COMPREHENSIVE_FIX_COMPLETE.md
+CONFIG_ANALYSIS.md
+CRITICAL_FIXES_*.md
+CYCLIC_HEDGE_VISUAL.md
+*_GUIDE.md
+*_SUMMARY.md
+*_COMPLETE.md
+*_REPORT.md
+*_ANALYSIS.md
+*_INVESTIGATION*.md
+*_PROPOSAL.md
+*_ISSUES*.md
+SDK_INTEGRATION.md
+ULTIMATE_GUIDE.md
+USAGE_GUIDE_CN.md
+
+# Private keys and secrets
+private/
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
