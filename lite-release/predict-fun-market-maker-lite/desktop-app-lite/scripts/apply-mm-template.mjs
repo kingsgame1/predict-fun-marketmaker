@@ -122,9 +122,10 @@ PROBABLE_ENABLED=false
 MM_WS_ENABLED=true
 PREDICT_WS_ENABLED=true
 PROBABLE_WS_ENABLED=false
+UNIFIED_STRATEGY_ENABLED=true
 
-ENABLE_TRADING=false
-AUTO_CONFIRM=false
+ENABLE_TRADING=true
+AUTO_CONFIRM=true
 
 # ---- 市场筛选（可选）----
 # 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
@@ -165,9 +166,10 @@ PROBABLE_ENABLED=true
 MM_WS_ENABLED=true
 PROBABLE_WS_ENABLED=true
 PREDICT_WS_ENABLED=false
+UNIFIED_STRATEGY_ENABLED=true
 
-ENABLE_TRADING=false
-AUTO_CONFIRM=false
+ENABLE_TRADING=true
+AUTO_CONFIRM=true
 
 # ---- 市场筛选（可选）----
 # 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
@@ -216,3 +218,13 @@ function main() {
 }
 
 main();
+ENABLE_TRADING=true
+AUTO_CONFIRM=true
+
+# ---- 统一策略开关（自动）----
+UNIFIED_STRATEGY_ENABLED=true
+
+# ---- 市场筛选（可选）----
+# 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
+MARKET_TOKEN_IDS=${marketIds}
+`'
