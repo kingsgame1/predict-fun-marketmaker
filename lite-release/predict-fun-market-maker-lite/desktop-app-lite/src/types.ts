@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * Core types for Predict.fun Market Maker
  */
@@ -919,17 +918,6 @@ export interface Config {
   marketTokenIds?: string[];
   refreshInterval: number;
   enableTrading: boolean;
-  // Unified Strategy Config
-  unifiedStrategyEnabled?: boolean;
-  unifiedStrategyTolerance?: number;
-  unifiedStrategyMinSize?: number;
-  unifiedStrategyMaxSize?: number;
-  unifiedStrategyBuyOffsetBps?: number;
-  unifiedStrategySellOffsetBps?: number;
-  unifiedStrategyHedgeSlippageBps?: number;
-  unifiedStrategyAsyncHedging?: boolean;
-  unifiedStrategyDualTrackMode?: boolean;
-  unifiedStrategyDynamicOffsetMode?: boolean;
 }
 
 export interface Market {
