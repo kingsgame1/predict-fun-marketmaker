@@ -8,7 +8,7 @@
 
 ### 第一步：下载并安装
 
-从 [GitHub Releases](https://github.com/ccjingeth/predict-fun-marketmaker/releases/tag/v1.6.5) 下载对应平台的安装包：
+从 [GitHub Releases](https://github.com/ccjingeth/predict-fun-marketmaker/releases/latest) 下载对应平台的安装包：
 
 | 平台 | 文件 |
 |------|------|
