@@ -15,6 +15,47 @@ import { ProbableWebSocketFeed } from './external/probable-ws.js';
 import { ProbableOrderManager } from './order-manager-probable.js';
 import type { Market, Orderbook } from './types.js';
 
+function sortMarketsByLiquidityAndVolume(markets: Market[]): Market[] {
+  return [...markets].sort((a, b) => {
+    const liquidityDiff = Number(b.liquidity_24h || 0) - Number(a.liquidity_24h || 0);
+    if (liquidityDiff !== 0) return liquidityDiff;
+    const volumeDiff = Number(b.volume_24h || 0) - Number(a.volume_24h || 0);
+    if (volumeDiff !== 0) return volumeDiff;
+    return 0;
+  });
+}
+
+async function populateOrderbooksWithConcurrency(
+  markets: Market[],
+  concurrency: number,
+  fetcher: (tokenId: string) => Promise<Orderbook>
+): Promise<Map<string, Orderbook>> {
+  const orderbooks = new Map<string, Orderbook>();
+  const batchSize = Math.max(1, concurrency);
+
+  for (let i = 0; i < markets.length; i += batchSize) {
+    const batch = markets.slice(i, i + batchSize);
+    const settled = await Promise.allSettled(
+      batch.map(async (market) => {
+        const orderbook = await fetcher(market.token_id);
+        orderbooks.set(market.token_id, orderbook);
+        market.best_bid = orderbook.best_bid;
+        market.best_ask = orderbook.best_ask;
+        market.spread_pct = orderbook.spread_pct;
+        market.total_orders = (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
+      })
+    );
+
+    settled.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`Error fetching orderbook for ${batch[index]?.token_id}:`, result.reason);
+      }
+    });
+  }
+
+  return orderbooks;
+}
+
 class PredictMarketMakerBot {
   private api: PredictAPI;
   private marketSelector: MarketSelector;
@@ -112,23 +153,12 @@ class PredictMarketMakerBot {
     }
 
     // Fetch orderbooks for all markets
-    const orderbooks = new Map<string, Orderbook>();
-    for (const market of marketsWithRules.slice(0, 50)) {
-      // Limit to first 50 for performance
-      try {
-        const orderbook = await this.api.getOrderbook(market.token_id);
-        orderbooks.set(market.token_id, orderbook);
-
-        // Add orderbook data to market
-        market.best_bid = orderbook.best_bid;
-        market.best_ask = orderbook.best_ask;
-        market.spread_pct = orderbook.spread_pct;
-        market.total_orders =
-          (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
-      } catch (error) {
-        console.error(`Error fetching orderbook for ${market.token_id}:`, error);
-      }
-    }
+    const orderbookCandidates = sortMarketsByLiquidityAndVolume(marketsWithRules).slice(0, 80);
+    const orderbooks = await populateOrderbooksWithConcurrency(
+      orderbookCandidates,
+      8,
+      async (tokenId) => this.api.getOrderbook(tokenId)
+    );
 
     // Score and select markets
     let scoredMarkets = this.marketSelector.selectMarkets(marketsWithRules, orderbooks);
@@ -367,7 +397,7 @@ class PredictMarketMakerBot {
   /**
    * Stop the bot
    */
-  stop(): void {
+  async stop(): Promise<void> {
     console.log('\n🛑 Stopping bot...');
     this.running = false;
     if (this.wsDirtyUnsub) {
@@ -378,6 +408,7 @@ class PredictMarketMakerBot {
       this.wsFeed.stop();
       this.wsFeed = undefined;
     }
+    await this.marketMaker.shutdown(this.getAccountAddressForQueries());
   }
 
   /**
@@ -465,27 +496,62 @@ class ProbableMarketMakerBot {
   async selectMarkets(): Promise<void> {
     console.log('🔍 Scanning markets (Probable)...\n');
 
+    // Debug: 打印配置中的 marketTokenIds
+    if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
+      console.log(`📋 Config has ${this.config.marketTokenIds.length} token IDs to filter:`);
+      this.config.marketTokenIds.forEach((id: string, i: number) => console.log(`   [${i + 1}] ${id}`));
+    } else {
+      console.log('📋 No token IDs in config, will auto-select markets');
+    }
+
     const allMarkets = await this.api.getMarkets();
     console.log(`Found ${allMarkets.length} active tokens\n`);
 
-    const orderbooks = new Map<string, Orderbook>();
-    for (const market of allMarkets.slice(0, 50)) {
-      try {
-        const orderbook = await this.api.getOrderbook(market.token_id);
-        orderbooks.set(market.token_id, orderbook);
-        market.best_bid = orderbook.best_bid;
-        market.best_ask = orderbook.best_ask;
-        market.spread_pct = orderbook.spread_pct;
-        market.total_orders = (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
-      } catch (error) {
-        console.error(`Error fetching orderbook for ${market.token_id}:`, error);
+    // Debug: 检查配置的 token 是否存在于 API 返回的市场中
+    if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
+      const foundInApi = this.config.marketTokenIds.filter((id: string) =>
+        allMarkets.some((m) => String(m.token_id) === String(id))
+      );
+      const notFoundInApi = this.config.marketTokenIds.filter(
+        (id: string) => !allMarkets.some((m) => String(m.token_id) === String(id))
+      );
+      console.log(`🔍 Token ID check: ${foundInApi.length} found in API, ${notFoundInApi.length} not found`);
+      if (notFoundInApi.length > 0) {
+        console.log(`⚠️  Not found in API: ${notFoundInApi.join(', ')}`);
+        console.log(`💡 提示: 这些 token 当前不在本次活跃列表中，可能已关闭/过期，或 PROBABLE_MAX_MARKETS 过低`);
       }
     }
 
+    const prioritizedMarkets = new Map<string, Market>();
+    if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
+      for (const tokenId of this.config.marketTokenIds) {
+        const matched = allMarkets.find((m) => String(m.token_id) === String(tokenId));
+        if (matched) {
+          prioritizedMarkets.set(matched.token_id, matched);
+        }
+      }
+    }
+    for (const market of sortMarketsByLiquidityAndVolume(allMarkets)) {
+      prioritizedMarkets.set(market.token_id, market);
+    }
+    const orderbookCandidates = Array.from(prioritizedMarkets.values()).slice(
+      0,
+      Math.max(80, (this.config.marketTokenIds?.length || 0) * 20)
+    );
+
+    const orderbooks = await populateOrderbooksWithConcurrency(
+      orderbookCandidates,
+      8,
+      async (tokenId) => this.api.getOrderbook(tokenId)
+    );
+
     let scoredMarkets = this.marketSelector.selectMarkets(allMarkets, orderbooks);
+    console.log(`📊 After scoring: ${scoredMarkets.length} markets passed criteria`);
 
     if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
-      scoredMarkets = scoredMarkets.filter((s) => this.config.marketTokenIds.includes(s.market.token_id));
+      const beforeFilter = scoredMarkets.length;
+      scoredMarkets = scoredMarkets.filter((s) => this.config.marketTokenIds!.includes(s.market.token_id));
+      console.log(`📊 After token ID filter: ${scoredMarkets.length} markets (filtered out ${beforeFilter - scoredMarkets.length})`);
     }
 
     this.marketSelector.printAnalysis(scoredMarkets);
@@ -674,7 +740,7 @@ class ProbableMarketMakerBot {
     }
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.running = false;
     if (this.wsFeed) {
       this.wsFeed.stop();
@@ -682,6 +748,7 @@ class ProbableMarketMakerBot {
     if (this.wsDirtyUnsub) {
       this.wsDirtyUnsub();
     }
+    await this.marketMaker.shutdown(this.getAccountAddressForQueries());
   }
 
   private sleep(ms: number): Promise<void> {
@@ -689,7 +756,8 @@ class ProbableMarketMakerBot {
   }
 }
 
-let activeBot: { stop: () => void } | null = null;
+let activeBot: { stop: () => Promise<void> } | null = null;
+let shutdownInFlight = false;
 
 // Main execution
 async function main() {
@@ -708,20 +776,38 @@ async function main() {
 }
 
 // Handle shutdown
-process.on('SIGINT', () => {
-  console.log('\n\nReceived SIGINT, shutting down gracefully...');
-  if (activeBot) {
-    activeBot.stop();
+async function shutdownAndExit(signal: string): Promise<void> {
+  if (shutdownInFlight) {
+    return;
   }
-  process.exit(0);
+  shutdownInFlight = true;
+  console.log(`\n\nReceived ${signal}, shutting down gracefully...`);
+  let exitCode = 0;
+  const forceExitTimer = setTimeout(() => {
+    console.error('Shutdown timeout reached, forcing exit');
+    process.exit(1);
+  }, 10000);
+  forceExitTimer.unref?.();
+
+  try {
+    if (activeBot) {
+      await activeBot.stop();
+    }
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    exitCode = 1;
+  }
+
+  clearTimeout(forceExitTimer);
+  process.exit(exitCode);
+}
+
+process.on('SIGINT', () => {
+  void shutdownAndExit('SIGINT');
 });
 
 process.on('SIGTERM', () => {
-  console.log('\n\nReceived SIGTERM, shutting down gracefully...');
-  if (activeBot) {
-    activeBot.stop();
-  }
-  process.exit(0);
+  void shutdownAndExit('SIGTERM');
 });
 
 // Run

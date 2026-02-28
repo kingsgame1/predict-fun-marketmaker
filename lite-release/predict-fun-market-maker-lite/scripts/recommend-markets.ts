@@ -228,6 +228,73 @@ function normalizeOrderbook(tokenId: string, raw: any): Orderbook {
   };
 }
 
+function toFiniteNumber(value: unknown): number {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function sortByLiquidityAndVolume<T>(
+  items: T[],
+  getLiquidity: (item: T) => number,
+  getVolume: (item: T) => number
+): T[] {
+  return [...items].sort((a, b) => {
+    const liquidityDiff = getLiquidity(b) - getLiquidity(a);
+    if (liquidityDiff !== 0) return liquidityDiff;
+    const volumeDiff = getVolume(b) - getVolume(a);
+    if (volumeDiff !== 0) return volumeDiff;
+    return 0;
+  });
+}
+
+function getProbableLiquidity(item: any): number {
+  return toFiniteNumber(
+    item?.liquidity_24h ??
+      item?.liquidity24h ??
+      item?.liquidity ??
+      item?.totalLiquidityUsd ??
+      item?.stats?.liquidity24hUsd ??
+      0
+  );
+}
+
+function getProbableVolume(item: any): number {
+  return toFiniteNumber(
+    item?.volume_24h ?? item?.volume24h ?? item?.volume24hr ?? item?.volume24hUsd ?? item?.stats?.volume24hUsd ?? 0
+  );
+}
+
+async function populateOrderbooksWithConcurrency(
+  markets: Market[],
+  concurrency: number,
+  fetcher: (market: Market) => Promise<Orderbook>
+): Promise<Map<string, Orderbook>> {
+  const orderbooks = new Map<string, Orderbook>();
+  const batchSize = Math.max(1, concurrency);
+
+  for (let i = 0; i < markets.length; i += batchSize) {
+    const batch = markets.slice(i, i + batchSize);
+    const settled = await Promise.allSettled(
+      batch.map(async (market) => {
+        const book = await fetcher(market);
+        orderbooks.set(market.token_id, book);
+        market.best_bid = book.best_bid;
+        market.best_ask = book.best_ask;
+        market.spread_pct = book.spread_pct;
+        market.total_orders = (book.bids?.length || 0) + (book.asks?.length || 0);
+      })
+    );
+
+    settled.forEach((result) => {
+      if (result.status === 'rejected') {
+        // ignore single market failures and continue
+      }
+    });
+  }
+
+  return orderbooks;
+}
+
 async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets: Market[]; orderbooks: Map<string, Orderbook> }> {
   const apiBaseUrl = env.get('API_BASE_URL') || 'https://api.predict.fun';
   const apiKey = env.get('API_KEY');
@@ -237,20 +304,37 @@ async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets:
   }
   const api = new PredictAPI(apiBaseUrl, apiKey, jwtToken);
   const allMarkets = await api.getMarkets();
-  const selected = allMarkets.slice(0, scan);
-  const orderbooks = new Map<string, Orderbook>();
-  for (const market of selected) {
-    try {
-      const book = await api.getOrderbook(market.token_id);
-      orderbooks.set(market.token_id, book);
-      market.best_bid = book.best_bid;
-      market.best_ask = book.best_ask;
-      market.spread_pct = book.spread_pct;
-      market.total_orders = (book.bids?.length || 0) + (book.asks?.length || 0);
-    } catch {
-      // skip bad market
-    }
-  }
+
+  // 筛选活跃市场：active=true, closed=false, end_date 在未来
+  const now = Date.now();
+  const activeMarkets = allMarkets.filter((m) => {
+    // 检查是否已关闭
+    const isClosed = (m as any).closed === true || (m as any).is_closed === true;
+    if (isClosed) return false;
+
+    // 检查是否活跃
+    const isActive = (m as any).active === true || (m as any).is_active === true || (m as any).active === undefined;
+    if (!isActive) return false;
+
+    // 检查结束日期（如果有）
+    const endDate = m.end_date ? new Date(m.end_date).getTime() : null;
+    if (endDate && endDate < now) return false;
+
+    return true;
+  });
+
+  const rankedActiveMarkets = sortByLiquidityAndVolume(
+    activeMarkets,
+    (market) => toFiniteNumber(market.liquidity_24h),
+    (market) => toFiniteNumber(market.volume_24h)
+  );
+  const candidateCount = Math.min(rankedActiveMarkets.length, Math.max(scan * 4, 150));
+  const selected = rankedActiveMarkets.slice(0, candidateCount);
+  console.error(
+    `[Predict] 筛选: ${allMarkets.length} -> ${activeMarkets.length} 活跃市场 (按流动性排序取前 ${selected.length}, scan=${scan})`
+  );
+
+  const orderbooks = await populateOrderbooksWithConcurrency(selected, 8, async (market) => api.getOrderbook(market.token_id));
   return { markets: selected, orderbooks };
 }
 
@@ -258,8 +342,9 @@ async function loadProbableMarkets(env: EnvMap, scan: number): Promise<{ markets
   const marketApiUrl = env.get('PROBABLE_MARKET_API_URL') || 'https://market-api.probable.markets';
   const orderbookApiUrl = env.get('PROBABLE_ORDERBOOK_API_URL') || 'https://api.probable.markets/public/api/v1';
   const url = `${marketApiUrl.replace(/\/+$/g, '')}/public/api/v1/markets/`;
+  const rawLimit = Math.min(Math.max(scan * 6, 120), 400);
   const response = await httpGetWithRetry(url, {
-    params: { active: true, closed: false, limit: scan },
+    params: { active: true, closed: false, limit: rawLimit },
     timeout: 10000,
   });
   const raw = response.data;
@@ -275,30 +360,18 @@ async function loadProbableMarkets(env: EnvMap, scan: number): Promise<{ markets
     ? raw
     : [];
 
+  const sortedList = sortByLiquidityAndVolume(list, getProbableLiquidity, getProbableVolume);
+
   const markets: Market[] = [];
-  for (const item of list) {
+  for (const item of sortedList) {
     if (item?.active === false || item?.closed === true) continue;
     const outcomes = toArray(item?.outcomes || item?.outcomeNames);
     const tokens = toArray(item?.clobTokenIds || item?.clob_token_ids || item?.tokens || item?.tokenIds);
     if (outcomes.length < 2 || tokens.length < 2) continue;
     const question = item?.question || item?.title || 'Probable Market';
     const eventId = String(item?.id || item?.marketId || '');
-    const volume24h = Number(
-      item?.volume_24h ??
-        item?.volume24h ??
-        item?.volume24hr ??
-        item?.volume24hUsd ??
-        item?.stats?.volume24hUsd ??
-        0
-    );
-    const liquidity24h = Number(
-      item?.liquidity_24h ??
-        item?.liquidity24h ??
-        item?.liquidity ??
-        item?.totalLiquidityUsd ??
-        item?.stats?.liquidity24hUsd ??
-        0
-    );
+    const volume24h = getProbableVolume(item);
+    const liquidity24h = getProbableLiquidity(item);
     for (let i = 0; i < Math.min(tokens.length, outcomes.length); i += 1) {
       const tokenId = String(tokens[i] || '');
       if (!tokenId) continue;
@@ -317,25 +390,30 @@ async function loadProbableMarkets(env: EnvMap, scan: number): Promise<{ markets
     }
   }
 
-  const orderbooks = new Map<string, Orderbook>();
-  for (const market of markets.slice(0, scan)) {
-    try {
+  const rankedMarkets = sortByLiquidityAndVolume(
+    markets,
+    (market) => toFiniteNumber(market.liquidity_24h),
+    (market) => toFiniteNumber(market.volume_24h)
+  );
+  const candidateCount = Math.min(rankedMarkets.length, Math.max(scan * 4, 120));
+
+  const orderbooks = await populateOrderbooksWithConcurrency(
+    rankedMarkets.slice(0, candidateCount),
+    8,
+    async (market) => {
       const bookResponse = await httpGetWithRetry(`${orderbookApiUrl.replace(/\/+$/g, '')}/book`, {
         params: { token_id: market.token_id },
         timeout: 8000,
       });
-      const book = normalizeOrderbook(market.token_id, bookResponse.data);
-      orderbooks.set(market.token_id, book);
-      market.best_bid = book.best_bid;
-      market.best_ask = book.best_ask;
-      market.spread_pct = book.spread_pct;
-      market.total_orders = (book.bids?.length || 0) + (book.asks?.length || 0);
-    } catch {
-      // skip bad market
+      return normalizeOrderbook(market.token_id, bookResponse.data);
     }
-  }
+  );
 
-  return { markets: markets.slice(0, scan), orderbooks };
+  console.error(
+    `[Probable] 筛选: ${list.length} 原始市场 -> ${markets.length} outcome 市场 (按流动性排序取前 ${candidateCount}, scan=${scan})`
+  );
+
+  return { markets: rankedMarkets.slice(0, candidateCount), orderbooks };
 }
 
 function readNumber(env: EnvMap, key: string, fallback: number): number {
@@ -344,10 +422,11 @@ function readNumber(env: EnvMap, key: string, fallback: number): number {
 }
 
 function getSelectorConfig(env: EnvMap, venue: 'predict' | 'probable'): [number, number, number, number] {
+  // 降低阈值，确保能找到更多市场
   const defaults =
     venue === 'probable'
       ? { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.2, minOrders: 0 }
-      : { minLiquidity: 1000, minVolume24h: 5000, maxSpread: 0.1, minOrders: 5 };
+      : { minLiquidity: 100, minVolume24h: 500, maxSpread: 0.15, minOrders: 3 };
 
   return [
     readNumber(env, 'MARKET_SELECTOR_MIN_LIQUIDITY', defaults.minLiquidity),
@@ -359,6 +438,12 @@ function getSelectorConfig(env: EnvMap, venue: 'predict' | 'probable'): [number,
 
 function toFixedOrNull(value: number | null | undefined, digits: number): number | null {
   return value !== null && value !== undefined && Number.isFinite(value) ? Number(value.toFixed(digits)) : null;
+}
+
+function minPositive(a: number | null | undefined, b: number | null | undefined): number | null {
+  if (a === null || a === undefined || b === null || b === undefined) return null;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
+  return Math.min(a, b);
 }
 
 function readLevel(orderbook: Orderbook | undefined, side: 'bids' | 'asks', levelIndex: number): {
@@ -419,10 +504,15 @@ async function main(): Promise<void> {
     const l2Notional =
       (bid2.notional && Number.isFinite(bid2.notional) ? bid2.notional : 0) +
       (ask2.notional && Number.isFinite(ask2.notional) ? ask2.notional : 0);
+    const l1Usable = minPositive(bid1.notional, ask1.notional);
+    const l2Usable = minPositive(bid2.notional, ask2.notional);
+    const hasBalancedBook = (entry.market.best_bid ?? 0) > 0 && (entry.market.best_ask ?? 0) > (entry.market.best_bid ?? 0);
+    const activeStatus = hasBalancedBook ? '活跃' : '活跃/盘口薄';
 
     return {
       rank: idx + 1,
       score: Number(entry.score.toFixed(3)),
+      activeStatus,
       tokenId: entry.market.token_id,
       question: (entry.market.question || '').replace(/\s+/g, ' ').trim(),
       spreadPct:
@@ -443,6 +533,8 @@ async function main(): Promise<void> {
       ask2Shares: toFixedOrNull(ask2.shares, 2),
       l1NotionalUsd: toFixedOrNull(l1Notional > 0 ? l1Notional : null, 2),
       l2NotionalUsd: toFixedOrNull(l2Notional > 0 ? l2Notional : null, 2),
+      l1UsableUsd: toFixedOrNull(l1Usable, 2),
+      l2UsableUsd: toFixedOrNull(l2Usable, 2),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))
@@ -467,7 +559,11 @@ async function main(): Promise<void> {
     if (tokenIds.length === 0) {
       throw new Error('No markets to apply. Check API credentials/filters.');
     }
-    const nextEnv = upsertEnv(envText, { MARKET_TOKEN_IDS: tokenIds.join(',') });
+    const updates: Record<string, string> = { MARKET_TOKEN_IDS: tokenIds.join(',') };
+    if (args.venue === 'probable') {
+      updates.PROBABLE_MAX_MARKETS = String(Math.max(args.scan * 6, 200));
+    }
+    const nextEnv = upsertEnv(envText, updates);
     fs.writeFileSync(args.envPath, nextEnv, 'utf8');
     result.applied = true;
     result.appliedTokenIds = tokenIds;

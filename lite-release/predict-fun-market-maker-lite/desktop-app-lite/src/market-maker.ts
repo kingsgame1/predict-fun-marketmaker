@@ -3584,6 +3584,11 @@ export class MarketMaker {
         pnl: 0,
       };
 
+      // 检查是否已有该市场的挂单
+      const hasOpenOrders = Array.from(this.openOrders.values()).some(
+        (order) => order.token_id === tokenId
+      );
+
       // 获取双轨订单建议
       const orders = this.unifiedStrategy.getDualTrackOrders(tokenId, orderbook, position);
 
@@ -3595,21 +3600,45 @@ export class MarketMaker {
         this.unifiedStrategy.recordReprice(tokenId);
       }
 
-      // 执行双轨订单
-      if (orders.buyOrder) {
-        console.log(`📈 [UnifiedStrategy] Track A (Buy): ${orders.buyOrder.shares} shares @ $${orders.buyOrder.price.toFixed(4)}`);
-        // 更新挂单状态
-        this.unifiedStrategy.updatePendingOrders(
-          tokenId,
-          orders.buyOrder.shares,
-          orders.buyOrder.price,
-          orders.sellOrder?.shares ?? 0,
-          orders.sellOrder?.price ?? 0
-        );
-      }
+      // 只有在没有挂单或需要重新挂单时才下单
+      if (!hasOpenOrders || orders.repriceDecision?.needsReprice) {
+        // 执行双轨订单 - 实际下单
+        if (orders.buyOrder) {
+          console.log(`📈 [UnifiedStrategy] Track A (Buy): ${orders.buyOrder.shares} shares @ $${orders.buyOrder.price.toFixed(4)}`);
+          // 实际下单
+          if (this.config.enableTrading) {
+            try {
+              await this.placeLimitOrder(market, 'BUY', orders.buyOrder.price, orders.buyOrder.shares);
+              console.log(`✅ [UnifiedStrategy] Buy order placed: ${orders.buyOrder.shares} @ $${orders.buyOrder.price.toFixed(4)}`);
+            } catch (err) {
+              console.error(`❌ [UnifiedStrategy] Failed to place buy order:`, err);
+            }
+          }
+          // 更新挂单状态
+          this.unifiedStrategy.updatePendingOrders(
+            tokenId,
+            orders.buyOrder.shares,
+            orders.buyOrder.price,
+            orders.sellOrder?.shares ?? 0,
+            orders.sellOrder?.price ?? 0
+          );
+        }
 
-      if (orders.sellOrder) {
-        console.log(`📉 [UnifiedStrategy] Track B (Sell): ${orders.sellOrder.shares} shares @ $${orders.sellOrder.price.toFixed(4)}`);
+        if (orders.sellOrder) {
+          console.log(`📉 [UnifiedStrategy] Track B (Sell): ${orders.sellOrder.shares} shares @ $${orders.sellOrder.price.toFixed(4)}`);
+          // 实际下单
+          if (this.config.enableTrading) {
+            try {
+              await this.placeLimitOrder(market, 'SELL', orders.sellOrder.price, orders.sellOrder.shares);
+              console.log(`✅ [UnifiedStrategy] Sell order placed: ${orders.sellOrder.shares} @ $${orders.sellOrder.price.toFixed(4)}`);
+            } catch (err) {
+              console.error(`❌ [UnifiedStrategy] Failed to place sell order:`, err);
+            }
+          }
+        }
+      } else {
+        // 已有挂单，跳过下单，只打印状态
+        console.log(`⏸️ [UnifiedStrategy] 已有挂单，等待成交: ${tokenId}`);
       }
 
       // 打印策略状态摘要
@@ -4459,6 +4488,31 @@ export class MarketMaker {
     if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceRefresh) {
       this.markAction(tokenId);
     }
+  }
+
+  async shutdown(makerAddress?: string): Promise<void> {
+    if (makerAddress && this.api.getOrders) {
+      try {
+        const orders = await this.api.getOrders(makerAddress);
+        this.openOrders.clear();
+        for (const order of orders) {
+          if (order.status === 'OPEN') {
+            this.openOrders.set(order.order_hash, order);
+          }
+        }
+      } catch (error) {
+        console.error('Error refreshing open orders during shutdown:', error);
+      }
+    }
+
+    const openCount = Array.from(this.openOrders.values()).filter((o) => o.status === 'OPEN').length;
+    if (openCount <= 0) {
+      console.log('🧹 No open orders to cancel on shutdown');
+      return;
+    }
+
+    console.log(`🧹 Canceling ${openCount} open orders before shutdown...`);
+    await this.cancelAllOpenOrders();
   }
 
   private async cancelAllOpenOrders(): Promise<void> {

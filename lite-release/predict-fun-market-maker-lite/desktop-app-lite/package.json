@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "main": "electron/main.mjs",
+  "description": "Lite desktop market maker app for Predict.fun and Probable",
   "author": {
     "name": "ccjing",
     "email": "ccjing.eth@gmail.com"
@@ -21,11 +22,19 @@
   "build": {
     "appId": "com.ccjing.predictfunmarketmakerlite",
     "productName": "PredictFun Market Maker Lite",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "src/**/*",
+      "scripts/**/*",
+      "node_modules/**/*",
+      "src-package.json",
+      "tsconfig.json"
+    ],
     "directories": {
       "output": "dist"
     },
     "files": [
+      "build/**/*",
       "electron/**/*",
       "renderer/**/*",
       "node_modules/**/*",
@@ -38,7 +47,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.icns"
+      "icon": "build/icon.png"
     },
     "win": {
       "target": [
@@ -57,7 +66,7 @@
           ]
         }
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": [
@@ -67,12 +76,9 @@
         }
       ],
       "category": "Finance",
-      "maintainer": "ccjing <ccjing.eth@gmail.com>"
+      "maintainer": "ccjing <ccjing.eth@gmail.com>",
+      "icon": "build/icon.png"
     }
-  },
-  "devDependencies": {
-    "electron": "^30.0.0",
-    "electron-builder": "^26.8.1"
   },
   "dependencies": {
     "@prob/clob": "latest",
@@ -82,13 +88,13 @@
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.0",
-    "fs-extra": "^11.3.3",
     "tsx": "^4.15.0",
     "typescript": "^5.5.0",
     "viem": "^2.21.4",
     "ws": "^8.17.0"
   },
   "devDependencies": {
+    "fs-extra": "^11.3.3",
     "electron": "^30.0.0",
     "electron-builder": "^26.8.1"
   }

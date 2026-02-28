@@ -45,6 +45,7 @@ function renderMarketTable(items, selected = new Set()) {
       <td><input type="checkbox" class="market-check" data-token="${item.tokenId}" ${checked} /></td>
       <td>${item.rank}</td>
       <td>${formatNum(item.score, 2)}</td>
+      <td>${item.activeStatus || '--'}</td>
       <td>${item.spreadPct == null ? '--' : formatNum(item.spreadPct, 3)}</td>
       <td>${item.bestBid == null ? '--' : formatNum(item.bestBid, 4)}</td>
       <td>${item.bestAsk == null ? '--' : formatNum(item.bestAsk, 4)}</td>
@@ -54,6 +55,8 @@ function renderMarketTable(items, selected = new Set()) {
       <td>${item.ask2Shares == null ? '--' : formatNum(item.ask2Shares, 2)}</td>
       <td>${item.l1NotionalUsd == null ? '--' : formatNum(item.l1NotionalUsd, 2)}</td>
       <td>${item.l2NotionalUsd == null ? '--' : formatNum(item.l2NotionalUsd, 2)}</td>
+      <td>${item.l1UsableUsd == null ? '--' : formatNum(item.l1UsableUsd, 2)}</td>
+      <td>${item.l2UsableUsd == null ? '--' : formatNum(item.l2UsableUsd, 2)}</td>
       <td>${item.tokenId}</td>
       <td class="question" title="${item.question || ''}">${item.question || ''}</td>
     `;
@@ -118,7 +121,14 @@ async function applyAutoMarkets() {
   const applied = res.payload?.appliedTokenIds || [];
   pushLog(`自动应用成功: ${applied.length} 个 token 已写入 MARKET_TOKEN_IDS`);
   await refreshEnv();
-  renderMarketTable(lastRecommendations, new Set(applied));
+  const appliedSet = new Set(applied);
+  renderMarketTable(
+    lastRecommendations.map((item) => ({
+      ...item,
+      activeStatus: appliedSet.has(item.tokenId) ? '已应用' : item.activeStatus,
+    })),
+    appliedSet
+  );
 }
 
 async function applyManualMarkets() {
@@ -133,8 +143,16 @@ async function applyManualMarkets() {
     pushLog(`手动应用失败: ${res?.message || 'unknown'}`);
     return;
   }
-  pushLog(`手动应用成功: ${ids.length} 个 token 已写入 MARKET_TOKEN_IDS`);
+  pushLog(`手动应用成功: ${res.tokenCount || ids.length} 个 token 已写入 MARKET_TOKEN_IDS`);
   await refreshEnv();
+  const selectedSet = new Set(ids);
+  renderMarketTable(
+    lastRecommendations.map((item) => ({
+      ...item,
+      activeStatus: selectedSet.has(item.tokenId) ? '已应用' : item.activeStatus,
+    })),
+    selectedSet
+  );
 }
 
 async function reloadManualMarkets() {

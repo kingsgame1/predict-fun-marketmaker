@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+    />
     <title>MM Lite Console</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -65,7 +69,7 @@
           <button id="applyManualMarkets">应用手动勾选</button>
           <button id="reloadManualMarkets">读取当前已选</button>
         </div>
-        <div class="hint">表格展示买一/卖一、买二/卖二流动性（用于第二档挂单参考）。可手动勾选后应用到 <code>MARKET_TOKEN_IDS</code>。</div>
+        <div class="hint">表格展示买一/卖一、买二/卖二流动性，并额外显示“双边可挂金额”（取买卖两侧较小值，更适合判断第二档挂单容量）。可手动勾选后应用到 <code>MARKET_TOKEN_IDS</code>。</div>
         <div class="table-wrap">
           <table id="marketTable">
             <thead>
@@ -73,6 +77,7 @@
                 <th><input id="selectAllMarkets" type="checkbox" /></th>
                 <th>#</th>
                 <th>Score</th>
+                <th>状态</th>
                 <th>Spread%</th>
                 <th>Bid</th>
                 <th>Ask</th>
@@ -82,6 +87,8 @@
                 <th>卖二量</th>
                 <th>L1双边$</th>
                 <th>L2双边$</th>
+                <th>L1可挂$</th>
+                <th>L2可挂$</th>
                 <th>Token</th>
                 <th>Question</th>
               </tr>

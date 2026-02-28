@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 import { copySync } from 'fs-extra/esm';
 import { execSync } from 'node:child_process';
 
@@ -13,6 +14,105 @@ const projectRoot = path.resolve(desktopAppRoot, '..');
 
 console.log(`[copy-source] 项目根目录: ${projectRoot}`);
 console.log(`[copy-source] 桌面应用目录: ${desktopAppRoot}`);
+
+function makeCrc32Table() {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let c = i;
+    for (let j = 0; j < 8; j += 1) {
+      c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : (c >>> 1);
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+}
+
+const crc32Table = makeCrc32Table();
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function createChunk(type, data) {
+  const typeBuffer = Buffer.from(type, 'ascii');
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
+  return Buffer.concat([length, typeBuffer, data, crc]);
+}
+
+function createIconPng(outputPath) {
+  const size = 512;
+  const rowBytes = size * 4 + 1;
+  const raw = Buffer.alloc(rowBytes * size);
+
+  for (let y = 0; y < size; y += 1) {
+    const rowStart = y * rowBytes;
+    raw[rowStart] = 0;
+    for (let x = 0; x < size; x += 1) {
+      const idx = rowStart + 1 + x * 4;
+      const centerX = size / 2;
+      const centerY = size / 2;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const ring = distance > 150 && distance < 220;
+      const stripe = Math.abs(dx + dy * 0.6) < 36;
+      let r = 12;
+      let g = 26;
+      let b = 57;
+      let a = 255;
+
+      if (distance > 245) {
+        a = 0;
+      } else if (ring) {
+        r = 45;
+        g = 212;
+        b = 191;
+      } else if (distance < 150) {
+        r = 235;
+        g = 99;
+        b = 74;
+      }
+
+      if (stripe && distance < 235) {
+        r = 255;
+        g = 214;
+        b = 102;
+      }
+
+      raw[idx] = r;
+      raw[idx + 1] = g;
+      raw[idx + 2] = b;
+      raw[idx + 3] = a;
+    }
+  }
+
+  const header = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+
+  const png = Buffer.concat([
+    header,
+    createChunk('IHDR', ihdr),
+    createChunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
+    createChunk('IEND', Buffer.alloc(0)),
+  ]);
+
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, png);
+}
 
 // 复制 src 目录
 const srcSrc = path.join(projectRoot, 'src');
@@ -56,10 +156,15 @@ fs.copyFileSync(
 );
 console.log(`[copy-source] ✅ package.json 和 tsconfig.json 已复制`);
 
+// 生成应用图标
+const iconPath = path.join(desktopAppRoot, 'build', 'icon.png');
+createIconPng(iconPath);
+console.log(`[copy-source] ✅ 图标已生成: ${iconPath}`);
+
 // 安装依赖
 console.log(`[copy-source] 正在安装依赖...`);
 try {
-  execSync('npm install --no-package-lock', {
+  execSync('npm install --no-package-lock --prefer-dedupe', {
     cwd: desktopAppRoot,
     stdio: 'inherit'
   });

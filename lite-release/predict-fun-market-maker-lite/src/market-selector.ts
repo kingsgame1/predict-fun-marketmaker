@@ -1,14 +1,25 @@
 /**
  * Market Selector
- * Analyzes markets and selects the best ones for market making
+ * 按真实可挂流动性（尤其二档）排序市场
  */
 
-import type { Market, Orderbook } from './types.js';
+import type { Market, Orderbook, OrderbookEntry } from './types.js';
 
 export interface MarketScore {
   market: Market;
   score: number;
   reasons: string[];
+}
+
+interface LevelLiquidity {
+  bid1: number;
+  ask1: number;
+  bid2: number;
+  ask2: number;
+  l1Usable: number;
+  l2Usable: number;
+  l1Total: number;
+  l2Total: number;
 }
 
 export class MarketSelector {
@@ -18,10 +29,10 @@ export class MarketSelector {
   private minOrders: number;
 
   constructor(
-    minLiquidity: number = 1000,
-    minVolume24h: number = 5000,
-    maxSpread: number = 0.10, // 10%
-    minOrders: number = 5
+    minLiquidity: number = 100,
+    minVolume24h: number = 500,
+    maxSpread: number = 0.15,
+    minOrders: number = 3
   ) {
     this.minLiquidity = minLiquidity;
     this.minVolume24h = minVolume24h;
@@ -29,16 +40,13 @@ export class MarketSelector {
     this.minOrders = minOrders;
   }
 
-  /**
-   * Score and rank markets based on liquidity and activity
-   */
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
     const scoredMarkets: MarketScore[] = [];
 
     for (const market of markets) {
       const orderbook = orderbooks.get(market.token_id);
       if (!orderbook || !orderbook.mid_price) {
-        continue; // Skip markets without valid orderbooks
+        continue;
       }
 
       const score = this.scoreMarket(market, orderbook);
@@ -47,110 +55,122 @@ export class MarketSelector {
       }
     }
 
-    // Sort by score descending
     scoredMarkets.sort((a, b) => b.score - a.score);
-
     return scoredMarkets;
   }
 
-  /**
-   * Score an individual market
-   */
   private scoreMarket(market: Market, orderbook: Orderbook): MarketScore {
     const reasons: string[] = [];
-    let score = 0;
-
-    // ✅ BONUS: Liquidity Activation (50 extra points!)
-    // Markets with active liquidity point rewards get highest priority
-    if (market.liquidity_activation?.active) {
-      score += 50;
-      reasons.push(`✨ Active Liquidity Points!`);
-      if (market.liquidity_activation.max_spread_cents) {
-        reasons.push(`   Max Spread: ±${market.liquidity_activation.max_spread_cents}¢`);
-      }
-      if (market.liquidity_activation.min_shares) {
-        reasons.push(`   Min Shares: ${market.liquidity_activation.min_shares}`);
-      }
-    }
-
-    // Liquidity score (0-40 points)
     const liquidity = market.liquidity_24h || 0;
-    if (this.minLiquidity > 0) {
-      if (liquidity < this.minLiquidity) {
-        return { market, score: 0, reasons: ['Insufficient liquidity'] };
-      }
-      const liquidityScore = Math.min(40, (liquidity / this.minLiquidity) * 20);
-      score += liquidityScore;
-      reasons.push(`Liquidity: $${liquidity.toFixed(2)}`);
-    } else {
-      // Allow venues without strict liquidity threshold (e.g. Probable bootstrap mode)
-      const liquidityScore = liquidity > 0 ? Math.min(40, 8 + Math.log10(liquidity + 1) * 8) : 4;
-      score += liquidityScore;
-      reasons.push(`Liquidity: $${liquidity.toFixed(2)}`);
-    }
-
-    // Volume score (0-30 points)
     const volume = market.volume_24h || 0;
-    if (this.minVolume24h > 0) {
-      if (volume < this.minVolume24h) {
-        return { market, score: 0, reasons: ['Insufficient volume'] };
-      }
-      const volumeScore = Math.min(30, (volume / this.minVolume24h) * 15);
-      score += volumeScore;
-      reasons.push(`Volume: $${volume.toFixed(2)}`);
-    } else {
-      const volumeScore = volume > 0 ? Math.min(30, 6 + Math.log10(volume + 1) * 6) : 3;
-      score += volumeScore;
-      reasons.push(`Volume: $${volume.toFixed(2)}`);
-    }
-
-    // Spread score (0-20 points) - lower spread is better
-    if (orderbook.spread_pct !== undefined) {
-      if (orderbook.spread_pct <= this.maxSpread * 100) {
-        const spreadScore = Math.max(0, 20 - (orderbook.spread_pct / (this.maxSpread * 100)) * 20);
-        score += spreadScore;
-        reasons.push(`Spread: ${orderbook.spread_pct.toFixed(2)}%`);
-      } else {
-        return { market, score: 0, reasons: ['Spread too wide'] };
-      }
-    }
-
-    // Order depth score (0-10 points)
     const totalOrders = (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
-    if (this.minOrders > 0) {
-      if (totalOrders < this.minOrders) {
-        return { market, score: 0, reasons: ['Insufficient order depth'] };
-      }
-      const orderScore = Math.min(10, (totalOrders / this.minOrders) * 5);
-      score += orderScore;
-      reasons.push(`Orders: ${totalOrders}`);
-    } else {
-      const orderScore = totalOrders > 0 ? Math.min(10, 2 + Math.log2(totalOrders + 1) * 2) : 0;
-      score += orderScore;
-      reasons.push(`Orders: ${totalOrders}`);
+    const spreadPct = orderbook.spread_pct ?? 999;
+    const levels = this.getLevelLiquidity(orderbook);
+
+    if (liquidity < this.minLiquidity) {
+      return { market, score: 0, reasons: [`流动性不足: $${liquidity.toFixed(0)} < $${this.minLiquidity}`] };
     }
+    if (volume < this.minVolume24h) {
+      return { market, score: 0, reasons: [`交易量不足: $${volume.toFixed(0)} < $${this.minVolume24h}`] };
+    }
+    if (totalOrders < this.minOrders) {
+      return { market, score: 0, reasons: [`订单数不足: ${totalOrders} < ${this.minOrders}`] };
+    }
+    if (spreadPct > this.maxSpread * 100) {
+      return { market, score: 0, reasons: [`价差过大: ${spreadPct.toFixed(2)}% > ${(this.maxSpread * 100).toFixed(2)}%`] };
+    }
+    if (levels.l1Usable <= 0) {
+      return { market, score: 0, reasons: ['一档双边不完整，无法稳定挂单'] };
+    }
+
+    const liquidityScore = Math.log10(liquidity + 1) * 32;
+    const volumeScore = Math.log10(volume + 1) * 14;
+    const l1Score = Math.log10(levels.l1Usable + 1) * 12;
+    const l2Score = levels.l2Usable > 0 ? Math.log10(levels.l2Usable + 1) * 10 : 0;
+    const depthScore = Math.log10(levels.l1Total + levels.l2Total + 1) * 4;
+    const spreadScore = Math.max(0, 12 * (1 - spreadPct / (this.maxSpread * 100)));
+
+    let score = liquidityScore + volumeScore + l1Score + l2Score + depthScore + spreadScore;
+    const highLiquidityOverride = liquidity >= Math.max(this.minLiquidity * 20, 5000);
+
+    if (levels.l2Usable <= 0) {
+      score *= highLiquidityOverride ? 0.98 : 0.92;
+      reasons.push(highLiquidityOverride ? '二档缺失，但总流动性高，轻微降权' : '二档双边不完整，降权');
+    } else if (levels.l2Usable < levels.l1Usable * 0.15) {
+      score *= highLiquidityOverride ? 0.99 : 0.96;
+      reasons.push('二档覆盖偏薄，降权');
+    } else if (levels.l2Usable >= levels.l1Usable * 0.5) {
+      score += 4;
+      reasons.push('二档覆盖充足，加分');
+    }
+
+    reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);
+    reasons.push(`24h交易量: $${volume.toFixed(0)}`);
+    reasons.push(`一档可挂: $${levels.l1Usable.toFixed(2)}`);
+    reasons.push(`二档可挂: $${levels.l2Usable.toFixed(2)}`);
+    reasons.push(`一档双边: $${levels.l1Total.toFixed(2)}`);
+    reasons.push(`二档双边: $${levels.l2Total.toFixed(2)}`);
+    reasons.push(`订单数: ${totalOrders}`);
+    reasons.push(`价差: ${spreadPct.toFixed(2)}%`);
 
     return { market, score, reasons };
   }
 
-  /**
-   * Get top N markets by score
-   */
+  private getLevelLiquidity(orderbook: Orderbook): LevelLiquidity {
+    const bid1 = this.getLevelNotional(orderbook.bids, 0, 'bids');
+    const ask1 = this.getLevelNotional(orderbook.asks, 0, 'asks');
+    const bid2 = this.getLevelNotional(orderbook.bids, 1, 'bids');
+    const ask2 = this.getLevelNotional(orderbook.asks, 1, 'asks');
+
+    return {
+      bid1,
+      ask1,
+      bid2,
+      ask2,
+      l1Usable: bid1 > 0 && ask1 > 0 ? Math.min(bid1, ask1) : 0,
+      l2Usable: bid2 > 0 && ask2 > 0 ? Math.min(bid2, ask2) : 0,
+      l1Total: bid1 + ask1,
+      l2Total: bid2 + ask2,
+    };
+  }
+
+  private getLevelNotional(levels: OrderbookEntry[] | undefined, index: number, side: 'bids' | 'asks'): number {
+    if (!Array.isArray(levels) || levels.length <= index) {
+      return 0;
+    }
+
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a.price || 0);
+      const bp = Number(b.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+
+    const level = sorted[index];
+    if (!level) {
+      return 0;
+    }
+
+    const price = Number(level.price || 0);
+    const shares = Number(level.shares || 0);
+    if (!Number.isFinite(price) || !Number.isFinite(shares) || price <= 0 || shares <= 0) {
+      return 0;
+    }
+
+    return price * shares;
+  }
+
   getTopMarkets(scoredMarkets: MarketScore[], count: number = 10): Market[] {
     return scoredMarkets.slice(0, count).map((s) => s.market);
   }
 
-  /**
-   * Print market analysis
-   */
   printAnalysis(scoredMarkets: MarketScore[]): void {
-    console.log('\n📊 Market Analysis:');
+    console.log('\n📊 市场分析（按真实可挂流动性排序）:');
     console.log('─'.repeat(80));
 
     for (let i = 0; i < Math.min(10, scoredMarkets.length); i++) {
       const { market, score, reasons } = scoredMarkets[i];
-      console.log(`\n#${i + 1} [Score: ${score.toFixed(1)}] ${market.question.substring(0, 60)}...`);
-      console.log(`   Token ID: ${market.token_id}`);
+      console.log(`\n#${i + 1} [总分: ${score.toFixed(1)}] ${(market.question || '').substring(0, 50)}...`);
+      console.log(`   Token: ${market.token_id}`);
       for (const reason of reasons) {
         console.log(`   - ${reason}`);
       }

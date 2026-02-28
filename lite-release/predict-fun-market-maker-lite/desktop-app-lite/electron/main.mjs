@@ -13,7 +13,9 @@ const __dirname = path.dirname(__filename);
 // ============================================================
 
 // App 包内的项目根目录（包含 src, scripts, node_modules）
-const appRoot = path.resolve(__dirname, '..');
+const devAppRoot = path.resolve(__dirname, '..');
+const packagedAppRoot = path.join(process.resourcesPath, 'app.asar.unpacked');
+const appRoot = app.isPackaged ? packagedAppRoot : devAppRoot;
 
 // 用户配置目录（只存储 .env 文件）
 const userConfigDir = path.join(os.homedir(), '.predict-fun-market-maker-lite');
@@ -25,8 +27,9 @@ if (!fs.existsSync(userConfigDir)) {
   console.log('[INIT] 创建用户配置目录:', userConfigDir);
 }
 
-const rendererPath = path.resolve(__dirname, '..', 'renderer', 'index.html');
-const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const rendererPath = app.isPackaged
+  ? path.join(process.resourcesPath, 'app.asar', 'renderer', 'index.html')
+  : path.resolve(__dirname, '..', 'renderer', 'index.html');
 
 console.log('[INIT] App 根目录:', appRoot);
 console.log('[INIT] 用户配置目录:', userConfigDir);
@@ -35,6 +38,112 @@ console.log('[INIT] .env 路径:', envPath);
 // ============================================================
 // PATH 环境变量修复（macOS GUI 应用不继承 shell PATH）
 // ============================================================
+
+// 全局缓存找到的 node 相关路径
+let cachedNodeDir = null;
+
+/**
+ * 查找 Node.js bin 目录（包含 node, npx, npm）
+ */
+function findNodeBinDir() {
+  if (process.platform === 'win32') return null;
+  if (cachedNodeDir) return cachedNodeDir;
+
+  const home = os.homedir();
+
+  // 检查 nvm 目录
+  const nvmDir = path.join(home, '.nvm', 'versions', 'node');
+  if (fs.existsSync(nvmDir)) {
+    try {
+      const versions = fs.readdirSync(nvmDir);
+      // 按版本号排序，使用最新的
+      versions.sort().reverse();
+      for (const v of versions) {
+        const binPath = path.join(nvmDir, v, 'bin');
+        const nodePath = path.join(binPath, 'node');
+        if (fs.existsSync(nodePath)) {
+          cachedNodeDir = binPath;
+          console.log('[PATH] 找到 node (nvm):', binPath);
+          return binPath;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // fnm 路径
+  const fnmDir = path.join(home, '.fnm', 'node-versions');
+  if (fs.existsSync(fnmDir)) {
+    try {
+      const versions = fs.readdirSync(fnmDir);
+      versions.sort().reverse();
+      for (const v of versions) {
+        const binPath = path.join(fnmDir, v, 'installation', 'bin');
+        const nodePath = path.join(binPath, 'node');
+        if (fs.existsSync(nodePath)) {
+          cachedNodeDir = binPath;
+          console.log('[PATH] 找到 node (fnm):', binPath);
+          return binPath;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // volta 路径
+  const voltaBin = path.join(home, '.volta', 'bin');
+  const voltaNode = path.join(voltaBin, 'node');
+  if (fs.existsSync(voltaNode)) {
+    cachedNodeDir = voltaBin;
+    console.log('[PATH] 找到 node (volta):', voltaBin);
+    return voltaBin;
+  }
+
+  // Homebrew 路径
+  const homebrewBins = ['/opt/homebrew/bin', '/usr/local/bin'];
+  for (const binPath of homebrewBins) {
+    const nodePath = path.join(binPath, 'node');
+    if (fs.existsSync(nodePath)) {
+      cachedNodeDir = binPath;
+      console.log('[PATH] 找到 node (homebrew):', binPath);
+      return binPath;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 获取 npx 完整路径
+ */
+function getNpxCmd() {
+  if (process.platform === 'win32') return 'npx.cmd';
+
+  const nodeDir = findNodeBinDir();
+  if (nodeDir) {
+    const npxPath = path.join(nodeDir, 'npx');
+    if (fs.existsSync(npxPath)) {
+      return npxPath;
+    }
+  }
+
+  return 'npx';
+}
+
+/**
+ * 获取 node 完整路径
+ */
+function getNodeCmd() {
+  if (process.platform === 'win32') return 'node';
+
+  const nodeDir = findNodeBinDir();
+  if (nodeDir) {
+    const nodePath = path.join(nodeDir, 'node');
+    if (fs.existsSync(nodePath)) {
+      return nodePath;
+    }
+  }
+
+  return 'node';
+}
 
 function setupPath() {
   if (process.platform !== 'darwin') {
@@ -153,6 +262,18 @@ function parseEnv(text) {
   return map;
 }
 
+function toArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((x) => String(x));
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map((x) => String(x)) : [];
+  } catch {
+    return [];
+  }
+}
+
 function upsertEnv(text, updates) {
   const lines = text.split(/\r?\n/);
   const lineByKey = new Map();
@@ -173,6 +294,103 @@ function upsertEnv(text, updates) {
     }
   }
   return `${lines.join('\n').replace(/\n+$/g, '')}\n`;
+}
+
+async function fetchProbableActiveTokenSet(envMap) {
+  const baseUrl = (envMap.get('PROBABLE_MARKET_API_URL') || 'https://market-api.probable.markets').replace(/\/+$/g, '');
+  const configuredLimit = Number(envMap.get('PROBABLE_MAX_MARKETS') || 200);
+  const limit = Math.min(500, Math.max(80, Number.isFinite(configuredLimit) ? configuredLimit : 200));
+  const url = `${baseUrl}/public/api/v1/markets/?active=true&closed=false&limit=${limit}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const raw = await response.json();
+    const list = Array.isArray(raw?.markets)
+      ? raw.markets
+      : Array.isArray(raw?.data?.markets)
+      ? raw.data.markets
+      : Array.isArray(raw?.data)
+      ? raw.data
+      : Array.isArray(raw?.result)
+      ? raw.result
+      : Array.isArray(raw)
+      ? raw
+      : [];
+
+    const tokenSet = new Set();
+    for (const item of list) {
+      if (item?.active === false || item?.closed === true) continue;
+      const outcomes = toArray(item?.outcomes || item?.outcomeNames);
+      const tokens = toArray(item?.clobTokenIds || item?.clob_token_ids || item?.tokens || item?.tokenIds);
+      if (outcomes.length < 2 || tokens.length < 2) continue;
+      for (const tokenId of tokens) {
+        if (tokenId) tokenSet.add(String(tokenId));
+      }
+    }
+    return tokenSet;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function validateProbableTokenIds(tokenIds) {
+  const envMap = parseEnv(readEnv());
+  const activeTokenSet = await fetchProbableActiveTokenSet(envMap);
+  const valid = tokenIds.filter((id) => activeTokenSet.has(String(id)));
+  const invalid = tokenIds.filter((id) => !activeTokenSet.has(String(id)));
+  return { valid, invalid, activeCount: activeTokenSet.size };
+}
+
+async function sanitizeProbableConfiguredTokenIds() {
+  const envMap = parseEnv(readEnv());
+  if ((envMap.get('MM_VENUE') || '').trim().toLowerCase() !== 'probable') {
+    return { ok: true, skipped: true, filteredTokenIds: [] };
+  }
+
+  const tokenIds = String(envMap.get('MARKET_TOKEN_IDS') || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+  if (tokenIds.length === 0) {
+    return { ok: true, skipped: true, filteredTokenIds: [] };
+  }
+
+  let validation;
+  try {
+    validation = await validateProbableTokenIds(tokenIds);
+  } catch (error) {
+    sendLog(`[market] 启动前 token 校验跳过: ${error.message}`);
+    return { ok: true, skipped: true, filteredTokenIds: tokenIds };
+  }
+
+  const { valid, invalid, activeCount } = validation;
+  if (invalid.length === 0) {
+    sendLog(`[market] Probable 启动前校验通过: ${valid.length}/${tokenIds.length} token 在当前活跃池内 (active=${activeCount})`);
+    return { ok: true, valid, invalid, activeCount, filteredTokenIds: valid };
+  }
+
+  if (valid.length === 0) {
+    return {
+      ok: false,
+      message: '当前 MARKET_TOKEN_IDS 全部不在 Probable 活跃市场中，请先重新扫描并应用市场',
+      invalid,
+      activeCount,
+      filteredTokenIds: [],
+    };
+  }
+
+  sendLog(`[market] 启动前忽略 ${invalid.length} 个非活跃 token，仅用 ${valid.length} 个活跃 token 运行`);
+  sendLog(`[market] 已忽略: ${invalid.join(', ')}`);
+  return { ok: true, valid, invalid, activeCount, filteredTokenIds: valid };
 }
 
 // ============================================================
@@ -235,6 +453,8 @@ function buildPredictTemplate(existing) {
   const jwtToken = pick('JWT_TOKEN', '请填写你的_JWT_TOKEN（仅实盘必填）');
   const account = pick('PREDICT_ACCOUNT_ADDRESS', '');
   const marketIds = pick('MARKET_TOKEN_IDS', '');
+  const minSize = pick('UNIFIED_STRATEGY_MIN_SIZE', '100');
+  const maxSize = pick('UNIFIED_STRATEGY_MAX_SIZE', '500');
 
   return `# ==============================
 # Predict 做市模板（统一策略）
@@ -272,6 +492,12 @@ UNIFIED_STRATEGY_ENABLED=true
 ENABLE_TRADING=true
 AUTO_CONFIRM=true
 
+# ---- 订单大小配置 ----
+# 每笔订单的最小股数（默认 100，Predict 积分规则要求最小 100）
+UNIFIED_STRATEGY_MIN_SIZE=${minSize}
+# 每笔订单的最大股数（默认 500）
+UNIFIED_STRATEGY_MAX_SIZE=${maxSize}
+
 # ---- 市场筛选（可选）----
 # 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
 MARKET_TOKEN_IDS=${marketIds}
@@ -292,6 +518,8 @@ function buildProbableTemplate(existing) {
   const probableKey = pick('PROBABLE_PRIVATE_KEY', '请填写你的_Probable_私钥（必填）');
   const privateKey = pick('PRIVATE_KEY', '');
   const marketIds = pick('MARKET_TOKEN_IDS', '');
+  const minSize = pick('UNIFIED_STRATEGY_MIN_SIZE', '100');
+  const maxSize = pick('UNIFIED_STRATEGY_MAX_SIZE', '500');
 
   return `# ==============================
 # Probable 做市模板（统一策略）
@@ -314,6 +542,8 @@ PROBABLE_ORDERBOOK_API_URL=https://api.probable.markets/public/api/v1
 # [官方默认 WS] 直接使用即可
 PROBABLE_WS_URL=wss://ws.probable.markets/public/api/v1
 PROBABLE_CHAIN_ID=56
+# 启动/校验时拉取的活跃市场窗口（默认 200）
+PROBABLE_MAX_MARKETS=200
 
 # ---- 统一做市策略开关（自动）----
 MM_REQUIRE_JWT=false
@@ -325,6 +555,12 @@ UNIFIED_STRATEGY_ENABLED=true
 
 ENABLE_TRADING=true
 AUTO_CONFIRM=true
+
+# ---- 订单大小配置 ----
+# 每笔订单的最小股数（默认 100）
+UNIFIED_STRATEGY_MIN_SIZE=${minSize}
+# 每笔订单的最大股数（默认 500）
+UNIFIED_STRATEGY_MAX_SIZE=${maxSize}
 
 # ---- 市场筛选（可选）----
 # 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
@@ -343,22 +579,34 @@ function ensureEnvFile() {
 
 function runCommand(command, args, label, pipeToUi = true) {
   return new Promise((resolve) => {
+    // 获取 Node.js bin 目录，确保 PATH 包含它
+    const nodeBinDir = findNodeBinDir();
+    const existingPath = process.env.PATH || '';
+    const pathWithNode = nodeBinDir
+      ? `${nodeBinDir}:${existingPath}`
+      : existingPath;
+
     // 关键：设置 ENV_PATH 环境变量，让源代码知道去哪里找 .env
     const env = {
       ...process.env,
-      ENV_PATH: envPath,  // 指向用户目录的 .env
+      PATH: pathWithNode,  // 确保 PATH 包含 node 目录
+      ENV_PATH: envPath,   // 指向用户目录的 .env
     };
 
-    // 使用 shell: true，让 shell 自动处理 PATH
-    const fullCommand = `${command} ${args.join(' ')}`;
-    console.log(`[RUN] ${fullCommand}`);
+    const userShell = process.env.SHELL || '/bin/zsh';
+    console.log(`[RUN] ${command} ${args.join(' ')}`);
     console.log(`[RUN] cwd: ${appRoot}`);
     console.log(`[RUN] ENV_PATH: ${envPath}`);
+    console.log(`[RUN] nodeBinDir: ${nodeBinDir || 'not found'}`);
+    console.log(`[RUN] shell: ${userShell}`);
 
-    const child = spawn(fullCommand, [], {
+    const child = spawn(command, args, {
       cwd: appRoot,
-      shell: true,  // 使用 shell 模式，自动处理 PATH
-      env: env,
+      shell: false,
+      env: {
+        ...env,
+        SHELL: userShell,
+      },
     });
 
     let stdout = '';
@@ -394,7 +642,7 @@ async function runRecommendJson(venue, { top = 40, scan = 80, apply = false } = 
     '--json'
   ];
   if (apply) args.push('--apply');
-  const result = await runCommand(npxCmd, args, 'market', false);
+  const result = await runCommand(getNpxCmd(), args, 'market', false);
   if (!result.ok) {
     return { ok: false, message: result.stderr || result.stdout || 'market recommend failed' };
   }
@@ -406,23 +654,45 @@ async function runRecommendJson(venue, { top = 40, scan = 80, apply = false } = 
   }
 }
 
-function startMM() {
+async function startMM() {
   if (mmProcess) return { ok: false, message: '做市进程已在运行' };
+
+  let filteredTokenIds = [];
+  try {
+    const sanitizeResult = await sanitizeProbableConfiguredTokenIds();
+    if (!sanitizeResult.ok) {
+      return { ok: false, message: sanitizeResult.message || '启动前 token 校验失败' };
+    }
+    filteredTokenIds = Array.isArray(sanitizeResult.filteredTokenIds) ? sanitizeResult.filteredTokenIds : [];
+  } catch (err) {
+    sendLog(`[market] 启动前 token 校验异常，已跳过: ${err.message}`);
+  }
+
+  // 获取 Node.js bin 目录，确保 PATH 包含它
+  const nodeBinDir = findNodeBinDir();
+  const existingPath = process.env.PATH || '';
+  const pathWithNode = nodeBinDir
+    ? `${nodeBinDir}:${existingPath}`
+    : existingPath;
 
   // 关键：设置 ENV_PATH 环境变量
   const env = {
     ...process.env,
+    PATH: pathWithNode,  // 确保 PATH 包含 node 目录
     ENV_PATH: envPath,
   };
+  if (filteredTokenIds.length > 0) {
+    env.MARKET_TOKEN_IDS = filteredTokenIds.join(',');
+  }
 
   console.log(`[MM] 启动做市进程`);
   console.log(`[MM] cwd: ${appRoot}`);
   console.log(`[MM] ENV_PATH: ${envPath}`);
+  console.log(`[MM] nodeBinDir: ${nodeBinDir || 'not found'}`);
 
-  // 使用 shell: true 让 shell 自动处理 PATH
-  mmProcess = spawn(`${npxCmd} tsx src/index.ts`, [], {
+  mmProcess = spawn(getNpxCmd(), ['tsx', 'src/index.ts'], {
     cwd: appRoot,
-    shell: true,  // 使用 shell 模式
+    shell: false,
     env: env,
   });
   mmProcess.stdout.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
@@ -438,18 +708,56 @@ function startMM() {
 
 function stopMM() {
   if (!mmProcess) return { ok: false, message: '做市进程未运行' };
-  mmProcess.kill('SIGTERM');
+  const proc = mmProcess;
+  const timer = setTimeout(() => {
+    if (mmProcess === proc && !proc.killed) {
+      sendLog('[MM] 停止超时，强制结束进程');
+      proc.kill('SIGKILL');
+    }
+  }, 10000);
+  proc.once('exit', () => clearTimeout(timer));
+  proc.kill('SIGTERM');
   return { ok: true };
 }
 
-function setManualMarketSelection(tokenIds) {
+async function setManualMarketSelection(tokenIds) {
   const tokens = Array.isArray(tokenIds)
     ? tokenIds.map((x) => String(x).trim()).filter((x) => x.length > 0)
     : [];
+  const envMap = parseEnv(readEnv());
+  const isProbableVenue = (envMap.get('MM_VENUE') || '').trim().toLowerCase() === 'probable';
+  let finalTokens = tokens;
+
+  if (isProbableVenue && finalTokens.length > 0) {
+    try {
+      const { valid, invalid } = await validateProbableTokenIds(finalTokens);
+      finalTokens = valid;
+      if (invalid.length > 0) {
+        sendLog(`[market] 手动选择时过滤了 ${invalid.length} 个非活跃 token`);
+        sendLog(`[market] 已过滤: ${invalid.join(', ')}`);
+      }
+      if (finalTokens.length === 0) {
+        return { ok: false, message: '你勾选的 token 当前都不在 Probable 活跃市场中，请重新扫描后再应用' };
+      }
+    } catch (error) {
+      sendLog(`[market] 手动选择校验失败，使用原始 token: ${error.message}`);
+    }
+  }
+
   const envText = readEnv();
-  const next = upsertEnv(envText, { MARKET_TOKEN_IDS: tokens.join(',') });
+  const currentEnvMap = parseEnv(envText);
+  const updates = {
+    MARKET_TOKEN_IDS: finalTokens.join(','),
+  };
+  if (isProbableVenue) {
+    const currentProbableMaxMarkets = Number(currentEnvMap.get('PROBABLE_MAX_MARKETS') || 0);
+    updates.PROBABLE_MAX_MARKETS = String(
+      Math.max(200, Number.isFinite(currentProbableMaxMarkets) ? currentProbableMaxMarkets : 0)
+    );
+  }
+  const next = upsertEnv(envText, updates);
   writeEnv(next);
-  return { ok: true, tokenCount: tokens.length };
+  return { ok: true, tokenCount: finalTokens.length };
 }
 
 function getManualMarketSelection() {
@@ -509,7 +817,7 @@ ipcMain.handle('env:write', (_, text) => {
   writeEnv(text);
   return { ok: true };
 });
-ipcMain.handle('mm:start', () => startMM());
+ipcMain.handle('mm:start', async () => await startMM());
 ipcMain.handle('mm:stop', () => stopMM());
 ipcMain.handle('mm:status', () => ({ running: Boolean(mmProcess) }));
 ipcMain.handle('template:apply', (_, venue) => {
@@ -533,7 +841,7 @@ ipcMain.handle('market:apply-auto', async (_, venue, top, scan) => {
   const v = venue === 'probable' ? 'probable' : 'predict';
   return await runRecommendJson(v, { top, scan, apply: true });
 });
-ipcMain.handle('market:set-manual', (_, tokenIds) => setManualMarketSelection(tokenIds));
+ipcMain.handle('market:set-manual', async (_, tokenIds) => await setManualMarketSelection(tokenIds));
 ipcMain.handle('market:get-manual', () => getManualMarketSelection());
 ipcMain.handle('link:open', async (_, url) => {
   try {
@@ -548,7 +856,7 @@ ipcMain.handle('link:open', async (_, url) => {
 ipcMain.handle('auth:get-jwt', async () => {
   try {
     sendLog('[auth] 开始获取 JWT Token...');
-    const result = await runCommand(npxCmd, ['tsx', 'src/auth-jwt.ts'], 'auth', true);
+    const result = await runCommand(getNpxCmd(), ['tsx', 'src/auth-jwt.ts'], 'auth', true);
     if (result.ok) {
       sendLog('[auth] ✅ JWT Token 获取成功！');
       return { ok: true };

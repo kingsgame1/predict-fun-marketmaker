@@ -1069,7 +1069,7 @@ export function loadConfig(): Config {
     probableEnabled: (process.env.PROBABLE_ENABLED || '').toLowerCase() === 'true',
     probableMarketApiUrl: process.env.PROBABLE_MARKET_API_URL || 'https://market-api.probable.markets',
     probableOrderbookApiUrl: process.env.PROBABLE_ORDERBOOK_API_URL || 'https://api.probable.markets/public/api/v1',
-    probableMaxMarkets: parseInt(process.env.PROBABLE_MAX_MARKETS || '30'),
+    probableMaxMarkets: parseInt(process.env.PROBABLE_MAX_MARKETS || '200'),
     probableFeeBps: parseFloat(process.env.PROBABLE_FEE_BPS || '0'),
     probableWsEnabled: process.env.PROBABLE_WS_ENABLED === 'true',
     probableWsUrl: process.env.PROBABLE_WS_URL || 'wss://ws.probable.markets/public/api/v1',

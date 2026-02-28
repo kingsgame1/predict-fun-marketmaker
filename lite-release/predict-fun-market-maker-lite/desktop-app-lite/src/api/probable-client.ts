@@ -104,6 +104,42 @@ function joinUrl(base: string, path: string): string {
   return `${trimmed}${suffix}`;
 }
 
+function toFiniteNumber(value: unknown): number {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function getProbableVolume(market: any): number {
+  return toFiniteNumber(
+    market?.volume_24h ?? market?.volume24h ?? market?.volume24hr ?? market?.volume24hUsd ?? market?.stats?.volume24hUsd ?? 0
+  );
+}
+
+function getProbableLiquidity(market: any): number {
+  return toFiniteNumber(
+    market?.liquidity_24h ??
+      market?.liquidity24h ??
+      market?.liquidity ??
+      market?.totalLiquidityUsd ??
+      market?.stats?.liquidity24hUsd ??
+      0
+  );
+}
+
+function sortByLiquidityAndVolume<T>(
+  items: T[],
+  getLiquidity: (item: T) => number,
+  getVolume: (item: T) => number
+): T[] {
+  return [...items].sort((a, b) => {
+    const liquidityDiff = getLiquidity(b) - getLiquidity(a);
+    if (liquidityDiff !== 0) return liquidityDiff;
+    const volumeDiff = getVolume(b) - getVolume(a);
+    if (volumeDiff !== 0) return volumeDiff;
+    return 0;
+  });
+}
+
 function parseOrderbook(data: any): Orderbook {
   const payload = data?.result || data?.data || data || {};
   const bids = Array.isArray(payload?.bids) ? payload.bids : [];
@@ -189,7 +225,7 @@ export class ProbableAPI implements MakerApi {
     if (this.cachedMarkets.length > 0 && Date.now() - this.cacheTimestamp < ttl) {
       return this.cachedMarkets.slice();
     }
-    const limit = Math.max(1, this.config.maxMarkets || 30);
+    const limit = Math.min(500, Math.max(80, this.config.maxMarkets || 200));
     const url = joinUrl(this.config.marketApiUrl, '/public/api/v1/markets/');
     const response = await httpGetWithRetry(url, {
       params: { active: true, closed: false, limit },
@@ -208,8 +244,10 @@ export class ProbableAPI implements MakerApi {
       ? raw
       : [];
 
+    const sortedMarkets = sortByLiquidityAndVolume(markets, getProbableLiquidity, getProbableVolume);
+
     const mapped: Market[] = [];
-    for (const market of markets) {
+    for (const market of sortedMarkets) {
       if (market?.active === false || market?.closed === true) continue;
       const outcomes = toArray<string>(market.outcomes || market.outcomeNames);
       const tokens = toArray<string>(
@@ -218,9 +256,8 @@ export class ProbableAPI implements MakerApi {
       if (outcomes.length < 2 || tokens.length < 2) continue;
       const question = market.question || market.title || 'Probable Market';
       const eventId = String(market.id || market.marketId || '');
-      const m = market as any;
-      const volume24h = Number(m.volume_24h ?? m.volume24h ?? m.volume24hr ?? m.volume24hUsd ?? m.stats?.volume24hUsd ?? 0);
-      const liquidity24h = Number(m.liquidity_24h ?? m.liquidity24h ?? m.liquidity ?? m.totalLiquidityUsd ?? m.stats?.liquidity24hUsd ?? 0);
+      const volume24h = getProbableVolume(market);
+      const liquidity24h = getProbableLiquidity(market);
       for (let i = 0; i < Math.min(outcomes.length, tokens.length); i += 1) {
         const tokenId = String(tokens[i] || '');
         if (!tokenId) continue;
@@ -240,13 +277,19 @@ export class ProbableAPI implements MakerApi {
       }
     }
 
-    this.cachedMarkets = mapped;
+    const rankedMapped = sortByLiquidityAndVolume(
+      mapped,
+      (market) => toFiniteNumber(market.liquidity_24h),
+      (market) => toFiniteNumber(market.volume_24h)
+    );
+
+    this.cachedMarkets = rankedMapped;
     this.cacheTimestamp = Date.now();
     this.tokenIndex.clear();
-    for (const market of mapped) {
+    for (const market of rankedMapped) {
       this.tokenIndex.set(market.token_id, market);
     }
-    return mapped.slice();
+    return rankedMapped.slice();
   }
 
   async getMarket(tokenId: string): Promise<Market> {
