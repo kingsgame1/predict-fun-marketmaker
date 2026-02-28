@@ -104,8 +104,13 @@ function buildPredictTemplate(existing) {
 API_KEY=${apiKey}
 # [需自行获取] 钱包私钥（必填）
 PRIVATE_KEY=${privateKey}
-# [需自行获取] Predict 私有接口 JWT（仅 ENABLE_TRADING=true 实盘时必填）
+
+# ---- JWT Token 自动获取 ----
+# 填写完 API_KEY 和 PRIVATE_KEY 后，运行以下命令自动获取 JWT：
+# npm run auth:jwt
+# 获取成功后会自动写入本文件
 JWT_TOKEN=${jwtToken}
+
 # [可选填写] Predict 账户地址（推荐填写）
 PREDICT_ACCOUNT_ADDRESS=${account}
 
@@ -115,15 +120,16 @@ API_BASE_URL=https://api.predict.fun
 # [官方默认 WS] 直接使用即可
 PREDICT_WS_URL=wss://ws.predict.fun/ws
 
-# ---- 统一做市策略开关（自动）----
+# ---- 统一做市策略（默认启用）----
 MM_VENUE=predict
 MM_REQUIRE_JWT=true
 PROBABLE_ENABLED=false
 MM_WS_ENABLED=true
 PREDICT_WS_ENABLED=true
 PROBABLE_WS_ENABLED=false
-UNIFIED_STRATEGY_ENABLED=true
 
+# ---- 核心开关（默认启用）----
+UNIFIED_STRATEGY_ENABLED=true
 ENABLE_TRADING=true
 AUTO_CONFIRM=true
 

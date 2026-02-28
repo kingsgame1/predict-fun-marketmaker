@@ -267,10 +267,10 @@ PREDICT_WS_ENABLED=true
 PROBABLE_WS_ENABLED=false
 
 # ---- YES/NO 对冲策略（启用后自动对冲）----
-UNIFIED_MARKET_MAKER_ENABLED=true
+UNIFIED_STRATEGY_ENABLED=true
 
-ENABLE_TRADING=false
-AUTO_CONFIRM=false
+ENABLE_TRADING=true
+AUTO_CONFIRM=true
 
 # ---- 市场筛选（可选）----
 # 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
@@ -321,9 +321,10 @@ PROBABLE_ENABLED=true
 MM_WS_ENABLED=true
 PROBABLE_WS_ENABLED=true
 PREDICT_WS_ENABLED=false
+UNIFIED_STRATEGY_ENABLED=true
 
-ENABLE_TRADING=false
-AUTO_CONFIRM=false
+ENABLE_TRADING=true
+AUTO_CONFIRM=true
 
 # ---- 市场筛选（可选）----
 # 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
@@ -539,6 +540,24 @@ ipcMain.handle('link:open', async (_, url) => {
     await shell.openExternal(url);
     return { ok: true };
   } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
+// 获取 JWT Token
+ipcMain.handle('auth:get-jwt', async () => {
+  try {
+    sendLog('[auth] 开始获取 JWT Token...');
+    const result = await runCommand(npxCmd, ['tsx', 'src/auth-jwt.ts'], 'auth', true);
+    if (result.ok) {
+      sendLog('[auth] ✅ JWT Token 获取成功！');
+      return { ok: true };
+    } else {
+      sendLog(`[auth] ❌ 获取失败: ${result.stderr || result.stdout}`);
+      return { ok: false, message: result.stderr || result.stdout || '获取 JWT 失败' };
+    }
+  } catch (err) {
+    sendLog(`[auth] ❌ 异常: ${err.message}`);
     return { ok: false, message: err.message };
   }
 });

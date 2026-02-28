@@ -182,6 +182,19 @@ document.getElementById('applyAutoMarkets').onclick = applyAutoMarkets;
 document.getElementById('applyManualMarkets').onclick = applyManualMarkets;
 document.getElementById('reloadManualMarkets').onclick = reloadManualMarkets;
 
+// 获取 JWT Token 按钮
+document.getElementById('getJwt').onclick = async () => {
+  if (!api) return;
+  pushLog('正在获取 JWT Token...');
+  const r = await api.getJwt();
+  if (r.ok) {
+    pushLog('✅ JWT Token 获取成功！');
+    await refreshEnv();
+  } else {
+    pushLog(`❌ 获取 JWT 失败: ${r.message || '未知错误'}`);
+  }
+};
+
 document.getElementById('reloadEnv').onclick = refreshEnv;
 document.getElementById('saveEnv').onclick = async () => {
   if (!api) return;
