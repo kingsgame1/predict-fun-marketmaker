@@ -145,6 +145,39 @@ function getNodeCmd() {
   return 'node';
 }
 
+function quoteWindowsArg(value) {
+  const text = String(value ?? '');
+  if (!/[\s"]/u.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildSpawnSpec(command, args, extraOptions = {}) {
+  const isWindowsCmdScript =
+    process.platform === 'win32' && /\.(cmd|bat)$/i.test(String(command || ''));
+
+  if (isWindowsCmdScript) {
+    const comspec = process.env.ComSpec || process.env.COMSPEC || 'cmd.exe';
+    const commandLine = [quoteWindowsArg(command), ...args.map((arg) => quoteWindowsArg(arg))].join(' ');
+    return {
+      command: comspec,
+      args: ['/d', '/s', '/c', commandLine],
+      options: {
+        shell: false,
+        ...extraOptions,
+      },
+    };
+  }
+
+  return {
+    command,
+    args,
+    options: {
+      shell: false,
+      ...extraOptions,
+    },
+  };
+}
+
 function setupPath() {
   if (process.platform !== 'darwin') {
     console.log('[PATH] 非 macOS 系统，保持原有 PATH');
@@ -582,8 +615,9 @@ function runCommand(command, args, label, pipeToUi = true) {
     // 获取 Node.js bin 目录，确保 PATH 包含它
     const nodeBinDir = findNodeBinDir();
     const existingPath = process.env.PATH || '';
+    const pathDelimiter = path.delimiter || (process.platform === 'win32' ? ';' : ':');
     const pathWithNode = nodeBinDir
-      ? `${nodeBinDir}:${existingPath}`
+      ? `${nodeBinDir}${pathDelimiter}${existingPath}`
       : existingPath;
 
     // 关键：设置 ENV_PATH 环境变量，让源代码知道去哪里找 .env
@@ -593,21 +627,24 @@ function runCommand(command, args, label, pipeToUi = true) {
       ENV_PATH: envPath,   // 指向用户目录的 .env
     };
 
-    const userShell = process.env.SHELL || '/bin/zsh';
+    const userShell = process.platform === 'win32'
+      ? (process.env.ComSpec || process.env.COMSPEC || 'cmd.exe')
+      : (process.env.SHELL || '/bin/zsh');
     console.log(`[RUN] ${command} ${args.join(' ')}`);
     console.log(`[RUN] cwd: ${appRoot}`);
     console.log(`[RUN] ENV_PATH: ${envPath}`);
     console.log(`[RUN] nodeBinDir: ${nodeBinDir || 'not found'}`);
     console.log(`[RUN] shell: ${userShell}`);
 
-    const child = spawn(command, args, {
+    const childEnv = {
+      ...env,
+      SHELL: userShell,
+    };
+    const spawnSpec = buildSpawnSpec(command, args, {
       cwd: appRoot,
-      shell: false,
-      env: {
-        ...env,
-        SHELL: userShell,
-      },
+      env: childEnv,
     });
+    const child = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
 
     let stdout = '';
     let stderr = '';
@@ -671,8 +708,9 @@ async function startMM() {
   // 获取 Node.js bin 目录，确保 PATH 包含它
   const nodeBinDir = findNodeBinDir();
   const existingPath = process.env.PATH || '';
+  const pathDelimiter = path.delimiter || (process.platform === 'win32' ? ';' : ':');
   const pathWithNode = nodeBinDir
-    ? `${nodeBinDir}:${existingPath}`
+    ? `${nodeBinDir}${pathDelimiter}${existingPath}`
     : existingPath;
 
   // 关键：设置 ENV_PATH 环境变量
@@ -690,11 +728,11 @@ async function startMM() {
   console.log(`[MM] ENV_PATH: ${envPath}`);
   console.log(`[MM] nodeBinDir: ${nodeBinDir || 'not found'}`);
 
-  mmProcess = spawn(getNpxCmd(), ['tsx', 'src/index.ts'], {
+  const spawnSpec = buildSpawnSpec(getNpxCmd(), ['tsx', 'src/index.ts'], {
     cwd: appRoot,
-    shell: false,
     env: env,
   });
+  mmProcess = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
   mmProcess.stdout.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.stderr.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.on('exit', (code) => {

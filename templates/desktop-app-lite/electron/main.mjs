@@ -11,6 +11,39 @@ const envPath = path.join(projectRoot, '.env');
 const rendererPath = path.resolve(__dirname, '..', 'renderer', 'index.html');
 const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
+function quoteWindowsArg(value) {
+  const text = String(value ?? '');
+  if (!/[\s"]/u.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildSpawnSpec(command, args, extraOptions = {}) {
+  const isWindowsCmdScript =
+    process.platform === 'win32' && /\.(cmd|bat)$/i.test(String(command || ''));
+
+  if (isWindowsCmdScript) {
+    const comspec = process.env.ComSpec || process.env.COMSPEC || 'cmd.exe';
+    const commandLine = [quoteWindowsArg(command), ...args.map((arg) => quoteWindowsArg(arg))].join(' ');
+    return {
+      command: comspec,
+      args: ['/d', '/s', '/c', commandLine],
+      options: {
+        shell: false,
+        ...extraOptions,
+      },
+    };
+  }
+
+  return {
+    command,
+    args,
+    options: {
+      shell: false,
+      ...extraOptions,
+    },
+  };
+}
+
 /**
  * 获取用户的 shell PATH 环境变量
  * macOS GUI 应用不会继承用户的 shell PATH（如 nvm/fnm 路径）
@@ -128,7 +161,8 @@ function sendStatus() {
 
 function runCommand(command, args, label, pipeToUi = true) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd: projectRoot, shell: false, env: process.env });
+    const spawnSpec = buildSpawnSpec(command, args, { cwd: projectRoot, env: process.env });
+    const child = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => {
@@ -141,6 +175,7 @@ function runCommand(command, args, label, pipeToUi = true) {
       stderr += text;
       if (pipeToUi) sendLog(`[${label}] ${text}`);
     });
+    child.on('error', (err) => resolve({ ok: false, code: 1, stdout, stderr: err.message }));
     child.on('exit', (code) => resolve({ ok: code === 0, code, stdout, stderr }));
   });
 }
@@ -162,11 +197,11 @@ async function runRecommendJson(venue, { top = 40, scan = 80, apply = false } = 
 
 function startMM() {
   if (mmProcess) return { ok: false, message: '做市进程已在运行' };
-  mmProcess = spawn(npxCmd, ['tsx', 'src/index.ts'], {
+  const spawnSpec = buildSpawnSpec(npxCmd, ['tsx', 'src/index.ts'], {
     cwd: projectRoot,
-    shell: false,
     env: process.env,
   });
+  mmProcess = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
   mmProcess.stdout.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.stderr.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.on('exit', (code) => {

@@ -40,7 +40,7 @@ async function main() {
   }
 
   const baseUrl = config.apiBaseUrl.replace(/\/+$/, '');
-  const envPath = path.join(process.cwd(), '.env');
+  const envPath = process.env.ENV_PATH || path.join(process.cwd(), '.env');
 
   const http = axios.create({
     baseURL: baseUrl,
@@ -112,9 +112,10 @@ async function main() {
 
   const oldContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
   const updated = upsertEnvVar(oldContent, 'JWT_TOKEN', token);
+  fs.mkdirSync(path.dirname(envPath), { recursive: true });
   fs.writeFileSync(envPath, updated, 'utf8');
 
-  console.log('✅ JWT token generated and saved to .env');
+  console.log(`✅ JWT token generated and saved to ${envPath}`);
   console.log(`   Signer: ${signerAddress}`);
   console.log(`   Token Prefix: ${token.slice(0, 20)}...`);
 }
