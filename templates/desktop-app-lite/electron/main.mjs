@@ -11,6 +11,17 @@ const envPath = path.join(projectRoot, '.env');
 const rendererPath = path.resolve(__dirname, '..', 'renderer', 'index.html');
 const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
+function getBundledTsxCli() {
+  const candidates = [
+    path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 function quoteWindowsArg(value) {
   const text = String(value ?? '');
   if (!/[\s"]/u.test(text)) return text;
@@ -42,6 +53,21 @@ function buildSpawnSpec(command, args, extraOptions = {}) {
       ...extraOptions,
     },
   };
+}
+
+function buildTsxSpawnSpec(scriptArgs, extraOptions = {}) {
+  const bundledTsxCli = getBundledTsxCli();
+  if (bundledTsxCli) {
+    return buildSpawnSpec(process.execPath, [bundledTsxCli, ...scriptArgs], {
+      ...extraOptions,
+      env: {
+        ...(extraOptions.env || {}),
+        ELECTRON_RUN_AS_NODE: '1',
+      },
+    });
+  }
+
+  return buildSpawnSpec(npxCmd, ['tsx', ...scriptArgs], extraOptions);
 }
 
 /**
@@ -161,7 +187,9 @@ function sendStatus() {
 
 function runCommand(command, args, label, pipeToUi = true) {
   return new Promise((resolve) => {
-    const spawnSpec = buildSpawnSpec(command, args, { cwd: projectRoot, env: process.env });
+    const spawnSpec = command === npxCmd && args[0] === 'tsx'
+      ? buildTsxSpawnSpec(args.slice(1), { cwd: projectRoot, env: process.env })
+      : buildSpawnSpec(command, args, { cwd: projectRoot, env: process.env });
     const child = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
     let stdout = '';
     let stderr = '';
@@ -197,7 +225,7 @@ async function runRecommendJson(venue, { top = 40, scan = 80, apply = false } = 
 
 function startMM() {
   if (mmProcess) return { ok: false, message: '做市进程已在运行' };
-  const spawnSpec = buildSpawnSpec(npxCmd, ['tsx', 'src/index.ts'], {
+  const spawnSpec = buildTsxSpawnSpec(['src/index.ts'], {
     cwd: projectRoot,
     env: process.env,
   });

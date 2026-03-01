@@ -145,6 +145,17 @@ function getNodeCmd() {
   return 'node';
 }
 
+function getBundledTsxCli() {
+  const candidates = [
+    path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 function quoteWindowsArg(value) {
   const text = String(value ?? '');
   if (!/[\s"]/u.test(text)) return text;
@@ -176,6 +187,21 @@ function buildSpawnSpec(command, args, extraOptions = {}) {
       ...extraOptions,
     },
   };
+}
+
+function buildTsxSpawnSpec(scriptArgs, extraOptions = {}) {
+  const bundledTsxCli = getBundledTsxCli();
+  if (bundledTsxCli) {
+    return buildSpawnSpec(process.execPath, [bundledTsxCli, ...scriptArgs], {
+      ...extraOptions,
+      env: {
+        ...(extraOptions.env || {}),
+        ELECTRON_RUN_AS_NODE: '1',
+      },
+    });
+  }
+
+  return buildSpawnSpec(getNpxCmd(), ['tsx', ...scriptArgs], extraOptions);
 }
 
 function setupPath() {
@@ -640,10 +666,15 @@ function runCommand(command, args, label, pipeToUi = true) {
       ...env,
       SHELL: userShell,
     };
-    const spawnSpec = buildSpawnSpec(command, args, {
-      cwd: appRoot,
-      env: childEnv,
-    });
+    const spawnSpec = command === getNpxCmd() && args[0] === 'tsx'
+      ? buildTsxSpawnSpec(args.slice(1), {
+          cwd: appRoot,
+          env: childEnv,
+        })
+      : buildSpawnSpec(command, args, {
+          cwd: appRoot,
+          env: childEnv,
+        });
     const child = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
 
     let stdout = '';
@@ -728,7 +759,7 @@ async function startMM() {
   console.log(`[MM] ENV_PATH: ${envPath}`);
   console.log(`[MM] nodeBinDir: ${nodeBinDir || 'not found'}`);
 
-  const spawnSpec = buildSpawnSpec(getNpxCmd(), ['tsx', 'src/index.ts'], {
+  const spawnSpec = buildTsxSpawnSpec(['src/index.ts'], {
     cwd: appRoot,
     env: env,
   });
