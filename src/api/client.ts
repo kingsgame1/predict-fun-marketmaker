@@ -17,11 +17,13 @@ interface RequestOptions {
 export class PredictAPI {
   private client: AxiosInstance;
   private apiKey?: string;
+  private rawJwtToken?: string;
   private jwtToken?: string;
 
   constructor(baseUrl: string, apiKey?: string, jwtToken?: string) {
     this.apiKey = apiKey;
-    this.jwtToken = jwtToken;
+    this.rawJwtToken = jwtToken;
+    this.jwtToken = this.normalizeJwtToken(jwtToken);
 
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
     const headers: Record<string, string> = {
@@ -32,15 +34,22 @@ export class PredictAPI {
       headers['x-api-key'] = this.apiKey;
     }
 
-    if (this.jwtToken) {
-      headers['Authorization'] = `Bearer ${this.jwtToken}`;
-    }
-
     this.client = axios.create({
       baseURL: normalizedBaseUrl,
       timeout: 15000,
       headers,
     });
+  }
+
+  private normalizeJwtToken(token?: string): string | undefined {
+    if (!token) return undefined;
+    const trimmed = String(token).trim().replace(/^['"]|['"]$/g, '');
+    const withoutBearer = trimmed.replace(/^Bearer\s+/i, '');
+    if (!withoutBearer) return undefined;
+    if (!/^[A-Za-z0-9._-]+$/.test(withoutBearer)) {
+      return undefined;
+    }
+    return withoutBearer;
   }
 
   private unwrapData<T>(payload: any): T {
@@ -62,6 +71,11 @@ export class PredictAPI {
 
   private ensureJwtAvailable() {
     if (!this.jwtToken) {
+      if (this.rawJwtToken) {
+        throw new Error(
+          'JWT_TOKEN 格式无效或仍是占位符。请重新获取 JWT，或清空 JWT_TOKEN 后再执行仅公共接口操作。'
+        );
+      }
       throw new Error(
         'JWT_TOKEN is required for private endpoints. Run auth flow and set JWT_TOKEN in .env.'
       );
@@ -86,6 +100,11 @@ export class PredictAPI {
           url: path,
           params: options.params,
           data: options.data,
+          headers: options.requireJwt
+            ? {
+                Authorization: `Bearer ${this.jwtToken}`,
+              }
+            : undefined,
         });
 
         return this.unwrapData<T>(response.data);
