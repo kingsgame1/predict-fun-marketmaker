@@ -56,10 +56,10 @@ export class PredictMarketMakerBot {
 
     // Initialize market selector
     this.marketSelector = new MarketSelector(
-      1000, // minLiquidity
-      5000, // minVolume24h
-      0.10, // maxSpread
-      5 // minOrders
+      0, // minLiquidity
+      0, // minVolume24h
+      0.20, // maxSpread
+      0 // minOrders
     );
 
     // Initialize market maker
@@ -111,27 +111,64 @@ export class PredictMarketMakerBot {
       console.log(`✅ Applied liquidity rules to ${rulesApplied} market(s)\n`);
     }
 
-    // Fetch orderbooks for all markets
-    const orderbooks = new Map<string, Orderbook>();
-    for (const market of marketsWithRules.slice(0, 50)) {
-      // Limit to first 50 for performance
-      try {
-        const orderbook = await this.api.getOrderbook(market.token_id);
-        orderbooks.set(market.token_id, orderbook);
-
-        // Add orderbook data to market
-        market.best_bid = orderbook.best_bid;
-        market.best_ask = orderbook.best_ask;
-        market.spread_pct = orderbook.spread_pct;
-        market.total_orders =
-          (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
-      } catch (error) {
-        console.error(`Error fetching orderbook for ${market.token_id}:`, error);
+    const prioritizedMarkets = new Map<string, Market>();
+    if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
+      for (const tokenId of this.config.marketTokenIds) {
+        const matched = marketsWithRules.find((m) => String(m.token_id) === String(tokenId));
+        if (matched) {
+          prioritizedMarkets.set(matched.token_id, matched);
+        }
       }
     }
+    for (const market of sortMarketsByLiquidityAndVolume(marketsWithRules)) {
+      prioritizedMarkets.set(market.token_id, market);
+    }
+
+    const orderbookCandidates = Array.from(prioritizedMarkets.values()).slice(
+      0,
+      Math.max(36, (this.config.marketTokenIds?.length || 0) * 12)
+    );
+    const orderbooks = await populateOrderbooksWithConcurrency(
+      orderbookCandidates,
+      3,
+      async (tokenId) => this.api.getOrderbook(tokenId)
+    );
+    console.log(`📘 Predict orderbooks fetched: ${orderbooks.size}/${orderbookCandidates.length}`);
 
     // Score and select markets
     let scoredMarkets = this.marketSelector.selectMarkets(marketsWithRules, orderbooks);
+    if (scoredMarkets.length === 0 && orderbooks.size > 0) {
+      const relaxedSelector = new MarketSelector(0, 0, 1, 0);
+      const relaxed = relaxedSelector.selectMarkets(marketsWithRules, orderbooks);
+      if (relaxed.length > 0) {
+        console.log(`ℹ️  Strict selector returned 0, fallback to relaxed selector (${relaxed.length})`);
+        scoredMarkets = relaxed;
+      }
+    }
+    if (scoredMarkets.length === 0 && orderbooks.size > 0) {
+      scoredMarkets = marketsWithRules
+        .filter((market) => orderbooks.has(market.token_id))
+        .map((market) => {
+          const orderbook = orderbooks.get(market.token_id)!;
+          const l1Bid = Number(orderbook.best_bid || 0);
+          const l1Ask = Number(orderbook.best_ask || 0);
+          const spreadPenalty =
+            l1Bid > 0 && l1Ask > 0 && Number.isFinite(orderbook.spread_pct) ? Math.max(0, orderbook.spread_pct) : 1;
+          return {
+            market,
+            score:
+              Number(market.liquidity_24h || 0) * 0.2 +
+              Number(market.volume_24h || 0) * 0.05 +
+              (l1Bid + l1Ask) * 100 -
+              spreadPenalty * 50,
+            reasons: ['Predict fallback: official orderbook available'],
+          };
+        })
+        .sort((a, b) => b.score - a.score);
+      if (scoredMarkets.length > 0) {
+        console.log(`ℹ️  Fallback ranking enabled with ${scoredMarkets.length} markets`);
+      }
+    }
 
     // Filter by user-specified markets if provided
     if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {

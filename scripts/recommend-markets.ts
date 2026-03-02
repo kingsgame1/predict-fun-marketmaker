@@ -237,7 +237,12 @@ async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets:
   }
   const api = new PredictAPI(apiBaseUrl, apiKey, jwtToken);
   const allMarkets = await api.getMarkets();
-  const selected = allMarkets.slice(0, scan);
+  const rankedMarkets = sortByLiquidityAndVolume(
+    allMarkets,
+    (market) => toFiniteNumber(market.liquidity_24h),
+    (market) => toFiniteNumber(market.volume_24h)
+  );
+  const selected = rankedMarkets.slice(0, Math.min(rankedMarkets.length, Math.max(scan * 3, 36)));
   const orderbooks = new Map<string, Orderbook>();
   for (const market of selected) {
     try {
@@ -251,6 +256,7 @@ async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets:
       // skip bad market
     }
   }
+  console.error(`[Predict] 订单簿抓取成功: ${orderbooks.size}/${selected.length}`);
   return { markets: selected, orderbooks };
 }
 
@@ -347,7 +353,7 @@ function getSelectorConfig(env: EnvMap, venue: 'predict' | 'probable'): [number,
   const defaults =
     venue === 'probable'
       ? { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.2, minOrders: 0 }
-      : { minLiquidity: 1000, minVolume24h: 5000, maxSpread: 0.1, minOrders: 5 };
+      : { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.2, minOrders: 0 };
 
   return [
     readNumber(env, 'MARKET_SELECTOR_MIN_LIQUIDITY', defaults.minLiquidity),
@@ -404,7 +410,65 @@ async function main(): Promise<void> {
       ? await loadProbableMarkets(env, args.scan)
       : await loadPredictMarkets(env, args.scan);
 
-  const scored = selector.selectMarkets(markets, orderbooks);
+  let scored = selector.selectMarkets(markets, orderbooks);
+  if (scored.length === 0 && args.venue === 'predict' && markets.length > 0 && orderbooks.size > 0) {
+    const relaxedSelector = new MarketSelector(0, 0, 1, 0);
+    const relaxedScored = relaxedSelector.selectMarkets(markets, orderbooks);
+    if (relaxedScored.length > 0) {
+      console.error(
+        `[Predict] 严格阈值下无结果，已自动回退到宽松筛选（候选 ${relaxedScored.length} 个）`
+      );
+      scored = relaxedScored;
+    }
+  }
+  if (scored.length === 0 && args.venue === 'predict' && orderbooks.size > 0) {
+    const fallback = markets
+      .filter((market) => {
+        const book = orderbooks.get(market.token_id);
+        return Boolean(book && ((book.best_bid ?? 0) > 0 || (book.best_ask ?? 0) > 0));
+      })
+      .slice(0, Math.max(args.top * 3, 12))
+      .map((market) => {
+        const book = orderbooks.get(market.token_id)!;
+        const l1Bid = readLevel(book, 'bids', 0).notional ?? 0;
+        const l1Ask = readLevel(book, 'asks', 0).notional ?? 0;
+        const score = l1Bid + l1Ask + ((book.best_bid ?? 0) > 0 && (book.best_ask ?? 0) > 0 ? 1000 : 0);
+        return {
+          market,
+          score,
+          reasons: ['使用盘口兜底排序（API 统计字段缺失或筛选过严）'],
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+    if (fallback.length > 0) {
+      console.error(`[Predict] 常规筛选无结果，已回退到盘口兜底排序（候选 ${fallback.length} 个）`);
+      scored = fallback;
+    }
+  }
+  if (scored.length === 0 && args.venue === 'predict' && markets.length > 0) {
+    const liquidityFallback = sortByLiquidityAndVolume(
+      markets,
+      (market) => toFiniteNumber(market.liquidity_24h),
+      (market) => toFiniteNumber(market.volume_24h)
+    )
+      .slice(0, Math.max(args.top * 3, 12))
+      .map((market, idx) => ({
+        market,
+        score:
+          toFiniteNumber(market.liquidity_24h) * 10 +
+          toFiniteNumber(market.volume_24h) +
+          Math.max(0, 100 - idx),
+        reasons: [
+          '使用统计字段兜底排序（当前 Predict 未返回可用 orderbook）',
+          `24h流动性: $${toFiniteNumber(market.liquidity_24h).toFixed(0)}`,
+          `24h交易量: $${toFiniteNumber(market.volume_24h).toFixed(0)}`,
+        ],
+      }));
+    if (liquidityFallback.length > 0) {
+      console.error(`[Predict] orderbook 全部不可用，已回退到统计字段排序（候选 ${liquidityFallback.length} 个）`);
+      scored = liquidityFallback;
+    }
+  }
   const top = scored.slice(0, Math.max(1, args.top));
   const tokenIds = top.map((s) => s.market.token_id);
   const recommendations = top.map((entry, idx) => {

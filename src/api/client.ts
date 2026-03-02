@@ -14,11 +14,19 @@ interface RequestOptions {
   requireJwt?: boolean;
 }
 
+interface PredictTokenMeta {
+  marketId: string;
+  outcomeIndex: number;
+  outcomeCount: number;
+}
+
 export class PredictAPI {
   private client: AxiosInstance;
   private apiKey?: string;
   private rawJwtToken?: string;
   private jwtToken?: string;
+  private marketIdByTokenId = new Map<string, string>();
+  private tokenMetaByTokenId = new Map<string, PredictTokenMeta>();
 
   constructor(baseUrl: string, apiKey?: string, jwtToken?: string) {
     this.apiKey = apiKey;
@@ -58,6 +66,46 @@ export class PredictAPI {
     }
 
     return payload as T;
+  }
+
+  private extractList(payload: any): any[] {
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+
+    const candidates = [
+      payload?.markets,
+      payload?.items,
+      payload?.results,
+      payload?.result,
+      payload?.data?.markets,
+      payload?.data?.items,
+      payload?.data?.results,
+      payload?.data?.result,
+      payload?.data,
+    ];
+
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        return candidate;
+      }
+    }
+
+    return [];
+  }
+
+  private firstFiniteNumber(...values: unknown[]): number {
+    for (const value of values) {
+      if (value === null || value === undefined || value === '') {
+        continue;
+      }
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    return 0;
   }
 
   private shouldTryFallback(error: unknown): boolean {
@@ -122,11 +170,73 @@ export class PredictAPI {
     throw lastError;
   }
 
+  private async requestWithFallbackRaw(
+    method: HttpMethod,
+    paths: string[],
+    options: RequestOptions = {}
+  ): Promise<any> {
+    if (options.requireJwt) {
+      this.ensureJwtAvailable();
+    }
+
+    let lastError: unknown;
+
+    for (const path of paths) {
+      try {
+        const response = await this.client.request({
+          method,
+          url: path,
+          params: options.params,
+          data: options.data,
+          headers: options.requireJwt
+            ? {
+                Authorization: `Bearer ${this.jwtToken}`,
+              }
+            : undefined,
+        });
+
+        return response.data;
+      } catch (error) {
+        lastError = error;
+
+        if (this.shouldTryFallback(error)) {
+          continue;
+        }
+
+        break;
+      }
+    }
+
+    throw lastError;
+  }
+
   private normalizeMarket(raw: any): Market {
-    const volume24h =
-      raw?.volume_24h ?? raw?.volume24hUsd ?? raw?.stats?.volume24hUsd ?? raw?.stats?.volume24h;
-    const liquidity24h =
-      raw?.liquidity_24h ?? raw?.totalLiquidityUsd ?? raw?.stats?.liquidity24hUsd ?? raw?.stats?.liquidity24h;
+    const volume24h = this.firstFiniteNumber(
+      raw?.volume_24h,
+      raw?.volume24hUsd,
+      raw?.volume24h,
+      raw?.volume24hr,
+      raw?.volumeUsd,
+      raw?.totalVolumeUsd,
+      raw?.volume,
+      raw?.stats?.volume24hUsd,
+      raw?.stats?.volume24h,
+      raw?.stats?.volume24hr,
+      raw?.stats?.volume
+    );
+    const liquidity24h = this.firstFiniteNumber(
+      raw?.liquidity_24h,
+      raw?.totalLiquidityUsd,
+      raw?.liquidity24h,
+      raw?.liquidity24hr,
+      raw?.liquidityUsd,
+      raw?.liquidity,
+      raw?.totalLiquidity,
+      raw?.stats?.liquidity24hUsd,
+      raw?.stats?.liquidity24h,
+      raw?.stats?.liquidity24hr,
+      raw?.stats?.liquidity
+    );
 
     // Parse outcomes array if available
     const outcomes = Array.isArray(raw?.outcomes)
@@ -139,11 +249,20 @@ export class PredictAPI {
       : undefined;
 
     return {
-      token_id: String(raw?.token_id ?? raw?.tokenId ?? raw?.resolution?.onChainId ?? raw?.id ?? ''),
+      token_id: String(
+        raw?.token_id ??
+          raw?.tokenId ??
+          raw?.clobTokenId ??
+          raw?.clob_token_id ??
+          raw?.resolution?.onChainId ??
+          raw?.id ??
+          ''
+      ),
       question: raw?.question ?? raw?.title ?? raw?.market_question ?? 'Unknown market',
       description: raw?.description,
       condition_id: raw?.condition_id ?? raw?.conditionId ?? raw?.condition?.id,
-      event_id: raw?.event_id ?? raw?.eventId ?? raw?.event?.id ?? raw?.market_id ?? raw?.marketId,
+      event_id:
+        raw?.event_id ?? raw?.eventId ?? raw?.event?.id ?? raw?.market_id ?? raw?.marketId ?? raw?.id,
       outcome: raw?.outcome ?? raw?.side ?? raw?.resolution?.outcome,
       end_date: raw?.end_date ?? raw?.endsAt,
       is_neg_risk: Boolean(raw?.is_neg_risk ?? raw?.isNegRisk ?? false),
@@ -153,6 +272,42 @@ export class PredictAPI {
       liquidity_24h: Number(liquidity24h ?? 0),
       outcomes,
     };
+  }
+
+  private normalizeMarketRecords(raw: any): Market[] {
+    const baseMarket = this.normalizeMarket(raw);
+    const marketId = String(raw?.id ?? raw?.market_id ?? raw?.marketId ?? baseMarket.event_id ?? '');
+    const outcomes = Array.isArray(raw?.outcomes) ? raw.outcomes : [];
+    const expanded = outcomes
+      .map((outcome: any, index: number) => ({
+        tokenId: String(outcome?.onChainId ?? outcome?.tokenId ?? outcome?.token_id ?? ''),
+        name: String(outcome?.name ?? ''),
+        index,
+      }))
+      .filter((outcome) => outcome.tokenId);
+
+    if (expanded.length === 0) {
+      if (baseMarket.token_id && marketId) {
+        this.marketIdByTokenId.set(baseMarket.token_id, marketId);
+      }
+      return [baseMarket];
+    }
+
+    return expanded.map((outcome) => {
+      if (outcome.tokenId && marketId) {
+        this.marketIdByTokenId.set(outcome.tokenId, marketId);
+        this.tokenMetaByTokenId.set(outcome.tokenId, {
+          marketId,
+          outcomeIndex: outcome.index,
+          outcomeCount: expanded.length,
+        });
+      }
+      return {
+        ...baseMarket,
+        token_id: outcome.tokenId,
+        outcome: outcome.name || baseMarket.outcome,
+      };
+    });
   }
 
   private normalizeOrder(raw: any): Order | null {
@@ -225,17 +380,41 @@ export class PredictAPI {
   /**
    * Get all active markets
    */
-  async getMarkets(options: { silent?: boolean; throwOnError?: boolean } = {}): Promise<Market[]> {
-    const { silent = false, throwOnError = true } = options;
+  async getMarkets(
+    options: { silent?: boolean; throwOnError?: boolean; status?: string; maxPages?: number } = {}
+  ): Promise<Market[]> {
+    const { silent = false, throwOnError = true, status = 'OPEN', maxPages = 6 } = options;
 
     try {
-      const rawMarkets = await this.requestWithFallback<any[]>('get', ['/v1/markets', '/markets']);
-      if (!Array.isArray(rawMarkets)) {
-        return [];
+      const collected: any[] = [];
+      let after: string | undefined;
+
+      for (let page = 0; page < Math.max(1, Math.min(20, maxPages)); page += 1) {
+        const payload = await this.requestWithFallbackRaw('get', ['/v1/markets', '/markets'], {
+          params: {
+            status,
+            ...(after ? { after } : {}),
+          },
+        });
+        const rawMarkets = this.extractList(payload);
+        if (rawMarkets.length === 0) {
+          break;
+        }
+        collected.push(...rawMarkets);
+        const cursor =
+          typeof payload?.cursor === 'string'
+            ? payload.cursor
+            : typeof payload?.data?.cursor === 'string'
+              ? payload.data.cursor
+              : undefined;
+        if (!cursor) {
+          break;
+        }
+        after = cursor;
       }
 
-      return rawMarkets
-        .map((m) => this.normalizeMarket(m))
+      return collected
+        .flatMap((m) => this.normalizeMarketRecords(m))
         .filter((m) => m.token_id && m.token_id !== 'undefined');
     } catch (error) {
       if (!silent) {
@@ -266,10 +445,8 @@ export class PredictAPI {
    */
   async getOrderbook(tokenId: string): Promise<Orderbook> {
     try {
-      const rawData = await this.requestWithFallback<any>('get', [
-        `/v1/markets/${tokenId}/orderbook`,
-        `/orderbooks/${tokenId}`,
-      ]);
+      const marketLookupId = this.marketIdByTokenId.get(tokenId) || tokenId;
+      const rawData = await this.requestWithFallback<any>('get', [`/v1/markets/${marketLookupId}/orderbook`]);
 
       const bidsRaw = Array.isArray(rawData?.bids) ? rawData.bids : [];
       const asksRaw = Array.isArray(rawData?.asks) ? rawData.asks : [];
@@ -333,7 +510,7 @@ export class PredictAPI {
       const mid_price =
         bestBid !== undefined && bestAsk !== undefined ? (bestBid + bestAsk) / 2 : undefined;
 
-      return {
+      let normalized: Orderbook = {
         token_id: tokenId,
         bids,
         asks,
@@ -343,6 +520,41 @@ export class PredictAPI {
         spread_pct,
         mid_price,
       };
+
+      const meta = this.tokenMetaByTokenId.get(tokenId);
+      if (meta && meta.outcomeCount === 2 && meta.outcomeIndex === 1) {
+        const invertedBids = asks
+          .map((ask) => ({
+            ...ask,
+            price: String(Math.max(0, Math.min(1, 1 - Number(ask.price)))),
+          }))
+          .sort((a, b) => Number(b.price) - Number(a.price));
+        const invertedAsks = bids
+          .map((bid) => ({
+            ...bid,
+            price: String(Math.max(0, Math.min(1, 1 - Number(bid.price)))),
+          }))
+          .sort((a, b) => Number(a.price) - Number(b.price));
+        const invBestBid = invertedBids.length > 0 ? Number(invertedBids[0].price) : undefined;
+        const invBestAsk = invertedAsks.length > 0 ? Number(invertedAsks[0].price) : undefined;
+        normalized = {
+          token_id: tokenId,
+          bids: invertedBids,
+          asks: invertedAsks,
+          best_bid: invBestBid,
+          best_ask: invBestAsk,
+          spread:
+            invBestBid !== undefined && invBestAsk !== undefined ? invBestAsk - invBestBid : undefined,
+          spread_pct:
+            invBestBid !== undefined && invBestAsk !== undefined && invBestBid > 0
+              ? ((invBestAsk - invBestBid) / invBestBid) * 100
+              : undefined,
+          mid_price:
+            invBestBid !== undefined && invBestAsk !== undefined ? (invBestBid + invBestAsk) / 2 : undefined,
+        };
+      }
+
+      return normalized;
     } catch (error) {
       console.error(`Error fetching orderbook for ${tokenId}:`, error);
       throw error;
