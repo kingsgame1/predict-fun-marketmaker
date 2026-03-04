@@ -12,10 +12,16 @@ const rendererPath = path.resolve(__dirname, '..', 'renderer', 'index.html');
 const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
 function getBundledTsxCli() {
-  const candidates = [
-    path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
-    path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
-  ];
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
+          path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+        ]
+      : [
+          path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+          path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
+        ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -40,6 +46,7 @@ function buildSpawnSpec(command, args, extraOptions = {}) {
       args: ['/d', '/s', '/c', commandLine],
       options: {
         shell: false,
+        windowsHide: process.platform === 'win32',
         ...extraOptions,
       },
     };
@@ -50,6 +57,7 @@ function buildSpawnSpec(command, args, extraOptions = {}) {
     args,
     options: {
       shell: false,
+      windowsHide: process.platform === 'win32',
       ...extraOptions,
     },
   };

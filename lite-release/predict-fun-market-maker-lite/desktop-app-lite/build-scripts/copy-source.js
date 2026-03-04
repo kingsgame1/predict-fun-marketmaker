@@ -2,7 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import zlib from 'node:zlib';
 import { copySync } from 'fs-extra/esm';
 import { execSync } from 'node:child_process';
@@ -114,6 +114,65 @@ function createIconPng(outputPath) {
   fs.writeFileSync(outputPath, png);
 }
 
+async function buildRuntimeBundle() {
+  const typescriptEntry = path.join(desktopAppRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
+  if (!fs.existsSync(typescriptEntry)) {
+    throw new Error(`Missing TypeScript runtime: ${typescriptEntry}`);
+  }
+
+  const imported = await import(pathToFileURL(typescriptEntry).href);
+  const ts = imported.default || imported;
+  const runtimeRoot = path.join(desktopAppRoot, 'runtime-dist');
+
+  if (fs.existsSync(runtimeRoot)) {
+    fs.rmSync(runtimeRoot, { recursive: true, force: true });
+  }
+  fs.mkdirSync(runtimeRoot, { recursive: true });
+
+  const transpileDir = (sourceDir, outputDir) => {
+    fs.mkdirSync(outputDir, { recursive: true });
+    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+      const sourcePath = path.join(sourceDir, entry.name);
+      const outputPath = path.join(outputDir, entry.name);
+
+      if (entry.isDirectory()) {
+        transpileDir(sourcePath, outputPath);
+        continue;
+      }
+
+      if (/\.d\.(ts|tsx)$/i.test(entry.name)) {
+        fs.copyFileSync(sourcePath, outputPath);
+        continue;
+      }
+
+      if (/\.(ts|tsx)$/i.test(entry.name)) {
+        const sourceText = fs.readFileSync(sourcePath, 'utf8');
+        const transpiled = ts.transpileModule(sourceText, {
+          compilerOptions: {
+            target: ts.ScriptTarget.ES2022,
+            module: ts.ModuleKind.ES2022,
+            esModuleInterop: true,
+            allowSyntheticDefaultImports: true,
+            resolveJsonModule: true,
+            isolatedModules: true,
+            sourceMap: false,
+          },
+          fileName: sourcePath,
+          reportDiagnostics: false,
+        });
+        fs.writeFileSync(outputPath.replace(/\.(ts|tsx)$/i, '.js'), transpiled.outputText, 'utf8');
+        continue;
+      }
+
+      fs.copyFileSync(sourcePath, outputPath);
+    }
+  };
+
+  transpileDir(srcDst, path.join(runtimeRoot, 'src'));
+  transpileDir(scriptsDst, path.join(runtimeRoot, 'scripts'));
+  console.log(`[copy-source] ✅ runtime-dist 已生成`);
+}
+
 // 复制 src 目录
 const srcSrc = path.join(projectRoot, 'src');
 const srcDst = path.join(desktopAppRoot, 'src');
@@ -171,5 +230,12 @@ try {
   console.log(`[copy-source] ✅ 依赖安装完成`);
 } catch (error) {
   console.error(`[copy-source] ⚠️  依赖安装失败: ${error.message}`);
+  throw error;
+}
+
+try {
+  await buildRuntimeBundle();
+} catch (error) {
+  console.error(`[copy-source] ⚠️  运行时 JS 编译失败: ${error.message}`);
   throw error;
 }

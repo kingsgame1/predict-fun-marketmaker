@@ -16,6 +16,7 @@ const __dirname = path.dirname(__filename);
 const devAppRoot = path.resolve(__dirname, '..');
 const packagedAppRoot = path.join(process.resourcesPath, 'app.asar.unpacked');
 const appRoot = app.isPackaged ? packagedAppRoot : devAppRoot;
+const runtimeRoot = path.join(appRoot, 'runtime-dist');
 
 // 用户配置目录（只存储 .env 文件）
 const userConfigDir = path.join(os.homedir(), '.predict-fun-market-maker-lite');
@@ -146,12 +147,29 @@ function getNodeCmd() {
 }
 
 function getBundledTsxCli() {
-  const candidates = [
-    path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
-    path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
-  ];
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
+          path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+        ]
+      : [
+          path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+          path.join(appRoot, 'node_modules', 'tsx', 'dist', 'cli.cjs'),
+        ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveBundledRuntimeScript(scriptPath) {
+  const normalized = String(scriptPath || '').replace(/\\/g, '/');
+  if (!normalized) return null;
+  if (!/\.(ts|tsx)$/i.test(normalized)) return null;
+  const runtimeCandidate = path.join(runtimeRoot, normalized.replace(/\.(ts|tsx)$/i, '.js'));
+  if (fs.existsSync(runtimeCandidate)) {
+    return runtimeCandidate;
   }
   return null;
 }
@@ -174,6 +192,7 @@ function buildSpawnSpec(command, args, extraOptions = {}) {
       args: ['/d', '/s', '/c', commandLine],
       options: {
         shell: false,
+        windowsHide: process.platform === 'win32',
         ...extraOptions,
       },
     };
@@ -184,12 +203,24 @@ function buildSpawnSpec(command, args, extraOptions = {}) {
     args,
     options: {
       shell: false,
+      windowsHide: process.platform === 'win32',
       ...extraOptions,
     },
   };
 }
 
 function buildTsxSpawnSpec(scriptArgs, extraOptions = {}) {
+  const runtimeScript = resolveBundledRuntimeScript(scriptArgs[0]);
+  if (runtimeScript) {
+    return buildSpawnSpec(process.execPath, [runtimeScript, ...scriptArgs.slice(1)], {
+      ...extraOptions,
+      env: {
+        ...(extraOptions.env || {}),
+        ELECTRON_RUN_AS_NODE: '1',
+      },
+    });
+  }
+
   const bundledTsxCli = getBundledTsxCli();
   if (bundledTsxCli) {
     return buildSpawnSpec(process.execPath, [bundledTsxCli, ...scriptArgs], {
@@ -664,7 +695,7 @@ function runCommand(command, args, label, pipeToUi = true) {
 
     const childEnv = {
       ...env,
-      SHELL: userShell,
+      ...(process.platform === 'win32' ? {} : { SHELL: userShell }),
     };
     const spawnSpec = command === getNpxCmd() && args[0] === 'tsx'
       ? buildTsxSpawnSpec(args.slice(1), {

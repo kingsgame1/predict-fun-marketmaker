@@ -26,6 +26,7 @@
     "asarUnpack": [
       "src/**/*",
       "scripts/**/*",
+      "runtime-dist/**/*",
       "node_modules/**/*",
       "src-package.json",
       "tsconfig.json"
@@ -39,7 +40,8 @@
       "renderer/**/*",
       "node_modules/**/*",
       "src/**/*",
-      "scripts/**/*"
+      "scripts/**/*",
+      "runtime-dist/**/*"
     ],
     "mac": {
       "category": "public.app-category.finance",
