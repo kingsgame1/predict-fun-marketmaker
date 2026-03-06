@@ -41,6 +41,20 @@
       <section class="row">
         <button id="getJwt" class="jwt-btn">🔑 获取 JWT Token</button>
       </section>
+      <section>
+        <div class="label">Predict 授权设置</div>
+        <div class="row">
+          <label>
+            <input id="predictAutoApprovals" type="checkbox" />
+            自动授权 Predict
+          </label>
+          <span id="approvalStatus" class="badge">授权状态：待检查</span>
+        </div>
+        <div class="hint">
+          开启后，启动做市或首次 BUY 前会自动检查并补齐 Predict 的 USDT allowance；
+          关闭后，如授权不足会直接阻止下单。
+        </div>
+      </section>
       <section class="hint">
         模板只需填写必填项：
         Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>（实盘再填 <code>JWT_TOKEN</code>）；

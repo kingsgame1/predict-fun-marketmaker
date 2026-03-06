@@ -571,6 +571,10 @@ PREDICT_WS_URL=wss://ws.predict.fun/ws
 # ---- 统一做市策略开关（自动）----
 MM_VENUE=predict
 MM_REQUIRE_JWT=true
+# Predict 自动授权开关（推荐开启）
+PREDICT_AUTO_SET_APPROVALS=true
+# BUY 前的抵押金预检缓冲，单位 bps（100 = 1%）
+PREDICT_COLLATERAL_BUFFER_BPS=100
 PROBABLE_ENABLED=false
 MM_WS_ENABLED=true
 PREDICT_WS_ENABLED=true

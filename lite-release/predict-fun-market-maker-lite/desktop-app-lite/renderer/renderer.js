@@ -6,9 +6,12 @@ const scanCount = document.getElementById('scanCount');
 const topCount = document.getElementById('topCount');
 const marketTableBody = document.getElementById('marketTableBody');
 const selectAllMarkets = document.getElementById('selectAllMarkets');
+const predictAutoApprovals = document.getElementById('predictAutoApprovals');
+const approvalStatus = document.getElementById('approvalStatus');
 const api = window.liteApp;
 
 let lastRecommendations = [];
+let approvalState = '待检查';
 
 function pushLog(line) {
   if (!logs) return;
@@ -34,6 +37,47 @@ function parseIds(raw) {
     .split(',')
     .map((x) => x.trim())
     .filter((x) => x.length > 0);
+}
+
+function parseEnvMap(raw) {
+  const map = new Map();
+  String(raw || '')
+    .split('\n')
+    .forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const idx = trimmed.indexOf('=');
+      if (idx === -1) return;
+      map.set(trimmed.slice(0, idx), trimmed.slice(idx + 1));
+    });
+  return map;
+}
+
+function upsertEnv(raw, key, value) {
+  const lines = String(raw || '').split('\n');
+  let replaced = false;
+  const nextLines = lines.map((line) => {
+    if (line.startsWith(`${key}=`)) {
+      replaced = true;
+      return `${key}=${value}`;
+    }
+    return line;
+  });
+  if (!replaced) {
+    while (nextLines.length > 0 && nextLines[nextLines.length - 1] === '') {
+      nextLines.pop();
+    }
+    nextLines.push(`${key}=${value}`);
+  }
+  return `${nextLines.join('\n').replace(/\n*$/g, '')}\n`;
+}
+
+function setApprovalStatus(state) {
+  approvalState = state;
+  if (!approvalStatus) return;
+  approvalStatus.textContent = `授权状态：${state}`;
+  approvalStatus.style.background =
+    state === '已就绪' ? '#065f46' : state === '授权失败' ? '#7f1d1d' : '#334155';
 }
 
 function renderMarketTable(items, selected = new Set()) {
@@ -71,6 +115,10 @@ function getCheckedTokenIds() {
 async function refreshEnv() {
   if (!api || !envEditor) return;
   envEditor.value = await api.readEnv();
+  const envMap = parseEnvMap(envEditor.value);
+  if (predictAutoApprovals) {
+    predictAutoApprovals.checked = (envMap.get('PREDICT_AUTO_SET_APPROVALS') || 'true').toLowerCase() !== 'false';
+  }
 }
 
 async function refreshStatus() {
@@ -220,6 +268,17 @@ document.getElementById('saveEnv').onclick = async () => {
   pushLog('配置已保存');
 };
 
+if (predictAutoApprovals) {
+  predictAutoApprovals.onchange = () => {
+    envEditor.value = upsertEnv(
+      envEditor.value || '',
+      'PREDICT_AUTO_SET_APPROVALS',
+      predictAutoApprovals.checked ? 'true' : 'false'
+    );
+    pushLog(`已${predictAutoApprovals.checked ? '开启' : '关闭'} Predict 自动授权，记得点击“保存配置”。`);
+  };
+}
+
 selectAllMarkets.onchange = () => {
   const checks = Array.from(document.querySelectorAll('.market-check'));
   checks.forEach((el) => {
@@ -235,12 +294,36 @@ if (!api) {
   }
 } else {
   api.onLog((payload) => {
-    pushLog(payload.message || '');
+    const message = payload.message || '';
+    const normalized = String(message);
+    if (
+      normalized.includes('Checking Predict approvals') ||
+      normalized.includes('USDT allowance insufficient') ||
+      normalized.includes('Insufficient collateral')
+    ) {
+      setApprovalStatus('待授权');
+    }
+    if (
+      normalized.includes('Predict approvals ready') ||
+      normalized.includes('Approvals set successfully') ||
+      normalized.includes('授权成功')
+    ) {
+      setApprovalStatus('已就绪');
+    }
+    if (
+      normalized.includes('授权失败') ||
+      normalized.includes('allowance insufficient after auto-approval') ||
+      normalized.includes('Failed to set approvals')
+    ) {
+      setApprovalStatus('授权失败');
+    }
+    pushLog(message);
   });
   api.onStatus(() => refreshStatus());
 }
 
 pushLog('UI 已加载，可开始操作。');
+setApprovalStatus(approvalState);
 refreshEnv();
 refreshStatus();
 
