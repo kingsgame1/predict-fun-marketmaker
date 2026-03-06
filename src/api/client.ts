@@ -630,6 +630,10 @@ export class PredictAPI {
         requireJwt: true,
       });
 
+      if (response?.success === false) {
+        throw new Error(response?.message || 'Predict order rejected');
+      }
+
       return response;
     } catch (error) {
       console.error('Error creating order:', error);

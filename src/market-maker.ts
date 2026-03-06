@@ -340,6 +340,16 @@ export class MarketMaker {
       console.log(`✅ OrderManager initialized (maker: ${this.orderManager.getMakerAddress()})`);
     }
 
+    if (
+      this.config.mmVenue !== 'probable' &&
+      this.config.predictAutoSetApprovals !== false &&
+      typeof (this.orderManager as any)?.ensureTradingReady === 'function'
+    ) {
+      console.log('🔧 Checking Predict approvals...');
+      await (this.orderManager as any).ensureTradingReady();
+      console.log('✅ Predict approvals ready');
+    }
+
     if (this.config.hedgeMode === 'CROSS' && this.crossAggregator) {
       this.crossExecutionRouter = new CrossPlatformExecutionRouter(this.config, this.api as any, this.orderManager);
     }
@@ -5273,6 +5283,19 @@ export class MarketMaker {
     }
 
     try {
+      if (
+        side === 'BUY' &&
+        this.config.mmVenue !== 'probable' &&
+        typeof (this.orderManager as any)?.ensureBuyCollateralReady === 'function'
+      ) {
+        await (this.orderManager as any).ensureBuyCollateralReady(
+          market,
+          price,
+          shares,
+          this.config.predictCollateralBufferBps ?? 100
+        );
+      }
+
       // 应用积分优化调整（使用 V2 优化器）
       let adjustedPrice = price;
       let adjustedShares = shares;
@@ -5388,7 +5411,12 @@ export class MarketMaker {
       const optTag = pointsOptimized ? ' [Points optimized]' : '';
       console.log(`✅ ${side} order submitted at ${adjustedPrice.toFixed(4)} (${adjustedShares} shares)${optTag}`);
     } catch (error) {
-      console.error(`Error placing ${side} order:`, error);
+      const message =
+        (error as any)?.response?.data?.message ||
+        (error as Error)?.message ||
+        String(error);
+      console.error(`Error placing ${side} order: ${message}`);
+      throw (error instanceof Error ? error : new Error(message));
     }
   }
 

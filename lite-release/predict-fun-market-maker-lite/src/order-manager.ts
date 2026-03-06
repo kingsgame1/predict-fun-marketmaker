@@ -3,9 +3,24 @@
  * Handles order building/signing for Predict API payloads.
  */
 
-import { ChainId, OrderBuilder, Side, type Book } from '@predictdotfun/sdk';
-import { JsonRpcProvider, Wallet, parseUnits } from 'ethers';
+import PredictSdk from '@predictdotfun/sdk';
+import { Contract, JsonRpcProvider, Wallet, formatUnits, parseUnits } from 'ethers';
 import type { Config, Market, Orderbook } from './types.js';
+
+const {
+  AddressesByChainId,
+  ChainId,
+  ERC20Abi,
+  OrderBuilder,
+  ProviderByChainId,
+  Side,
+} = PredictSdk as any;
+type Book = {
+  marketId: number;
+  updateTimestampMs: number;
+  asks: [number, number][];
+  bids: [number, number][];
+};
 
 export interface LimitOrderParams {
   market: Market;
@@ -22,31 +37,52 @@ export interface MarketOrderParams {
   slippageBps?: string;
 }
 
+export interface PredictCollateralState {
+  tokenAddress: string;
+  spenderAddress: string;
+  ownerAddress: string;
+  requiredWei: bigint;
+  balanceWei: bigint;
+  allowanceWei: bigint;
+  required: string;
+  balance: string;
+  allowance: string;
+}
+
 export class OrderManager {
   private readonly config: Config;
-  private readonly chainId: ChainId;
+  private readonly chainId: number;
   private readonly wallet: Wallet;
-  private readonly orderBuilder: OrderBuilder;
+  private readonly provider: JsonRpcProvider;
+  private readonly orderBuilder: any;
+  private approvalsReady = false;
 
-  private constructor(config: Config, chainId: ChainId, wallet: Wallet, orderBuilder: OrderBuilder) {
+  private constructor(
+    config: Config,
+    chainId: number,
+    wallet: Wallet,
+    provider: JsonRpcProvider,
+    orderBuilder: any
+  ) {
     this.config = config;
     this.chainId = chainId;
     this.wallet = wallet;
+    this.provider = provider;
     this.orderBuilder = orderBuilder;
   }
 
   static async create(config: Config): Promise<OrderManager> {
     const chainId = config.apiBaseUrl.includes('sepolia') ? ChainId.BnbTestnet : ChainId.BnbMainnet;
-
-    const wallet = config.rpcUrl
-      ? new Wallet(config.privateKey, new JsonRpcProvider(config.rpcUrl))
-      : new Wallet(config.privateKey);
+    const provider = config.rpcUrl
+      ? new JsonRpcProvider(config.rpcUrl)
+      : (ProviderByChainId[chainId] as JsonRpcProvider);
+    const wallet = new Wallet(config.privateKey, provider);
 
     const orderBuilder = await OrderBuilder.make(chainId, wallet, {
       ...(config.predictAccountAddress ? { predictAccount: config.predictAccountAddress } : {}),
     });
 
-    return new OrderManager(config, chainId, wallet, orderBuilder);
+    return new OrderManager(config, chainId, wallet, provider, orderBuilder);
   }
 
   getSignerAddress(): string {
@@ -57,12 +93,85 @@ export class OrderManager {
     return this.config.predictAccountAddress || this.wallet.address;
   }
 
-  getChainId(): ChainId {
+  getChainId(): number {
     return this.chainId;
   }
 
   async setApprovals() {
-    return this.orderBuilder.setApprovals();
+    const result = await this.orderBuilder.setApprovals();
+    if (result?.success) {
+      this.approvalsReady = true;
+    }
+    return result;
+  }
+
+  async ensureTradingReady(): Promise<void> {
+    if (this.approvalsReady || this.config.predictAutoSetApprovals === false) {
+      return;
+    }
+    const result = await this.setApprovals();
+    if (!result?.success) {
+      throw new Error('Predict approvals failed: setApprovals returned success=false');
+    }
+  }
+
+  async getBuyCollateralState(
+    market: Market,
+    price: number,
+    shares: number,
+    bufferBps = 0
+  ): Promise<PredictCollateralState> {
+    const { makerAmount } = this.getLimitOrderAmounts('BUY', price, shares);
+    const requiredWei = (makerAmount * BigInt(10000 + Math.max(0, bufferBps))) / 10000n;
+    const { tokenAddress, spenderAddress, ownerAddress } = this.getCollateralAddresses(market);
+    const collateral = new Contract(tokenAddress, ERC20Abi, this.provider);
+    const [balanceWei, allowanceWei] = await Promise.all([
+      collateral.balanceOf(ownerAddress),
+      collateral.allowance(ownerAddress, spenderAddress),
+    ]);
+
+    return {
+      tokenAddress,
+      spenderAddress,
+      ownerAddress,
+      requiredWei,
+      balanceWei,
+      allowanceWei,
+      required: formatUnits(requiredWei, 18),
+      balance: formatUnits(balanceWei, 18),
+      allowance: formatUnits(allowanceWei, 18),
+    };
+  }
+
+  async ensureBuyCollateralReady(
+    market: Market,
+    price: number,
+    shares: number,
+    bufferBps = 0
+  ): Promise<PredictCollateralState> {
+    let state = await this.getBuyCollateralState(market, price, shares, bufferBps);
+    if (state.balanceWei < state.requiredWei) {
+      throw new Error(
+        `USDT balance insufficient: need ${Number(state.required).toFixed(6)}, have ${Number(state.balance).toFixed(6)}`
+      );
+    }
+    if (state.allowanceWei >= state.requiredWei) {
+      return state;
+    }
+    if (this.config.predictAutoSetApprovals === false) {
+      throw new Error(
+        `USDT allowance insufficient: need ${Number(state.required).toFixed(6)}, have ${Number(state.allowance).toFixed(6)}`
+      );
+    }
+
+    await this.ensureTradingReady();
+    state = await this.getBuyCollateralState(market, price, shares, bufferBps);
+    if (state.allowanceWei < state.requiredWei) {
+      throw new Error(
+        `USDT allowance still insufficient after approvals: need ${Number(state.required).toFixed(6)}, have ${Number(state.allowance).toFixed(6)}`
+      );
+    }
+    return state;
   }
 
   async buildLimitOrderPayload(params: LimitOrderParams): Promise<any> {
@@ -150,6 +259,35 @@ export class OrderManager {
       .replace(/(\.\d*?)0+$/, '$1');
 
     return parseUnits(asString || '0', 18);
+  }
+
+  private getLimitOrderAmounts(side: 'BUY' | 'SELL', price: number, shares: number) {
+    return this.orderBuilder.getLimitOrderAmounts({
+      side: side === 'BUY' ? Side.BUY : Side.SELL,
+      quantityWei: this.toWei(shares, 5),
+      pricePerShareWei: this.toWei(price, 6),
+    });
+  }
+
+  private getCollateralAddresses(market: Market): {
+    tokenAddress: string;
+    spenderAddress: string;
+    ownerAddress: string;
+  } {
+    const addresses = AddressesByChainId[this.chainId];
+    const spenderAddress = market.is_yield_bearing
+      ? market.is_neg_risk
+        ? addresses.YIELD_BEARING_NEG_RISK_CTF_EXCHANGE
+        : addresses.YIELD_BEARING_CTF_EXCHANGE
+      : market.is_neg_risk
+        ? addresses.NEG_RISK_CTF_EXCHANGE
+        : addresses.CTF_EXCHANGE;
+
+    return {
+      tokenAddress: addresses.USDT,
+      spenderAddress,
+      ownerAddress: this.getMakerAddress(),
+    };
   }
 
   private buildBook(orderbook: Orderbook): Book {

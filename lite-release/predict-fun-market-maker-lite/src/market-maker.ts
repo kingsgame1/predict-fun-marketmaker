@@ -188,6 +188,16 @@ export class MarketMaker {
       console.log(`✅ OrderManager initialized (maker: ${this.orderManager.getMakerAddress()})`);
     }
 
+    if (
+      this.config.mmVenue !== 'probable' &&
+      this.config.predictAutoSetApprovals !== false &&
+      typeof (this.orderManager as any)?.ensureTradingReady === 'function'
+    ) {
+      console.log('🔧 Checking Predict approvals...');
+      await (this.orderManager as any).ensureTradingReady();
+      console.log('✅ Predict approvals ready');
+    }
+
     if (this.config.hedgeMode === 'CROSS' && this.crossAggregator && this.config.mmVenue !== 'probable') {
       this.crossExecutionRouter = new CrossPlatformExecutionRouter(
         this.config,
@@ -4448,6 +4458,19 @@ export class MarketMaker {
     }
 
     try {
+      if (
+        side === 'BUY' &&
+        this.config.mmVenue !== 'probable' &&
+        typeof (this.orderManager as any)?.ensureBuyCollateralReady === 'function'
+      ) {
+        await (this.orderManager as any).ensureBuyCollateralReady(
+          market,
+          price,
+          shares,
+          this.config.predictCollateralBufferBps ?? 100
+        );
+      }
+
       const payload = await this.orderManager.buildLimitOrderPayload({ market, side, price, shares });
       const response = await this.api.createOrder(payload);
       const orderHash =
@@ -4475,7 +4498,12 @@ export class MarketMaker {
       this.recordAutoTuneEvent(market.token_id, 'PLACED');
       console.log(`✅ ${side} order submitted at ${price.toFixed(4)} (${shares} shares)`);
     } catch (error) {
-      console.error(`Error placing ${side} order:`, error);
+      const message =
+        (error as any)?.response?.data?.message ||
+        (error as Error)?.message ||
+        String(error);
+      console.error(`Error placing ${side} order: ${message}`);
+      throw (error instanceof Error ? error : new Error(message));
     }
   }
 

@@ -891,6 +891,8 @@ export interface Config {
   predictWsTopicKey?: 'token_id' | 'condition_id' | 'event_id';
   predictWsStaleMs?: number;
   predictWsResetOnReconnect?: boolean;
+  predictAutoSetApprovals?: boolean;
+  predictCollateralBufferBps?: number;
   polymarketPrivateKey?: string;
   polymarketApiKey?: string;
   polymarketApiSecret?: string;
