@@ -18,8 +18,20 @@ const packagedAppRoot = path.join(process.resourcesPath, 'app.asar.unpacked');
 const appRoot = app.isPackaged ? packagedAppRoot : devAppRoot;
 const runtimeRoot = path.join(appRoot, 'runtime-dist');
 
+function resolveUserConfigDir() {
+  if (process.platform === 'win32') {
+    const base = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    return path.join(base, 'PredictFunMarketMakerLite');
+  }
+  if (process.platform === 'linux') {
+    const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+    return path.join(base, 'predict-fun-market-maker-lite');
+  }
+  return path.join(os.homedir(), '.predict-fun-market-maker-lite');
+}
+
 // 用户配置目录（只存储 .env 文件）
-const userConfigDir = path.join(os.homedir(), '.predict-fun-market-maker-lite');
+const userConfigDir = resolveUserConfigDir();
 const envPath = path.join(userConfigDir, '.env');
 
 // 确保用户配置目录存在
@@ -230,6 +242,12 @@ function buildTsxSpawnSpec(scriptArgs, extraOptions = {}) {
         ELECTRON_RUN_AS_NODE: '1',
       },
     });
+  }
+
+  if (app.isPackaged) {
+    throw new Error(
+      `打包版缺少运行时脚本: ${scriptArgs[0]}。请重新下载最新安装包，或重新打包应用。`
+    );
   }
 
   return buildSpawnSpec(getNpxCmd(), ['tsx', ...scriptArgs], extraOptions);

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import zlib from 'node:zlib';
 import { copySync } from 'fs-extra/esm';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -223,7 +223,8 @@ console.log(`[copy-source] ✅ 图标已生成: ${iconPath}`);
 // 安装依赖
 console.log(`[copy-source] 正在安装依赖...`);
 try {
-  execSync('npm install --no-package-lock --prefer-dedupe', {
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  execFileSync(npmCmd, ['install', '--no-package-lock', '--prefer-dedupe'], {
     cwd: desktopAppRoot,
     stdio: 'inherit'
   });
