@@ -176,6 +176,7 @@ export class OrderManager {
 
   async buildLimitOrderPayload(params: LimitOrderParams): Promise<any> {
     const side = params.side === 'BUY' ? Side.BUY : Side.SELL;
+    const makerAddress = this.getMakerAddress();
 
     const sharesWei = this.toWei(params.shares, 5);
     const priceWei = this.toWei(params.price, 6);
@@ -187,6 +188,8 @@ export class OrderManager {
     });
 
     const order = this.orderBuilder.buildOrder('LIMIT', {
+      maker: makerAddress,
+      signer: makerAddress,
       side,
       tokenId: params.market.token_id,
       makerAmount,
@@ -213,6 +216,7 @@ export class OrderManager {
 
   async buildMarketOrderPayload(params: MarketOrderParams): Promise<any> {
     const side = params.side === 'BUY' ? Side.BUY : Side.SELL;
+    const makerAddress = this.getMakerAddress();
 
     const book = this.buildBook(params.orderbook);
     const quantityWei = this.toWei(params.shares, 5);
@@ -226,6 +230,8 @@ export class OrderManager {
     );
 
     const order = this.orderBuilder.buildOrder('MARKET', {
+      maker: makerAddress,
+      signer: makerAddress,
       side,
       tokenId: params.market.token_id,
       makerAmount,

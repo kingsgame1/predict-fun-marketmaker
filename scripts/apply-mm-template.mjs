@@ -106,7 +106,7 @@ API_KEY=${apiKey}
 PRIVATE_KEY=${privateKey}
 # [需自行获取] Predict 私有接口 JWT（仅 ENABLE_TRADING=true 实盘时必填）
 JWT_TOKEN=${jwtToken}
-# [可选填写] Predict 账户地址（推荐填写）
+# [需自行获取] Predict 账户地址（实盘必填，必须填写网站里显示的 deposit address）
 PREDICT_ACCOUNT_ADDRESS=${account}
 
 # ---- 官方默认 API / WS（直接使用）----

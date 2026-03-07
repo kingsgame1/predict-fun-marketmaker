@@ -7,6 +7,7 @@
 - `API_BASE_URL`：API 入口。默认 `https://api.predict.fun`。
 - `API_KEY`：必填。所有接口都需要。
 - `PRIVATE_KEY`：必填。用于签名交易。
+- `PREDICT_ACCOUNT_ADDRESS`：Predict 实盘必填。必须填写网站账户中显示的 `deposit address`，否则下单地址与网站账户页不一致。
 - `JWT_TOKEN`：实盘必填。用于私有接口。
 - `RPC_URL`：可选。链上签名/审批更稳定。
 

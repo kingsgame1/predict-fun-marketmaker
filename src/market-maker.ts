@@ -241,6 +241,7 @@ export class MarketMaker {
   private pointsLastReportAt = 0;
   private pointsReportInterval = 5 * 60 * 1000; // 5分钟报告一次
   private pointsOrderbookCache: Map<string, Orderbook> = new Map();
+  private predictBuyInsufficientUntil: Map<string, number> = new Map();
 
   // ===== Phase 1: 增强模块字段 =====
   // 为每个市场维护独立的估算器
@@ -320,6 +321,37 @@ export class MarketMaker {
     if (this.config.hedgeMode === 'CROSS' || this.config.crossPlatformEnabled) {
       this.crossAggregator = new CrossPlatformAggregator(this.config);
     }
+  }
+
+  private getErrorMessage(error: unknown): string {
+    const maybeResponse = (error as any)?.response?.data;
+    return maybeResponse?.message || (error as Error)?.message || String(error);
+  }
+
+  private isPredictBuyInsufficientError(message: string): boolean {
+    const normalized = String(message || '').toLowerCase();
+    return normalized.includes('insufficient collateral') || normalized.includes('balance insufficient');
+  }
+
+  private getPredictBuyBlockRemainingMs(tokenId: string): number {
+    const until = this.predictBuyInsufficientUntil.get(tokenId) ?? 0;
+    return Math.max(0, until - Date.now());
+  }
+
+  private getPredictSpreadSafetyThreshold(): number {
+    return this.config.mmVenue === 'predict' ? 0.12 : MarketMaker.MAX_ALLOWED_BOOK_SPREAD;
+  }
+
+  private isUnsafeBook(orderbook: Orderbook | null | undefined): boolean {
+    if (!orderbook) {
+      return true;
+    }
+    const bestBid = Number(orderbook.best_bid ?? 0);
+    const bestAsk = Number(orderbook.best_ask ?? 0);
+    if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk) || bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
+      return true;
+    }
+    return bestAsk - bestBid > this.getPredictSpreadSafetyThreshold();
   }
 
   async initialize(): Promise<void> {
@@ -5277,12 +5309,21 @@ export class MarketMaker {
     price: number,
     shares: number,
     currentSpread?: number
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.orderManager) {
-      return;
+      return false;
     }
 
     try {
+      if (side === 'BUY' && this.config.mmVenue !== 'probable') {
+        const blockRemainingMs = this.getPredictBuyBlockRemainingMs(market.token_id);
+        if (blockRemainingMs > 0) {
+          console.log(
+            `⏸️ BUY for ${market.token_id.slice(0, 8)} skipped: insufficient collateral cooldown ${Math.ceil(blockRemainingMs / 1000)}s`
+          );
+          return false;
+        }
+      }
       if (
         side === 'BUY' &&
         this.config.mmVenue !== 'probable' &&
@@ -5410,11 +5451,20 @@ export class MarketMaker {
       this.recordAutoTuneEvent(market.token_id, 'PLACED');
       const optTag = pointsOptimized ? ' [Points optimized]' : '';
       console.log(`✅ ${side} order submitted at ${adjustedPrice.toFixed(4)} (${adjustedShares} shares)${optTag}`);
+      if (side === 'BUY') {
+        this.predictBuyInsufficientUntil.delete(market.token_id);
+      }
+      return true;
     } catch (error) {
-      const message =
-        (error as any)?.response?.data?.message ||
-        (error as Error)?.message ||
-        String(error);
+      const message = this.getErrorMessage(error);
+      if (side === 'BUY' && this.config.mmVenue !== 'probable' && this.isPredictBuyInsufficientError(message)) {
+        const cooldownMs = Math.max(1000, this.config.predictBuyInsufficientCooldownMs ?? 60000);
+        this.predictBuyInsufficientUntil.set(market.token_id, Date.now() + cooldownMs);
+        console.error(
+          `Error placing ${side} order: ${message}. BUY paused for ${Math.round(cooldownMs / 1000)}s`
+        );
+        return false;
+      }
       console.error(`Error placing ${side} order: ${message}`);
       throw (error instanceof Error ? error : new Error(message));
     }
@@ -6114,6 +6164,13 @@ export class MarketMaker {
     const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
     const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
 
+    if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
+      console.warn('🛑 Phase 1 skipped: unsafe YES/NO spread');
+      await this.cancelOrdersForMarket(yesTokenId);
+      await this.cancelOrdersForMarket(noTokenId);
+      return;
+    }
+
     const yesPrice = yesOrderbook.best_bid || 0;
     const noPrice = noOrderbook.best_bid || (1 - yesPrice);
 
@@ -6164,6 +6221,13 @@ export class MarketMaker {
     // 分别获取 YES 和 NO 的订单簿
     const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
     const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
+
+    if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
+      console.warn('🛑 Phase 2 skipped: unsafe YES/NO spread');
+      await this.cancelOrdersForMarket(yesTokenId);
+      await this.cancelOrdersForMarket(noTokenId);
+      return;
+    }
 
     const yesPrice = yesOrderbook.best_bid || 0;
     const noPrice = noOrderbook.best_bid || (1 - yesPrice);
@@ -6520,6 +6584,13 @@ export class MarketMaker {
     const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
     const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
 
+    if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
+      console.warn('🛑 统一策略跳过：YES/NO 盘口价差异常');
+      await this.cancelOrdersForMarket(yesTokenId);
+      await this.cancelOrdersForMarket(noTokenId);
+      return;
+    }
+
     const yesPrice = yesOrderbook.best_bid || 0;
     const noPrice = noOrderbook.best_bid || (1 - yesPrice);
 
@@ -6549,18 +6620,23 @@ export class MarketMaker {
     await this.cancelOrdersForMarket(yesTokenId);
     await this.cancelOrdersForMarket(noTokenId);
 
+    let placedYesBid = false;
+    let placedNoBid = false;
+    let placedYesAsk = false;
+    let placedNoAsk = false;
+
     // 挂 Buy 单（如果有）
     if (analysis.shouldPlaceBuyOrders && buyOrderSize > 0) {
       console.log(`📊 挂 Buy 单（赚取买入端积分）`);
 
       // 使用 YES 市场对象挂 YES 订单
       if (prices.yesBid > 0) {
-        await this.placeLimitOrder(yesMarket, 'BUY', prices.yesBid, buyOrderSize, 0.02);
+        placedYesBid = await this.placeLimitOrder(yesMarket, 'BUY', prices.yesBid, buyOrderSize, 0.02);
       }
 
       // 使用 NO 市场对象挂 NO 订单
       if (prices.noBid > 0) {
-        await this.placeLimitOrder(noMarket, 'BUY', prices.noBid, buyOrderSize, 0.02);
+        placedNoBid = await this.placeLimitOrder(noMarket, 'BUY', prices.noBid, buyOrderSize, 0.02);
       }
     }
 
@@ -6570,12 +6646,12 @@ export class MarketMaker {
 
       // 使用 YES 市场对象挂 YES Sell 单
       if (prices.yesAsk > 0 && unifiedPosition.yes_amount > 0) {
-        await this.placeLimitOrder(yesMarket, 'SELL', prices.yesAsk, sellOrderSize, 0.02);
+        placedYesAsk = await this.placeLimitOrder(yesMarket, 'SELL', prices.yesAsk, sellOrderSize, 0.02);
       }
 
       // 使用 NO 市场对象挂 NO Sell 单
       if (prices.noAsk > 0 && unifiedPosition.no_amount > 0) {
-        await this.placeLimitOrder(noMarket, 'SELL', prices.noAsk, sellOrderSize, 0.02);
+        placedNoAsk = await this.placeLimitOrder(noMarket, 'SELL', prices.noAsk, sellOrderSize, 0.02);
       }
     }
 
@@ -6583,10 +6659,10 @@ export class MarketMaker {
 
     // 修复 4: 记录挂单价格到两个 key（用于监控是否成为第一档）
     const priceData = {
-      yesBid: prices.yesBid,
-      yesAsk: prices.yesAsk,
-      noBid: prices.noBid,
-      noAsk: prices.noAsk,
+      yesBid: placedYesBid ? prices.yesBid : 0,
+      yesAsk: placedYesAsk ? prices.yesAsk : 0,
+      noBid: placedNoBid ? prices.noBid : 0,
+      noAsk: placedNoAsk ? prices.noAsk : 0,
       timestamp: Date.now(),
     };
 

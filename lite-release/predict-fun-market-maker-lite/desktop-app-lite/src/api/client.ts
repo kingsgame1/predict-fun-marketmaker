@@ -117,6 +117,14 @@ export class PredictAPI {
     return status === 404 || status === 405 || status === 501;
   }
 
+  private extractAxiosMessage(error: unknown): string {
+    if (!axios.isAxiosError(error)) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    const data = error.response?.data as { message?: string } | undefined;
+    return data?.message || error.message || 'Unknown API error';
+  }
+
   private ensureJwtAvailable() {
     if (!this.jwtToken) {
       if (this.rawJwtToken) {
@@ -618,7 +626,7 @@ export class PredictAPI {
 
       return response;
     } catch (error) {
-      console.error('Error creating order:', error);
+      console.error(`Error creating order: ${this.extractAxiosMessage(error)}`);
       throw error;
     }
   }
@@ -635,7 +643,7 @@ export class PredictAPI {
 
       return response;
     } catch (error) {
-      console.error('Error removing orders:', error);
+      console.error(`Error removing orders: ${this.extractAxiosMessage(error)}`);
       throw error;
     }
   }

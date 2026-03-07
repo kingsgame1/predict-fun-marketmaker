@@ -1015,6 +1015,7 @@ export interface Config {
   predictWsResetOnReconnect?: boolean;
   predictAutoSetApprovals?: boolean;
   predictCollateralBufferBps?: number;
+  predictBuyInsufficientCooldownMs?: number;
   polymarketPrivateKey?: string;
   polymarketApiKey?: string;
   polymarketApiSecret?: string;
