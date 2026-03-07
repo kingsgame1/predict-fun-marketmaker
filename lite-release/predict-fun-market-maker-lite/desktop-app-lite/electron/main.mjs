@@ -559,7 +559,7 @@ API_KEY=${apiKey}
 PRIVATE_KEY=${privateKey}
 # [需自行获取] Predict 私有接口 JWT（仅 ENABLE_TRADING=true 实盘时必填）
 JWT_TOKEN=${jwtToken}
-# [可选填写] Predict 账户地址（推荐填写）
+# [需自行获取] Predict 账户地址（实盘必填，必须填写网站里显示的 deposit address）
 PREDICT_ACCOUNT_ADDRESS=${account}
 
 # ---- 官方默认 API / WS（直接使用）----
@@ -575,6 +575,8 @@ MM_REQUIRE_JWT=true
 PREDICT_AUTO_SET_APPROVALS=true
 # BUY 前的抵押金预检缓冲，单位 bps（100 = 1%）
 PREDICT_COLLATERAL_BUFFER_BPS=100
+# BUY 因余额/抵押不足失败后的冷却时间，单位毫秒（默认 60 秒）
+PREDICT_BUY_INSUFFICIENT_COOLDOWN_MS=60000
 PROBABLE_ENABLED=false
 MM_WS_ENABLED=true
 PREDICT_WS_ENABLED=true

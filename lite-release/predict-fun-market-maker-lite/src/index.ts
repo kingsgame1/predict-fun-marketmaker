@@ -57,6 +57,7 @@ async function populateOrderbooksWithConcurrency(
 }
 
 class PredictMarketMakerBot {
+  private static readonly PREDICT_SAFE_MAX_SPREAD = 0.12;
   private api: PredictAPI;
   private marketSelector: MarketSelector;
   private marketMaker: MarketMaker;
@@ -99,7 +100,7 @@ class PredictMarketMakerBot {
     this.marketSelector = new MarketSelector(
       0, // minLiquidity
       0, // minVolume24h
-      0.20, // maxSpread
+      PredictMarketMakerBot.PREDICT_SAFE_MAX_SPREAD, // maxSpread
       0 // minOrders
     );
 
@@ -179,7 +180,7 @@ class PredictMarketMakerBot {
     // Score and select markets
     let scoredMarkets = this.marketSelector.selectMarkets(marketsWithRules, orderbooks);
     if (scoredMarkets.length === 0 && orderbooks.size > 0) {
-      const relaxedSelector = new MarketSelector(0, 0, 1, 0);
+      const relaxedSelector = new MarketSelector(0, 0, PredictMarketMakerBot.PREDICT_SAFE_MAX_SPREAD, 0);
       const relaxed = relaxedSelector.selectMarkets(marketsWithRules, orderbooks);
       if (relaxed.length > 0) {
         console.log(`ℹ️  Strict selector returned 0, fallback to relaxed selector (${relaxed.length})`);
@@ -317,6 +318,11 @@ class PredictMarketMakerBot {
     if (bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
       return false;
     }
+    const maxSpread =
+      this.config.mmVenue === 'predict' ? PredictMarketMakerBot.PREDICT_SAFE_MAX_SPREAD : 0.2;
+    if (bestAsk - bestBid > maxSpread) {
+      return false;
+    }
     return true;
   }
 
@@ -363,7 +369,8 @@ class PredictMarketMakerBot {
       }
       return null;
     }
-    return await this.api.getOrderbook(market.token_id);
+    const restBook = await this.api.getOrderbook(market.token_id);
+    return this.isOrderbookValid(restBook) ? restBook : null;
   }
 
   private drainDirtyMarkets(): Market[] {

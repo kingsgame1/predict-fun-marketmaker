@@ -18,6 +18,7 @@ interface Args {
 interface EnvMap extends Map<string, string> {}
 
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
+const PREDICT_SAFE_MAX_SPREAD = 0.12;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -423,16 +424,19 @@ function readNumber(env: EnvMap, key: string, fallback: number): number {
 }
 
 function getSelectorConfig(env: EnvMap, venue: 'predict' | 'probable'): [number, number, number, number] {
-  // 降低阈值，确保能找到更多市场
   const defaults =
     venue === 'probable'
       ? { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.2, minOrders: 0 }
-      : { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.2, minOrders: 0 };
+      : { minLiquidity: 0, minVolume24h: 0, maxSpread: PREDICT_SAFE_MAX_SPREAD, minOrders: 0 };
+
+  const configuredMaxSpread = readNumber(env, 'MARKET_SELECTOR_MAX_SPREAD', defaults.maxSpread);
+  const maxSpread =
+    venue === 'predict' ? Math.min(PREDICT_SAFE_MAX_SPREAD, configuredMaxSpread) : configuredMaxSpread;
 
   return [
     readNumber(env, 'MARKET_SELECTOR_MIN_LIQUIDITY', defaults.minLiquidity),
     readNumber(env, 'MARKET_SELECTOR_MIN_VOLUME_24H', defaults.minVolume24h),
-    readNumber(env, 'MARKET_SELECTOR_MAX_SPREAD', defaults.maxSpread),
+    maxSpread,
     readNumber(env, 'MARKET_SELECTOR_MIN_ORDERS', defaults.minOrders),
   ];
 }
@@ -445,6 +449,20 @@ function minPositive(a: number | null | undefined, b: number | null | undefined)
   if (a === null || a === undefined || b === null || b === undefined) return null;
   if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
   return Math.min(a, b);
+}
+
+function getBookSpread(orderbook: Orderbook | undefined): number | null {
+  const bestBid = Number(orderbook?.best_bid ?? 0);
+  const bestAsk = Number(orderbook?.best_ask ?? 0);
+  if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk) || bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
+    return null;
+  }
+  return bestAsk - bestBid;
+}
+
+function isSafePredictOrderbook(orderbook: Orderbook | undefined): boolean {
+  const spread = getBookSpread(orderbook);
+  return spread !== null && spread <= PREDICT_SAFE_MAX_SPREAD;
 }
 
 function readLevel(orderbook: Orderbook | undefined, side: 'bids' | 'asks', levelIndex: number): {
@@ -492,7 +510,7 @@ async function main(): Promise<void> {
 
   let scored = selector.selectMarkets(markets, orderbooks);
   if (scored.length === 0 && args.venue === 'predict' && markets.length > 0 && orderbooks.size > 0) {
-    const relaxedSelector = new MarketSelector(0, 0, 1, 0);
+    const relaxedSelector = new MarketSelector(0, 0, PREDICT_SAFE_MAX_SPREAD, 0);
     const relaxedScored = relaxedSelector.selectMarkets(markets, orderbooks);
     if (relaxedScored.length > 0) {
       console.error(
@@ -505,7 +523,7 @@ async function main(): Promise<void> {
     const fallback = markets
       .filter((market) => {
         const book = orderbooks.get(market.token_id);
-        return Boolean(book && ((book.best_bid ?? 0) > 0 || (book.best_ask ?? 0) > 0));
+        return isSafePredictOrderbook(book);
       })
       .slice(0, Math.max(args.top * 3, 12))
       .map((market) => {
@@ -521,33 +539,14 @@ async function main(): Promise<void> {
       })
       .sort((a, b) => b.score - a.score);
     if (fallback.length > 0) {
-      console.error(`[Predict] 常规筛选无结果，已回退到盘口兜底排序（候选 ${fallback.length} 个）`);
+      console.error(`[Predict] 常规筛选无结果，已回退到安全盘口兜底排序（候选 ${fallback.length} 个）`);
       scored = fallback;
     }
   }
-  if (scored.length === 0 && args.venue === 'predict' && markets.length > 0) {
-    const liquidityFallback = sortByLiquidityAndVolume(
-      markets,
-      (market) => toFiniteNumber(market.liquidity_24h),
-      (market) => toFiniteNumber(market.volume_24h)
-    )
-      .slice(0, Math.max(args.top * 3, 12))
-      .map((market, idx) => ({
-        market,
-        score:
-          toFiniteNumber(market.liquidity_24h) * 10 +
-          toFiniteNumber(market.volume_24h) +
-          Math.max(0, 100 - idx),
-        reasons: [
-          '使用统计字段兜底排序（当前 Predict 未返回可用 orderbook）',
-          `24h流动性: $${toFiniteNumber(market.liquidity_24h).toFixed(0)}`,
-          `24h交易量: $${toFiniteNumber(market.volume_24h).toFixed(0)}`,
-        ],
-      }));
-    if (liquidityFallback.length > 0) {
-      console.error(`[Predict] orderbook 全部不可用，已回退到统计字段排序（候选 ${liquidityFallback.length} 个）`);
-      scored = liquidityFallback;
-    }
+  if (scored.length === 0 && args.venue === 'predict') {
+    console.error(
+      `[Predict] 未找到安全盘口：自动推荐仅返回价差不超过 ${(PREDICT_SAFE_MAX_SPREAD * 100).toFixed(0)}% 的市场`
+    );
   }
   const top = scored.slice(0, Math.max(1, args.top));
   const tokenIds = top.map((s) => s.market.token_id);

@@ -139,6 +139,7 @@ export class MarketMaker {
   private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private cancelBurst: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
+  private predictBuyInsufficientUntil: Map<string, number> = new Map();
   private unifiedStrategy?: UnifiedStrategy;
 
   constructor(api: MakerApi, config: Config, orderManagerFactory?: () => Promise<MakerOrderManager>) {
@@ -168,6 +169,37 @@ export class MarketMaker {
       });
       console.log('✅ Unified Strategy initialized (二档追踪 + 异步对冲 + 双轨并行)');
     }
+  }
+
+  private getErrorMessage(error: unknown): string {
+    const maybeResponse = (error as any)?.response?.data;
+    return maybeResponse?.message || (error as Error)?.message || String(error);
+  }
+
+  private isPredictBuyInsufficientError(message: string): boolean {
+    const normalized = String(message || '').toLowerCase();
+    return normalized.includes('insufficient collateral') || normalized.includes('balance insufficient');
+  }
+
+  private getPredictBuyBlockRemainingMs(tokenId: string): number {
+    const until = this.predictBuyInsufficientUntil.get(tokenId) ?? 0;
+    return Math.max(0, until - Date.now());
+  }
+
+  private getUnifiedSpreadSafetyThreshold(): number {
+    return this.config.mmVenue === 'predict' ? 0.12 : MarketMaker.MAX_ALLOWED_BOOK_SPREAD;
+  }
+
+  private isUnifiedSpreadUnsafe(orderbook: Orderbook | null | undefined): boolean {
+    if (!orderbook) {
+      return true;
+    }
+    const bestBid = Number(orderbook.best_bid ?? 0);
+    const bestAsk = Number(orderbook.best_ask ?? 0);
+    if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk) || bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
+      return true;
+    }
+    return bestAsk - bestBid > this.getUnifiedSpreadSafetyThreshold();
   }
 
   async initialize(): Promise<void> {
@@ -3600,6 +3632,14 @@ export class MarketMaker {
       );
 
       // 获取双轨订单建议
+      if (this.isUnifiedSpreadUnsafe(orderbook)) {
+        console.warn(
+          `🛑 [UnifiedStrategy] 跳过高价差市场 ${tokenId}: bid=${(orderbook.best_bid ?? 0).toFixed(4)} ask=${(orderbook.best_ask ?? 0).toFixed(4)}`
+        );
+        await this.cancelOrdersForMarket(tokenId);
+        this.unifiedStrategy.updatePendingOrders(tokenId, 0, 0, 0, 0);
+        return;
+      }
       const orders = this.unifiedStrategy.getDualTrackOrders(tokenId, orderbook, position);
 
       // 检查是否需要重新挂单
@@ -3612,26 +3652,43 @@ export class MarketMaker {
 
       // 只有在没有挂单或需要重新挂单时才下单
       if (!hasOpenOrders || orders.repriceDecision?.needsReprice) {
+        let submittedBuyShares = 0;
+        let submittedBuyPrice = 0;
+        let submittedSellShares = 0;
+        let submittedSellPrice = 0;
+
         // 执行双轨订单 - 实际下单
         if (orders.buyOrder) {
+          const buyBlockRemainingMs = this.getPredictBuyBlockRemainingMs(tokenId);
           console.log(`📈 [UnifiedStrategy] Track A (Buy): ${orders.buyOrder.shares} shares @ $${orders.buyOrder.price.toFixed(4)}`);
           // 实际下单
-          if (this.config.enableTrading) {
+          if (this.config.enableTrading && buyBlockRemainingMs <= 0) {
             try {
               await this.placeLimitOrder(market, 'BUY', orders.buyOrder.price, orders.buyOrder.shares);
+              this.predictBuyInsufficientUntil.delete(tokenId);
+              submittedBuyShares = orders.buyOrder.shares;
+              submittedBuyPrice = orders.buyOrder.price;
               console.log(`✅ [UnifiedStrategy] Buy order placed: ${orders.buyOrder.shares} @ $${orders.buyOrder.price.toFixed(4)}`);
             } catch (err) {
-              console.error(`❌ [UnifiedStrategy] Failed to place buy order:`, err);
+              const message = this.getErrorMessage(err);
+              if (this.isPredictBuyInsufficientError(message) && this.config.mmVenue !== 'probable') {
+                const cooldownMs = Math.max(1000, this.config.predictBuyInsufficientCooldownMs ?? 60000);
+                this.predictBuyInsufficientUntil.set(tokenId, Date.now() + cooldownMs);
+                console.error(
+                  `❌ [UnifiedStrategy] BUY 余额/抵押不足，暂停 ${Math.round(cooldownMs / 1000)} 秒后重试: ${message}`
+                );
+              } else {
+                console.error(`❌ [UnifiedStrategy] Failed to place buy order: ${message}`);
+              }
             }
+          } else if (this.config.enableTrading && buyBlockRemainingMs > 0) {
+            console.log(
+              `⏸️ [UnifiedStrategy] BUY 因余额/抵押不足冷却中，剩余 ${Math.ceil(buyBlockRemainingMs / 1000)} 秒`
+            );
+          } else if (!this.config.enableTrading) {
+            submittedBuyShares = orders.buyOrder.shares;
+            submittedBuyPrice = orders.buyOrder.price;
           }
-          // 更新挂单状态
-          this.unifiedStrategy.updatePendingOrders(
-            tokenId,
-            orders.buyOrder.shares,
-            orders.buyOrder.price,
-            orders.sellOrder?.shares ?? 0,
-            orders.sellOrder?.price ?? 0
-          );
         }
 
         if (orders.sellOrder) {
@@ -3640,12 +3697,25 @@ export class MarketMaker {
           if (this.config.enableTrading) {
             try {
               await this.placeLimitOrder(market, 'SELL', orders.sellOrder.price, orders.sellOrder.shares);
+              submittedSellShares = orders.sellOrder.shares;
+              submittedSellPrice = orders.sellOrder.price;
               console.log(`✅ [UnifiedStrategy] Sell order placed: ${orders.sellOrder.shares} @ $${orders.sellOrder.price.toFixed(4)}`);
             } catch (err) {
-              console.error(`❌ [UnifiedStrategy] Failed to place sell order:`, err);
+              console.error(`❌ [UnifiedStrategy] Failed to place sell order: ${this.getErrorMessage(err)}`);
             }
+          } else {
+            submittedSellShares = orders.sellOrder.shares;
+            submittedSellPrice = orders.sellOrder.price;
           }
         }
+
+        this.unifiedStrategy.updatePendingOrders(
+          tokenId,
+          submittedBuyShares,
+          submittedBuyPrice,
+          submittedSellShares,
+          submittedSellPrice
+        );
       } else {
         // 已有挂单，跳过下单，只打印状态
         console.log(`⏸️ [UnifiedStrategy] 已有挂单，等待成交: ${tokenId}`);

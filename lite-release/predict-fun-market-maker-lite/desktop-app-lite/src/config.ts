@@ -1084,6 +1084,7 @@ export function loadConfig(): Config {
     predictWsResetOnReconnect: process.env.PREDICT_WS_RESET_ON_RECONNECT !== 'false',
     predictAutoSetApprovals: process.env.PREDICT_AUTO_SET_APPROVALS !== 'false',
     predictCollateralBufferBps: parseInt(process.env.PREDICT_COLLATERAL_BUFFER_BPS || '100'),
+    predictBuyInsufficientCooldownMs: parseInt(process.env.PREDICT_BUY_INSUFFICIENT_COOLDOWN_MS || '60000'),
     polymarketPrivateKey: process.env.POLYMARKET_PRIVATE_KEY,
     polymarketApiKey: process.env.POLYMARKET_API_KEY,
     polymarketApiSecret: process.env.POLYMARKET_API_SECRET,
@@ -1131,6 +1132,9 @@ export function loadConfig(): Config {
   const venue = String(config.mmVenue || 'predict').toLowerCase();
   const hasPrivateKey = Boolean(config.privateKey && String(config.privateKey).trim());
   const hasApiKey = Boolean(config.apiKey && String(config.apiKey).trim());
+  const hasPredictAccountAddress = Boolean(
+    config.predictAccountAddress && String(config.predictAccountAddress).trim()
+  );
   const hasProbablePrivateKey = Boolean(
     (config.probablePrivateKey && String(config.probablePrivateKey).trim()) ||
       (config.privateKey && String(config.privateKey).trim())
@@ -1146,6 +1150,9 @@ export function loadConfig(): Config {
     }
     if (!hasApiKey) {
       throw new Error('API_KEY is required in .env file');
+    }
+    if (config.enableTrading && !hasPredictAccountAddress) {
+      throw new Error('PREDICT_ACCOUNT_ADDRESS is required in .env file when ENABLE_TRADING=true for predict venue');
     }
   }
 

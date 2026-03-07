@@ -53,6 +53,7 @@ Predict 必填：
 ```env
 API_KEY=你的API密钥
 PRIVATE_KEY=你的钱包私钥
+PREDICT_ACCOUNT_ADDRESS=你在 Predict 网站中看到的 deposit address（实盘必填）
 ```
 
 Probable 必填：
@@ -73,7 +74,7 @@ PROBABLE_PRIVATE_KEY=你的Probable私钥
 
 操作顺序：
 
-1. 先填写好 `API_KEY` 和 `PRIVATE_KEY`
+1. 先填写好 `API_KEY`、`PRIVATE_KEY`、`PREDICT_ACCOUNT_ADDRESS`
 2. 点击 `保存配置`
 3. 点击 `获取 JWT Token`
 4. 等待日志显示成功，并自动写回当前用户配置文件
@@ -159,6 +160,7 @@ Predict：
 API_KEY=你的API密钥
 PRIVATE_KEY=你的钱包私钥
 JWT_TOKEN=
+PREDICT_ACCOUNT_ADDRESS=你在 Predict 网站中看到的 deposit address
 ```
 
 Probable：

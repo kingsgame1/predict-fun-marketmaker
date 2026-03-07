@@ -462,9 +462,10 @@ export class UnifiedStrategy {
 
     const shares = state.unhedgedShares;
 
+    // `orderbook` is already normalized for the current token side.
     const noAsk = orderbook?.best_ask
-      ? 1 - orderbook.best_ask + 0.01
-      : (1 - yesPrice) * 1.01;
+      ? orderbook.best_ask
+      : Math.min(0.99, (1 - yesPrice) * 1.01);
 
     const slippage = this.config.hedgeSlippageBps / 10000;
     const hedgePrice = Math.min(0.99, noAsk * (1 + slippage));
