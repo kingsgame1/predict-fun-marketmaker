@@ -57,7 +57,11 @@ async function populateOrderbooksWithConcurrency(
 }
 
 class PredictMarketMakerBot {
-  private static readonly PREDICT_SAFE_MAX_SPREAD = 0.12;
+  private static readonly PREDICT_SAFE_MAX_SPREAD = 0.06;
+  private static readonly PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
+  private static readonly PREDICT_SAFE_MIN_L2_NOTIONAL = 10;
+  private static readonly PREDICT_SAFE_MIN_PRICE = 0.08;
+  private static readonly PREDICT_SAFE_MAX_PRICE = 0.92;
   private api: PredictAPI;
   private marketSelector: MarketSelector;
   private marketMaker: MarketMaker;
@@ -323,7 +327,45 @@ class PredictMarketMakerBot {
     if (bestAsk - bestBid > maxSpread) {
       return false;
     }
+    if (this.config.mmVenue === 'predict') {
+      const mid = Number(orderbook.mid_price ?? (bestBid + bestAsk) / 2);
+      if (
+        !Number.isFinite(mid) ||
+        mid < PredictMarketMakerBot.PREDICT_SAFE_MIN_PRICE ||
+        mid > PredictMarketMakerBot.PREDICT_SAFE_MAX_PRICE
+      ) {
+        return false;
+      }
+      const bid1 = this.getLevelNotional(orderbook.bids, 0, 'bids');
+      const ask1 = this.getLevelNotional(orderbook.asks, 0, 'asks');
+      const bid2 = this.getLevelNotional(orderbook.bids, 1, 'bids');
+      const ask2 = this.getLevelNotional(orderbook.asks, 1, 'asks');
+      if (
+        Math.min(bid1, ask1) < PredictMarketMakerBot.PREDICT_SAFE_MIN_L1_NOTIONAL ||
+        Math.min(bid2, ask2) < PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_NOTIONAL
+      ) {
+        return false;
+      }
+    }
     return true;
+  }
+
+  private getLevelNotional(levels: any[] | undefined, index: number, side: 'bids' | 'asks'): number {
+    if (!Array.isArray(levels) || levels.length <= index) {
+      return 0;
+    }
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a?.price || 0);
+      const bp = Number(b?.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    const level = sorted[index];
+    const price = Number(level?.price || 0);
+    const shares = Number(level?.shares || 0);
+    if (!Number.isFinite(price) || !Number.isFinite(shares) || price <= 0 || shares <= 0) {
+      return 0;
+    }
+    return price * shares;
   }
 
   private async getOrderbookForMarket(market: Market): Promise<Orderbook | null> {

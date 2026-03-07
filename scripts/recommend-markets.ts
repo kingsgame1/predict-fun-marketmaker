@@ -18,7 +18,11 @@ interface Args {
 interface EnvMap extends Map<string, string> {}
 
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
-const PREDICT_SAFE_MAX_SPREAD = 0.12;
+const PREDICT_SAFE_MAX_SPREAD = 0.06;
+const PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
+const PREDICT_SAFE_MIN_L2_NOTIONAL = 10;
+const PREDICT_SAFE_MIN_PRICE = 0.08;
+const PREDICT_SAFE_MAX_PRICE = 0.92;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -383,7 +387,21 @@ function getBookSpread(orderbook: Orderbook | undefined): number | null {
 
 function isSafePredictOrderbook(orderbook: Orderbook | undefined): boolean {
   const spread = getBookSpread(orderbook);
-  return spread !== null && spread <= PREDICT_SAFE_MAX_SPREAD;
+  if (spread === null || spread > PREDICT_SAFE_MAX_SPREAD) {
+    return false;
+  }
+  const mid = Number(orderbook?.mid_price ?? 0);
+  if (!Number.isFinite(mid) || mid < PREDICT_SAFE_MIN_PRICE || mid > PREDICT_SAFE_MAX_PRICE) {
+    return false;
+  }
+  const bid1 = readLevel(orderbook, 'bids', 0).notional ?? 0;
+  const ask1 = readLevel(orderbook, 'asks', 0).notional ?? 0;
+  const bid2 = readLevel(orderbook, 'bids', 1).notional ?? 0;
+  const ask2 = readLevel(orderbook, 'asks', 1).notional ?? 0;
+  return (
+    Math.min(bid1, ask1) >= PREDICT_SAFE_MIN_L1_NOTIONAL &&
+    Math.min(bid2, ask2) >= PREDICT_SAFE_MIN_L2_NOTIONAL
+  );
 }
 
 function readLevel(orderbook: Orderbook | undefined, side: 'bids' | 'asks', levelIndex: number): {
@@ -466,7 +484,7 @@ async function main(): Promise<void> {
   }
   if (scored.length === 0 && args.venue === 'predict') {
     console.error(
-      `[Predict] 未找到安全盘口：自动推荐仅返回价差不超过 ${(PREDICT_SAFE_MAX_SPREAD * 100).toFixed(0)}% 的市场`
+      `[Predict] 未找到安全盘口：自动推荐仅返回价差<=${(PREDICT_SAFE_MAX_SPREAD * 100).toFixed(0)}%、中间价位于 ${(PREDICT_SAFE_MIN_PRICE * 100).toFixed(0)}%-${(PREDICT_SAFE_MAX_PRICE * 100).toFixed(0)}%、且 L1/L2 深度达标的市场`
     );
   }
   const top = scored.slice(0, Math.max(1, args.top));

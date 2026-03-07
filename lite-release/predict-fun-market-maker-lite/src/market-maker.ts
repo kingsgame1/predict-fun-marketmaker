@@ -40,6 +40,11 @@ interface OrderSizeResult {
 export class MarketMaker {
   private static readonly MIN_TICK = 0.0001;
   private static readonly MAX_ALLOWED_BOOK_SPREAD = 0.2;
+  private static readonly PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
+  private static readonly PREDICT_SAFE_MIN_L2_NOTIONAL = 10;
+  private static readonly PREDICT_SAFE_MIN_PRICE = 0.08;
+  private static readonly PREDICT_SAFE_MAX_PRICE = 0.92;
+  private static readonly PREDICT_FILL_PAUSE_MS = 10 * 60 * 1000;
 
   private readonly api: MakerApi;
   private readonly config: Config;
@@ -187,7 +192,7 @@ export class MarketMaker {
   }
 
   private getUnifiedSpreadSafetyThreshold(): number {
-    return this.config.mmVenue === 'predict' ? 0.12 : MarketMaker.MAX_ALLOWED_BOOK_SPREAD;
+    return this.config.mmVenue === 'predict' ? 0.06 : MarketMaker.MAX_ALLOWED_BOOK_SPREAD;
   }
 
   private isUnifiedSpreadUnsafe(orderbook: Orderbook | null | undefined): boolean {
@@ -199,7 +204,53 @@ export class MarketMaker {
     if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk) || bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
       return true;
     }
-    return bestAsk - bestBid > this.getUnifiedSpreadSafetyThreshold();
+    if (bestAsk - bestBid > this.getUnifiedSpreadSafetyThreshold()) {
+      return true;
+    }
+    if (this.config.mmVenue === 'predict') {
+      const mid = Number(orderbook.mid_price ?? (bestBid + bestAsk) / 2);
+      if (!Number.isFinite(mid) || mid < MarketMaker.PREDICT_SAFE_MIN_PRICE || mid > MarketMaker.PREDICT_SAFE_MAX_PRICE) {
+        return true;
+      }
+      const bid1 = this.getLevelNotional(orderbook.bids, 0, 'bids');
+      const ask1 = this.getLevelNotional(orderbook.asks, 0, 'asks');
+      const bid2 = this.getLevelNotional(orderbook.bids, 1, 'bids');
+      const ask2 = this.getLevelNotional(orderbook.asks, 1, 'asks');
+      if (
+        Math.min(bid1, ask1) < MarketMaker.PREDICT_SAFE_MIN_L1_NOTIONAL ||
+        Math.min(bid2, ask2) < MarketMaker.PREDICT_SAFE_MIN_L2_NOTIONAL
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private getLevelNotional(levels: OrderbookEntry[] | undefined, index: number, side: 'bids' | 'asks'): number {
+    if (!Array.isArray(levels) || levels.length <= index) {
+      return 0;
+    }
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a.price || 0);
+      const bp = Number(b.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    const level = sorted[index];
+    const price = Number(level?.price || 0);
+    const shares = Number(level?.shares || 0);
+    if (!Number.isFinite(price) || !Number.isFinite(shares) || price <= 0 || shares <= 0) {
+      return 0;
+    }
+    return price * shares;
+  }
+
+  private async triggerPredictFillCircuitBreaker(tokenId: string, reason: string): Promise<void> {
+    if (this.config.mmVenue !== 'predict') {
+      return;
+    }
+    await this.cancelOrdersForMarket(tokenId);
+    this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_FILL_PAUSE_MS);
+    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(MarketMaker.PREDICT_FILL_PAUSE_MS / 60000)} 分钟: ${tokenId}`);
   }
 
   async initialize(): Promise<void> {
@@ -4721,6 +4772,9 @@ export class MarketMaker {
         this.updateFillPressure(tokenId, absDelta);
         this.lastFillAt.set(tokenId, Date.now());
         this.recordAutoTuneEvent(tokenId, 'FILLED');
+        if (this.config.mmVenue === 'predict') {
+          await this.triggerPredictFillCircuitBreaker(tokenId, '检测到成交');
+        }
         const penalty = Math.max(0, this.config.mmRiskThrottleFillPenalty ?? 0);
         if (penalty > 0) {
           this.addRiskThrottle(tokenId, penalty);
