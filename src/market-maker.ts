@@ -136,7 +136,9 @@ export class MarketMaker {
   private static readonly PREDICT_SAFE_MIN_L2_NOTIONAL = 10;
   private static readonly PREDICT_SAFE_MIN_PRICE = 0.08;
   private static readonly PREDICT_SAFE_MAX_PRICE = 0.92;
+  private static readonly PREDICT_SAFE_MAX_LEVEL_GAP = 0.02;
   private static readonly PREDICT_FILL_PAUSE_MS = 10 * 60 * 1000;
+  private static readonly PREDICT_UNSAFE_BOOK_PAUSE_MS = 3 * 60 * 1000;
 
   private readonly api: MakerApi;
   private readonly config: Config;
@@ -374,6 +376,11 @@ export class MarketMaker {
       ) {
         return true;
       }
+      const bidGap = this.getLevelGap(orderbook.bids, 'bids');
+      const askGap = this.getLevelGap(orderbook.asks, 'asks');
+      if (bidGap > MarketMaker.PREDICT_SAFE_MAX_LEVEL_GAP || askGap > MarketMaker.PREDICT_SAFE_MAX_LEVEL_GAP) {
+        return true;
+      }
     }
     return false;
   }
@@ -396,6 +403,32 @@ export class MarketMaker {
     return price * shares;
   }
 
+  private getLevelGap(levels: OrderbookEntry[] | undefined, side: 'bids' | 'asks'): number {
+    if (!Array.isArray(levels) || levels.length < 2) {
+      return Number.POSITIVE_INFINITY;
+    }
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a.price || 0);
+      const bp = Number(b.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    const first = Number(sorted[0]?.price || 0);
+    const second = Number(sorted[1]?.price || 0);
+    if (!Number.isFinite(first) || !Number.isFinite(second) || first <= 0 || second <= 0) {
+      return Number.POSITIVE_INFINITY;
+    }
+    return side === 'bids' ? first - second : second - first;
+  }
+
+  private async triggerPredictUnsafeBookPause(tokenId: string, reason: string): Promise<void> {
+    if (this.config.mmVenue !== 'predict') {
+      return;
+    }
+    await this.cancelOrdersForMarket(tokenId);
+    this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_UNSAFE_BOOK_PAUSE_MS);
+    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(MarketMaker.PREDICT_UNSAFE_BOOK_PAUSE_MS / 60000)} 分钟: ${tokenId}`);
+  }
+
   private async triggerPredictFillCircuitBreaker(tokenId: string, reason: string): Promise<void> {
     if (this.config.mmVenue !== 'predict') {
       return;
@@ -403,6 +436,15 @@ export class MarketMaker {
     await this.cancelOrdersForMarket(tokenId);
     this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_FILL_PAUSE_MS);
     console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(MarketMaker.PREDICT_FILL_PAUSE_MS / 60000)} 分钟: ${tokenId}`);
+  }
+
+  private async handlePredictUnsafePair(yesTokenId?: string, noTokenId?: string, reason = '盘口不安全'): Promise<void> {
+    if (yesTokenId) {
+      await this.triggerPredictUnsafeBookPause(yesTokenId, reason);
+    }
+    if (noTokenId && noTokenId !== yesTokenId) {
+      await this.triggerPredictUnsafeBookPause(noTokenId, reason);
+    }
   }
 
   async initialize(): Promise<void> {
@@ -6220,8 +6262,7 @@ export class MarketMaker {
 
     if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
       console.warn('🛑 Phase 1 skipped: unsafe YES/NO spread');
-      await this.cancelOrdersForMarket(yesTokenId);
-      await this.cancelOrdersForMarket(noTokenId);
+      await this.handlePredictUnsafePair(yesTokenId, noTokenId);
       return;
     }
 
@@ -6278,8 +6319,7 @@ export class MarketMaker {
 
     if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
       console.warn('🛑 Phase 2 skipped: unsafe YES/NO spread');
-      await this.cancelOrdersForMarket(yesTokenId);
-      await this.cancelOrdersForMarket(noTokenId);
+      await this.handlePredictUnsafePair(yesTokenId, noTokenId);
       return;
     }
 
@@ -6640,8 +6680,7 @@ export class MarketMaker {
 
     if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
       console.warn('🛑 统一策略跳过：YES/NO 盘口价差异常');
-      await this.cancelOrdersForMarket(yesTokenId);
-      await this.cancelOrdersForMarket(noTokenId);
+      await this.handlePredictUnsafePair(yesTokenId, noTokenId);
       return;
     }
 

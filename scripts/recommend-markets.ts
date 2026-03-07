@@ -23,6 +23,7 @@ const PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
 const PREDICT_SAFE_MIN_L2_NOTIONAL = 10;
 const PREDICT_SAFE_MIN_PRICE = 0.08;
 const PREDICT_SAFE_MAX_PRICE = 0.92;
+const PREDICT_SAFE_MAX_LEVEL_GAP = 0.02;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -400,7 +401,9 @@ function isSafePredictOrderbook(orderbook: Orderbook | undefined): boolean {
   const ask2 = readLevel(orderbook, 'asks', 1).notional ?? 0;
   return (
     Math.min(bid1, ask1) >= PREDICT_SAFE_MIN_L1_NOTIONAL &&
-    Math.min(bid2, ask2) >= PREDICT_SAFE_MIN_L2_NOTIONAL
+    Math.min(bid2, ask2) >= PREDICT_SAFE_MIN_L2_NOTIONAL &&
+    getLevelGap(orderbook, 'bids') <= PREDICT_SAFE_MAX_LEVEL_GAP &&
+    getLevelGap(orderbook, 'asks') <= PREDICT_SAFE_MAX_LEVEL_GAP
   );
 }
 
@@ -429,6 +432,15 @@ function readLevel(orderbook: Orderbook | undefined, side: 'bids' | 'asks', leve
     shares,
     notional: price * shares,
   };
+}
+
+function getLevelGap(orderbook: Orderbook | undefined, side: 'bids' | 'asks'): number {
+  const l1 = readLevel(orderbook, side, 0).price;
+  const l2 = readLevel(orderbook, side, 1).price;
+  if (l1 === null || l2 === null) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return side === 'bids' ? l1 - l2 : l2 - l1;
 }
 
 async function main(): Promise<void> {

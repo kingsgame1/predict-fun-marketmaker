@@ -49,6 +49,10 @@ export interface UnifiedStrategyConfig {
   asyncHedging: boolean;
   dualTrackMode: boolean;
   dynamicOffsetMode: boolean;
+
+  // 风险控制
+  preferBookSecondLevel: boolean;
+  depthUsagePct: number;
 }
 
 export enum UnifiedState {
@@ -156,6 +160,10 @@ export const DEFAULT_CONFIG: UnifiedStrategyConfig = {
   asyncHedging: true,
   dualTrackMode: true,
   dynamicOffsetMode: false,    // 默认使用固定二档追踪
+
+  // 风险控制
+  preferBookSecondLevel: true,
+  depthUsagePct: 0.15,
 };
 
 // ============================================================================
@@ -244,21 +252,71 @@ export class UnifiedStrategy {
    *
    * spread 在 [minSpreadCents, maxSpreadCents] 范围内
    */
-  calculateSecondTierPrices(
-    bestBid: number,
-    bestAsk: number
-  ): { secondBid: number; secondAsk: number } {
+  private getSortedLevels(orderbook: Orderbook, side: 'bids' | 'asks'): OrderbookEntry[] {
+    const levels = Array.isArray(orderbook?.[side]) ? [...orderbook[side]] : [];
+    levels.sort((a, b) => {
+      const ap = Number(a?.price || 0);
+      const bp = Number(b?.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    return levels;
+  }
+
+  calculateSecondTierPrices(orderbook: Orderbook): { secondBid: number; secondAsk: number } | null {
     const tickSize = this.config.tickSize;
     const minSpread = this.config.minSpreadCents * tickSize;
     const maxSpread = this.config.maxSpreadCents * tickSize;
+    const bestBid = Number(orderbook.best_bid ?? 0);
+    const bestAsk = Number(orderbook.best_ask ?? 0);
 
-    // 计算第二档价格
-    // 买二价 = 买一价 - minSpread (尽量靠近第一档，但不在第一档)
-    // 卖二价 = 卖一价 + minSpread
-    const secondBid = Math.max(0.01, bestBid - minSpread);
-    const secondAsk = Math.min(0.99, bestAsk + minSpread);
+    if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk) || bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
+      return null;
+    }
+
+    const bidLevels = this.getSortedLevels(orderbook, 'bids');
+    const askLevels = this.getSortedLevels(orderbook, 'asks');
+    const bookSecondBid = Number(bidLevels[1]?.price || 0);
+    const bookSecondAsk = Number(askLevels[1]?.price || 0);
+
+    let secondBid = bestBid - minSpread;
+    let secondAsk = bestAsk + minSpread;
+
+    if (this.config.preferBookSecondLevel) {
+      if (Number.isFinite(bookSecondBid) && bookSecondBid > 0) {
+        secondBid = bookSecondBid;
+      }
+      if (Number.isFinite(bookSecondAsk) && bookSecondAsk > 0) {
+        secondAsk = bookSecondAsk;
+      }
+    }
+
+    secondBid = Math.max(0.01, Math.min(bestBid - minSpread, Math.max(bestBid - maxSpread, secondBid)));
+    secondAsk = Math.min(0.99, Math.max(bestAsk + minSpread, Math.min(bestAsk + maxSpread, secondAsk)));
 
     return { secondBid, secondAsk };
+  }
+
+  private calculateSafePassiveSize(
+    orderbook: Orderbook,
+    desiredSize: number,
+    side: 'BUY' | 'SELL'
+  ): number {
+    const levels = this.getSortedLevels(orderbook, side === 'BUY' ? 'bids' : 'asks');
+    const l1Shares = Number(levels[0]?.shares || 0);
+    const l2Shares = Number(levels[1]?.shares || 0);
+    const referenceShares = Math.min(
+      Number.isFinite(l1Shares) && l1Shares > 0 ? l1Shares : 0,
+      Number.isFinite(l2Shares) && l2Shares > 0 ? l2Shares : 0
+    );
+
+    if (!Number.isFinite(referenceShares) || referenceShares <= 0) {
+      return 0;
+    }
+
+    const depthCap = referenceShares * Math.max(0.01, Math.min(1, this.config.depthUsagePct));
+    const capped = Math.min(desiredSize, this.config.maxSize, depthCap);
+    const normalized = Math.floor(capped * 100) / 100;
+    return normalized >= this.config.minSize ? normalized : 0;
   }
 
   /**
@@ -297,7 +355,19 @@ export class UnifiedStrategy {
     }
 
     // 计算目标第二档价格
-    const { secondBid, secondAsk } = this.calculateSecondTierPrices(bestBid, bestAsk);
+    const targetPrices = this.calculateSecondTierPrices(orderbook);
+    if (!targetPrices) {
+      return {
+        needsReprice: false,
+        reason: 'Invalid orderbook',
+        currentBuyPrice: currentBuyOrderPrice ?? 0,
+        currentSellPrice: currentSellOrderPrice ?? 0,
+        targetBuyPrice: 0,
+        targetSellPrice: 0,
+        priceDelta: 0,
+      };
+    }
+    const { secondBid, secondAsk } = targetPrices;
 
     // 当前挂单价格
     const currentBuy = currentBuyOrderPrice ?? state.pendingBuyPrice;
@@ -513,7 +583,11 @@ export class UnifiedStrategy {
     }
 
     // 计算第二档价格
-    const { secondBid, secondAsk } = this.calculateSecondTierPrices(bestBid, bestAsk);
+    const targetPrices = this.calculateSecondTierPrices(orderbook);
+    if (!targetPrices) {
+      return { buyOrder: null, sellOrder: null };
+    }
+    const { secondBid, secondAsk } = targetPrices;
 
     const analysis = this.analyze(
       { token_id: tokenId } as Market,
@@ -526,18 +600,21 @@ export class UnifiedStrategy {
     let sellOrder: DualTrackOrders['sellOrder'] = null;
 
     // Track A: 买单（二档买入 YES）
-    if (analysis.shouldBuy && analysis.buySize > 0) {
+    const safeBuySize = this.calculateSafePassiveSize(orderbook, analysis.buySize, 'BUY');
+    const safeSellSize = this.calculateSafePassiveSize(orderbook, analysis.sellSize, 'SELL');
+
+    if (analysis.shouldBuy && safeBuySize > 0) {
       buyOrder = {
-        shares: analysis.buySize,
+        shares: safeBuySize,
         price: secondBid,
         side: 'YES',
       };
     }
 
     // Track B: 卖单（二档卖出 YES）
-    if (analysis.shouldSell && state.hedgedShares > 0 && analysis.sellSize > 0) {
+    if (analysis.shouldSell && state.hedgedShares > 0 && safeSellSize > 0) {
       sellOrder = {
-        shares: Math.min(state.hedgedShares, analysis.sellSize),
+        shares: Math.min(state.hedgedShares, safeSellSize),
         price: secondAsk,
         side: 'YES',
       };
