@@ -53,6 +53,10 @@ export interface UnifiedStrategyConfig {
   // 风险控制
   preferBookSecondLevel: boolean;
   depthUsagePct: number;
+  minSecondLevelRatio: number;
+  micropriceDriftThreshold: number;
+  severeImbalanceThreshold: number;
+  suppressImbalanceThreshold: number;
 }
 
 export enum UnifiedState {
@@ -132,6 +136,13 @@ export interface RepriceDecision {
   priceDelta: number;          // 价格偏移量 (cents)
 }
 
+export interface QuoteGuardDecision {
+  allowBuy: boolean;
+  allowSell: boolean;
+  severe: boolean;
+  reason: string;
+}
+
 // ============================================================================
 // 默认配置
 // ============================================================================
@@ -164,6 +175,10 @@ export const DEFAULT_CONFIG: UnifiedStrategyConfig = {
   // 风险控制
   preferBookSecondLevel: true,
   depthUsagePct: 0.15,
+  minSecondLevelRatio: 0.25,
+  micropriceDriftThreshold: 0.012,
+  severeImbalanceThreshold: 0.88,
+  suppressImbalanceThreshold: 0.78,
 };
 
 // ============================================================================
@@ -317,6 +332,83 @@ export class UnifiedStrategy {
     const capped = Math.min(desiredSize, this.config.maxSize, depthCap);
     const normalized = Math.floor(capped * 100) / 100;
     return normalized >= this.config.minSize ? normalized : 0;
+  }
+
+  private calculateMicroprice(orderbook: Orderbook): number | null {
+    const bidLevels = this.getSortedLevels(orderbook, 'bids');
+    const askLevels = this.getSortedLevels(orderbook, 'asks');
+    const bid = Number(bidLevels[0]?.price || 0);
+    const ask = Number(askLevels[0]?.price || 0);
+    const bidSize = Number(bidLevels[0]?.shares || 0);
+    const askSize = Number(askLevels[0]?.shares || 0);
+    if (
+      !Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0 || bid >= ask ||
+      !Number.isFinite(bidSize) || !Number.isFinite(askSize) || bidSize <= 0 || askSize <= 0
+    ) {
+      return null;
+    }
+    return (ask * bidSize + bid * askSize) / (bidSize + askSize);
+  }
+
+  private getSupportRatio(orderbook: Orderbook, side: 'bids' | 'asks'): number {
+    const levels = this.getSortedLevels(orderbook, side);
+    const l1 = Number(levels[0]?.shares || 0);
+    const l2 = Number(levels[1]?.shares || 0);
+    if (!Number.isFinite(l1) || l1 <= 0 || !Number.isFinite(l2) || l2 <= 0) {
+      return 0;
+    }
+    return l2 / l1;
+  }
+
+  private getQuoteGuard(orderbook: Orderbook): QuoteGuardDecision {
+    const bidLevels = this.getSortedLevels(orderbook, 'bids');
+    const askLevels = this.getSortedLevels(orderbook, 'asks');
+    const bidSize = Number(bidLevels[0]?.shares || 0);
+    const askSize = Number(askLevels[0]?.shares || 0);
+    const totalTop = bidSize + askSize;
+    const imbalance = totalTop > 0 ? bidSize / totalTop : 0.5;
+    const mid = Number(orderbook.mid_price ?? (((orderbook.best_bid ?? 0) + (orderbook.best_ask ?? 0)) / 2));
+    const micro = this.calculateMicroprice(orderbook);
+    const drift = micro !== null && Number.isFinite(mid) ? micro - mid : 0;
+    const bidSupportRatio = this.getSupportRatio(orderbook, 'bids');
+    const askSupportRatio = this.getSupportRatio(orderbook, 'asks');
+
+    let allowBuy = true;
+    let allowSell = true;
+    let severe = false;
+    const reasons: string[] = [];
+
+    if (bidSupportRatio < this.config.minSecondLevelRatio) {
+      allowBuy = false;
+      reasons.push(`bid L2/L1=${bidSupportRatio.toFixed(2)}`);
+    }
+    if (askSupportRatio < this.config.minSecondLevelRatio) {
+      allowSell = false;
+      reasons.push(`ask L2/L1=${askSupportRatio.toFixed(2)}`);
+    }
+
+    if (drift >= this.config.micropriceDriftThreshold && imbalance >= this.config.suppressImbalanceThreshold) {
+      allowSell = false;
+      reasons.push(`buy pressure drift=${drift.toFixed(4)} imb=${imbalance.toFixed(2)}`);
+    }
+    if (drift <= -this.config.micropriceDriftThreshold && imbalance <= 1 - this.config.suppressImbalanceThreshold) {
+      allowBuy = false;
+      reasons.push(`sell pressure drift=${drift.toFixed(4)} imb=${imbalance.toFixed(2)}`);
+    }
+
+    if (imbalance >= this.config.severeImbalanceThreshold || imbalance <= 1 - this.config.severeImbalanceThreshold) {
+      severe = true;
+      if (!allowBuy && !allowSell) {
+        reasons.push(`severe imbalance=${imbalance.toFixed(2)}`);
+      }
+    }
+
+    return {
+      allowBuy,
+      allowSell,
+      severe,
+      reason: reasons.join('; '),
+    };
   }
 
   /**
@@ -569,7 +661,7 @@ export class UnifiedStrategy {
     tokenId: string,
     orderbook: Orderbook,
     position: Position
-  ): DualTrackOrders & { repriceDecision?: RepriceDecision } {
+  ): DualTrackOrders & { repriceDecision?: RepriceDecision; guardReason?: string; blockMarket?: boolean } {
     if (!this.config.dualTrackMode) {
       return { buyOrder: null, sellOrder: null };
     }
@@ -620,10 +712,20 @@ export class UnifiedStrategy {
       };
     }
 
+    const guard = this.getQuoteGuard(orderbook);
+    if (!guard.allowBuy) {
+      buyOrder = null;
+    }
+    if (!guard.allowSell) {
+      sellOrder = null;
+    }
+
     return {
       buyOrder,
       sellOrder,
       repriceDecision: analysis.repriceDecision,
+      guardReason: guard.reason || undefined,
+      blockMarket: guard.severe && !guard.allowBuy && !guard.allowSell,
     };
   }
 

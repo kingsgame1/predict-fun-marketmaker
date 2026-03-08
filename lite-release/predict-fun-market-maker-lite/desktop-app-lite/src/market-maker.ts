@@ -42,11 +42,15 @@ export class MarketMaker {
   private static readonly MAX_ALLOWED_BOOK_SPREAD = 0.2;
   private static readonly PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
   private static readonly PREDICT_SAFE_MIN_L2_NOTIONAL = 10;
+  private static readonly PREDICT_SAFE_MIN_L2_TO_L1_RATIO = 0.25;
   private static readonly PREDICT_SAFE_MIN_PRICE = 0.08;
   private static readonly PREDICT_SAFE_MAX_PRICE = 0.92;
   private static readonly PREDICT_SAFE_MAX_LEVEL_GAP = 0.02;
   private static readonly PREDICT_FILL_PAUSE_MS = 10 * 60 * 1000;
   private static readonly PREDICT_UNSAFE_BOOK_PAUSE_MS = 3 * 60 * 1000;
+  private static readonly PREDICT_POSITION_LOSS_LIMIT_ABS = 25;
+  private static readonly PREDICT_POSITION_LOSS_LIMIT_RATIO = 0.3;
+  private static readonly PREDICT_POSITION_LOSS_PAUSE_MS = 30 * 60 * 1000;
 
   private readonly api: MakerApi;
   private readonly config: Config;
@@ -224,6 +228,12 @@ export class MarketMaker {
       ) {
         return true;
       }
+      if (
+        this.getSupportRatio(orderbook.bids, 'bids') < MarketMaker.PREDICT_SAFE_MIN_L2_TO_L1_RATIO ||
+        this.getSupportRatio(orderbook.asks, 'asks') < MarketMaker.PREDICT_SAFE_MIN_L2_TO_L1_RATIO
+      ) {
+        return true;
+      }
       const bidGap = this.getLevelGap(orderbook.bids, 'bids');
       const askGap = this.getLevelGap(orderbook.asks, 'asks');
       if (bidGap > MarketMaker.PREDICT_SAFE_MAX_LEVEL_GAP || askGap > MarketMaker.PREDICT_SAFE_MAX_LEVEL_GAP) {
@@ -268,6 +278,23 @@ export class MarketMaker {
     return side === 'bids' ? first - second : second - first;
   }
 
+  private getSupportRatio(levels: OrderbookEntry[] | undefined, side: 'bids' | 'asks'): number {
+    if (!Array.isArray(levels) || levels.length < 2) {
+      return 0;
+    }
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a.price || 0);
+      const bp = Number(b.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    const first = Number(sorted[0]?.shares || 0);
+    const second = Number(sorted[1]?.shares || 0);
+    if (!Number.isFinite(first) || !Number.isFinite(second) || first <= 0 || second <= 0) {
+      return 0;
+    }
+    return second / first;
+  }
+
   private async triggerPredictUnsafeBookPause(tokenId: string, reason: string): Promise<void> {
     if (this.config.mmVenue !== 'predict') {
       return;
@@ -276,6 +303,36 @@ export class MarketMaker {
     this.unifiedStrategy?.updatePendingOrders(tokenId, 0, 0, 0, 0);
     this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_UNSAFE_BOOK_PAUSE_MS);
     console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(MarketMaker.PREDICT_UNSAFE_BOOK_PAUSE_MS / 60000)} 分钟: ${tokenId}`);
+  }
+
+  private shouldTripPredictLossFuse(position: Position | undefined): boolean {
+    if (this.config.mmVenue !== 'predict' || !position) {
+      return false;
+    }
+    const pnl = Number(position.pnl || 0);
+    const value = Math.abs(Number(position.total_value || 0));
+    if (!Number.isFinite(pnl) || pnl >= 0) {
+      return false;
+    }
+    if (pnl <= -MarketMaker.PREDICT_POSITION_LOSS_LIMIT_ABS) {
+      return true;
+    }
+    if (value > 0 && Math.abs(pnl) / value >= MarketMaker.PREDICT_POSITION_LOSS_LIMIT_RATIO) {
+      return true;
+    }
+    return false;
+  }
+
+  private async triggerPredictLossFuse(tokenId: string, position: Position | undefined): Promise<void> {
+    if (this.config.mmVenue !== 'predict') {
+      return;
+    }
+    await this.cancelOrdersForMarket(tokenId);
+    this.unifiedStrategy?.updatePendingOrders(tokenId, 0, 0, 0, 0);
+    this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_POSITION_LOSS_PAUSE_MS);
+    console.warn(
+      `🛑 [PredictSafety] 单市场亏损熔断: token=${tokenId} pnl=${Number(position?.pnl || 0).toFixed(2)} value=${Number(position?.total_value || 0).toFixed(2)}`
+    );
   }
 
   private async triggerPredictFillCircuitBreaker(tokenId: string, reason: string): Promise<void> {
@@ -3691,6 +3748,11 @@ export class MarketMaker {
     }
 
     const tokenId = market.token_id;
+    const livePosition = this.positions.get(tokenId);
+    if (this.shouldTripPredictLossFuse(livePosition)) {
+      await this.triggerPredictLossFuse(tokenId, livePosition);
+      return;
+    }
     this.updateBestPrices(tokenId, orderbook);
     if (!this.lastFillAt.has(tokenId)) {
       this.lastFillAt.set(tokenId, Date.now());
@@ -3725,6 +3787,15 @@ export class MarketMaker {
         return;
       }
       const orders = this.unifiedStrategy.getDualTrackOrders(tokenId, orderbook, position);
+
+      if (orders.blockMarket) {
+        console.warn(`🛑 [UnifiedStrategy] 极端盘口失衡，暂停市场 ${tokenId}: ${orders.guardReason || 'quote guard'}`);
+        await this.triggerPredictUnsafeBookPause(tokenId, orders.guardReason || '极端盘口失衡');
+        return;
+      }
+      if (orders.guardReason && (!orders.buyOrder || !orders.sellOrder)) {
+        console.log(`🧯 [UnifiedStrategy] 单边保护生效 ${tokenId}: ${orders.guardReason}`);
+      }
 
       // 检查是否需要重新挂单
       if (orders.repriceDecision?.needsReprice) {

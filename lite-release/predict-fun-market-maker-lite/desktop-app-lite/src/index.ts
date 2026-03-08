@@ -63,6 +63,7 @@ class PredictMarketMakerBot {
   private static readonly PREDICT_SAFE_MIN_PRICE = 0.08;
   private static readonly PREDICT_SAFE_MAX_PRICE = 0.92;
   private static readonly PREDICT_SAFE_MAX_LEVEL_GAP = 0.02;
+  private static readonly PREDICT_SAFE_MIN_L2_TO_L1_RATIO = 0.25;
   private api: PredictAPI;
   private marketSelector: MarketSelector;
   private marketMaker: MarketMaker;
@@ -347,6 +348,12 @@ class PredictMarketMakerBot {
       ) {
         return false;
       }
+      if (
+        this.getSupportRatio(orderbook.bids, 'bids') < PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_TO_L1_RATIO ||
+        this.getSupportRatio(orderbook.asks, 'asks') < PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_TO_L1_RATIO
+      ) {
+        return false;
+      }
       const bidGap = this.getLevelGap(orderbook.bids, 'bids');
       const askGap = this.getLevelGap(orderbook.asks, 'asks');
       if (
@@ -392,6 +399,23 @@ class PredictMarketMakerBot {
       return Number.POSITIVE_INFINITY;
     }
     return side === 'bids' ? first - second : second - first;
+  }
+
+  private getSupportRatio(levels: any[] | undefined, side: 'bids' | 'asks'): number {
+    if (!Array.isArray(levels) || levels.length < 2) {
+      return 0;
+    }
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a?.price || 0);
+      const bp = Number(b?.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    const first = Number(sorted[0]?.shares || 0);
+    const second = Number(sorted[1]?.shares || 0);
+    if (!Number.isFinite(first) || !Number.isFinite(second) || first <= 0 || second <= 0) {
+      return 0;
+    }
+    return second / first;
   }
 
   private async getOrderbookForMarket(market: Market): Promise<Orderbook | null> {
