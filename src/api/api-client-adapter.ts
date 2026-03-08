@@ -7,7 +7,11 @@
  * @version 1.0.0
  */
 
+import PredictSdk from '@predictdotfun/sdk';
+import { JsonRpcProvider, Wallet, formatUnits } from 'ethers';
 import { PredictAPI } from './client.js';
+
+const { ChainId, OrderBuilder, ProviderByChainId } = PredictSdk as any;
 
 /**
  * 平台类型
@@ -78,11 +82,39 @@ export class APIClientAdapter {
   private predictAPI: PredictAPI;
   private platform: PlatformType;
   private config: any;
+  private predictOrderBuilderPromise: Promise<any> | null = null;
 
   constructor(platform: PlatformType, config: any) {
     this.platform = platform;
     this.config = config;
-    this.predictAPI = new PredictAPI(config);
+    this.predictAPI = new PredictAPI(config.apiUrl, config.apiKey, config.jwtToken);
+  }
+
+  private getPredictChainId(): number {
+    const apiUrl = String(this.config.apiUrl || '');
+    return /api-testnet|testnet|bnbtestnet/i.test(apiUrl) ? ChainId.BnbTestnet : ChainId.BnbMainnet;
+  }
+
+  private async getPredictOrderBuilder(): Promise<any> {
+    if (this.predictOrderBuilderPromise) {
+      return this.predictOrderBuilderPromise;
+    }
+
+    if (!this.config.privateKey) {
+      throw new Error('PRIVATE_KEY is required to query Predict account balance');
+    }
+
+    const chainId = this.getPredictChainId();
+    const provider = this.config.rpcUrl
+      ? new JsonRpcProvider(this.config.rpcUrl)
+      : (ProviderByChainId[chainId] as JsonRpcProvider);
+    const wallet = new Wallet(this.config.privateKey, provider);
+
+    this.predictOrderBuilderPromise = OrderBuilder.make(chainId, wallet, {
+      ...(this.config.predictAddress ? { predictAccount: this.config.predictAddress } : {}),
+    });
+
+    return this.predictOrderBuilderPromise;
   }
 
   /**
@@ -220,13 +252,19 @@ export class APIClientAdapter {
    */
   async fetchWalletBalance(): Promise<WalletBalance | null> {
     try {
-      // 调用API获取余额
-      const balance = await this.predictAPI.fetchBalance();
+      if (this.platform !== PlatformType.PREDICT) {
+        throw new Error(`Unsupported platform for wallet balance: ${this.platform}`);
+      }
+
+      const orderBuilder = await this.getPredictOrderBuilder();
+      const balanceWei = await orderBuilder.balanceOf('USDT');
+      const signerAddress = this.config.privateKey ? new Wallet(this.config.privateKey).address : '';
+      const accountAddress = this.config.predictAddress || signerAddress;
 
       return {
-        address: this.config.predictAddress || '',
-        balance: balance?.usdt || 0,
-        tokens: new Map(Object.entries(balance?.tokens || {})),
+        address: accountAddress,
+        balance: Number(formatUnits(balanceWei, 18)),
+        tokens: new Map(),
         timestamp: Date.now()
       };
 

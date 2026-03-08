@@ -126,7 +126,7 @@ export class OrderManager {
     const { tokenAddress, spenderAddress, ownerAddress } = this.getCollateralAddresses(market);
     const collateral = new Contract(tokenAddress, ERC20Abi, this.provider);
     const [balanceWei, allowanceWei] = await Promise.all([
-      collateral.balanceOf(ownerAddress),
+      this.orderBuilder.balanceOf('USDT', ownerAddress),
       collateral.allowance(ownerAddress, spenderAddress),
     ]);
 
