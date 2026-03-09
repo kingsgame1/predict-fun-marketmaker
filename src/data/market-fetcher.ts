@@ -45,18 +45,25 @@ export class MarketDataFetcher {
     }
 
     try {
-      // 从API获取市场信息
-      const market = await this.api.fetchMarket(marketId);
+      const market = await this.api.getMarket(marketId);
+
+      const statusRaw = String((market as any).tradingStatus || (market as any).status || 'OPEN').toUpperCase();
+      const status: MarketDetails['status'] =
+        statusRaw === 'SETTLED'
+          ? 'settled'
+          : statusRaw === 'CLOSED'
+          ? 'closed'
+          : 'active';
 
       const details: MarketDetails = {
-        marketId: market.marketId,
-        marketTitle: market.marketTitle,
-        settlementTime: market.settlementTime || Date.now() + 86400000,
-        outcomes: market.outcomes || [],
-        volume: market.volume || 0,
-        liquidity: market.liquidity || 0,
-        createdAt: market.createdAt || Date.now(),
-        status: (market.status as any) || 'active'
+        marketId: String(market.event_id || market.condition_id || market.token_id || marketId),
+        marketTitle: market.question || 'Unknown Market',
+        settlementTime: market.end_date ? new Date(market.end_date).getTime() : Date.now() + 86400000,
+        outcomes: Array.isArray(market.outcomes) ? market.outcomes : [],
+        volume: Number(market.volume_24h || 0),
+        liquidity: Number(market.liquidity_24h || 0),
+        createdAt: market.end_date ? new Date(market.end_date).getTime() : Date.now(),
+        status,
       };
 
       // 缓存5分钟
@@ -68,7 +75,7 @@ export class MarketDataFetcher {
       return details;
 
     } catch (error) {
-      console.error(`获取市场数据失败: ${marketId}`, error.message);
+      console.error(`获取市场数据失败: ${marketId}`, error instanceof Error ? error.message : error);
 
       // 返回默认值
       return {

@@ -15,6 +15,47 @@ import { ProbableWebSocketFeed } from './external/probable-ws.js';
 import { ProbableOrderManager } from './order-manager-probable.js';
 import type { Market, Orderbook } from './types.js';
 
+function sortMarketsByLiquidityAndVolume(markets: Market[]): Market[] {
+  return [...markets].sort((a, b) => {
+    const liquidityDiff = Number(b.liquidity_24h || 0) - Number(a.liquidity_24h || 0);
+    if (liquidityDiff !== 0) return liquidityDiff;
+    const volumeDiff = Number(b.volume_24h || 0) - Number(a.volume_24h || 0);
+    if (volumeDiff !== 0) return volumeDiff;
+    return 0;
+  });
+}
+
+async function populateOrderbooksWithConcurrency(
+  markets: Market[],
+  concurrency: number,
+  fetcher: (tokenId: string) => Promise<Orderbook>
+): Promise<Map<string, Orderbook>> {
+  const orderbooks = new Map<string, Orderbook>();
+  const batchSize = Math.max(1, concurrency);
+
+  for (let i = 0; i < markets.length; i += batchSize) {
+    const batch = markets.slice(i, i + batchSize);
+    const settled = await Promise.allSettled(
+      batch.map(async (market) => {
+        const orderbook = await fetcher(market.token_id);
+        orderbooks.set(market.token_id, orderbook);
+        market.best_bid = orderbook.best_bid;
+        market.best_ask = orderbook.best_ask;
+        market.spread_pct = orderbook.spread_pct;
+        market.total_orders = (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
+      })
+    );
+
+    settled.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`Error fetching orderbook for ${batch[index]?.token_id}:`, result.reason);
+      }
+    });
+  }
+
+  return orderbooks;
+}
+
 export class PredictMarketMakerBot {
   private static readonly PREDICT_SAFE_MAX_SPREAD = 0.06;
   private static readonly PREDICT_SAFE_MIN_L1_NOTIONAL = 25;

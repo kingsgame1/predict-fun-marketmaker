@@ -32,18 +32,17 @@ import {
 import {
   DynamicASModel
 } from './pricing/types.js';
-// import { ValueMismatchDetector } from './arbitrage/value-detector.js';
-// import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
-// import { CrossPlatformAggregator } from './external/aggregator.js';
-// import { CrossPlatformExecutionRouter } from './external/execution.js';
-// import { findBestMatch, similarityScore } from './external/match.js';
-// import type { PlatformLeg, PlatformMarket } from './external/types.js';
+import { ValueMismatchDetector } from './arbitrage/value-detector.js';
+import { CrossPlatformAggregator } from './external/aggregator.js';
+import { CrossPlatformExecutionRouter } from './external/execution.js';
+import { similarityScore } from './external/match.js';
+import type { PlatformLeg, PlatformMarket } from './external/types.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-// import { pointsManager } from './mm/points/points-manager.js';
+import { pointsManager } from './mm/points/points-manager.js';
 // import { spreadCache } from './mm/cache/spread-cache.js';
 import { pointsOptimizerEngine, type PointsMarketScore } from './mm/points/points-optimizer.js';
-// import { pointsSystemIntegration } from './mm/points/points-integration.js';
+import { pointsSystemIntegration } from './mm/points/points-integration.js';
 import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './mm/points/points-optimizer-v2.js';
 
 // CRITICAL FIX #2: 统一的持仓快照接口，解决类型不一致问题
@@ -110,6 +109,8 @@ interface OrderSizeResult {
   shares: number;
   usdt: number;
 }
+
+type OrderLevel = OrderbookEntry;
 
 // MEDIUM FIX #2: 结构化日志系统
 enum LogLevel {
@@ -7193,10 +7194,11 @@ export class MarketMaker {
 
     for (let i = 0; i < levels.length && i < maxLevels && totalShares < targetShares; i++) {
       const level = levels[i];
-      const shares = Math.min(level.shares || 0, targetShares - totalShares);
+      const availableShares = Number(level.shares || 0);
+      const shares = Math.min(availableShares, targetShares - totalShares);
 
       if (shares > 0) {
-        const price = (level.price || 0) * slippageMultiplier;
+        const price = Number(level.price || 0) * slippageMultiplier;
         totalCost += shares * price * feeMultiplier;
         totalShares += shares;
       }
@@ -7242,10 +7244,11 @@ export class MarketMaker {
 
     for (let i = 0; i < levels.length && i < maxLevels && totalShares < targetShares; i++) {
       const level = levels[i];
-      const shares = Math.min(level.shares || 0, targetShares - totalShares);
+      const availableShares = Number(level.shares || 0);
+      const shares = Math.min(availableShares, targetShares - totalShares);
 
       if (shares > 0) {
-        const price = (level.price || 0) * slippageMultiplier;
+        const price = Number(level.price || 0) * slippageMultiplier;
         totalRevenue += shares * price * feeMultiplier;
         totalShares += shares;
       }
@@ -7268,13 +7271,13 @@ export class MarketMaker {
    */
   private validateMarket(market: unknown): market is Market {
     if (!market || typeof market !== 'object') {
-      this.logError('Invalid market: not an object', { market });
+      this.logError('Invalid market: not an object', { rawMarket: market });
       return false;
     }
 
     const m = market as Partial<Market>;
     if (!m.token_id || typeof m.token_id !== 'string') {
-      this.logError('Invalid market: missing or invalid token_id', { market });
+      this.logError('Invalid market: missing or invalid token_id', { rawMarket: market });
       return false;
     }
 

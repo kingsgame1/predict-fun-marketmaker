@@ -1,8 +1,7 @@
 import axios from 'axios';
 import type { Market, Orderbook, OrderbookEntry, Order, Position } from '../types.js';
 import type { MakerApi } from '../mm/venue.js';
-// TODO: @prob/clob包暂时不可用，使用Polymarket的客户端
-// import { createClobClient } from '@prob/clob';
+import { createClobClient } from '@prob/clob';
 import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { bsc, bscTestnet } from 'viem/chains';

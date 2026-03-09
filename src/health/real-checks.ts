@@ -23,9 +23,9 @@ export class RealHealthChecks {
     latency: number;
     error?: string;
   }> {
+    const startTime = Date.now();
     try {
       const apiClient = getAPIClient();
-      const startTime = Date.now();
 
       const health = await apiClient.healthCheck();
       const latency = health.latency;
@@ -34,12 +34,11 @@ export class RealHealthChecks {
         healthy: health.api && health.rpc,
         latency
       };
-
     } catch (error) {
       return {
         healthy: false,
         latency: Date.now() - startTime,
-        error: error.message
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
@@ -102,7 +101,7 @@ export class RealHealthChecks {
       return {
         healthy: false,
         latency: 0,
-        error: error.message
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
@@ -172,7 +171,7 @@ export class RealHealthChecks {
       return {
         balance: 0,
         hasBalance: false,
-        error: error.message
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
