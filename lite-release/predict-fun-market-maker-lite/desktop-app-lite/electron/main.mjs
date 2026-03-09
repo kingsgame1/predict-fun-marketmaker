@@ -777,8 +777,48 @@ async function runRecommendJson(venue, { top = 40, scan = 80, apply = false } = 
   }
 }
 
+async function runPredictWalletStatus() {
+  const result = await runCommand(
+    getNpxCmd(),
+    ['tsx', 'scripts/check-predict-balance.ts', '--env', envPath, '--json'],
+    'wallet',
+    false
+  );
+  if (!result.ok) {
+    return { ok: false, message: result.stderr || result.stdout || 'predict wallet check failed' };
+  }
+  try {
+    const payload = JSON.parse((result.stdout || '').trim());
+    return { ok: true, payload };
+  } catch {
+    return { ok: false, message: 'predict wallet json parse failed', raw: result.stdout };
+  }
+}
+
 async function startMM() {
   if (mmProcess) return { ok: false, message: '做市进程已在运行' };
+
+  const envMap = parseEnv(readEnv());
+  const venue = (envMap.get('MM_VENUE') || 'predict').trim().toLowerCase();
+  if (venue === 'predict') {
+    const walletStatus = await runPredictWalletStatus();
+    if (!walletStatus.ok) {
+      return { ok: false, message: `Predict 余额检查失败: ${walletStatus.message}` };
+    }
+    const info = walletStatus.payload || {};
+    if (!info.predictAccountAddress) {
+      return { ok: false, message: 'PREDICT_ACCOUNT_ADDRESS 未配置，必须填写 Predict 网站账户里的 deposit address' };
+    }
+    if (info.suspiciousPredictAccount) {
+      return { ok: false, message: 'PREDICT_ACCOUNT_ADDRESS 与签名钱包地址相同，疑似填错。请填写 Predict 网站账户里的 deposit address' };
+    }
+    if (Number(info.balance || 0) <= 0) {
+      return { ok: false, message: 'Predict 账号 USDT 余额为 0，当前不允许启动做市' };
+    }
+    sendLog(
+      `[wallet] signer=${info.signerAddress} predict=${info.predictAccountAddress} balance=${Number(info.balance).toFixed(6)} approvals=${info.approvalReady ? 'ready' : 'pending'}`
+    );
+  }
 
   let filteredTokenIds = [];
   try {
@@ -967,6 +1007,7 @@ ipcMain.handle('market:apply-auto', async (_, venue, top, scan) => {
 });
 ipcMain.handle('market:set-manual', async (_, tokenIds) => await setManualMarketSelection(tokenIds));
 ipcMain.handle('market:get-manual', () => getManualMarketSelection());
+ipcMain.handle('predict:wallet-status', async () => await runPredictWalletStatus());
 ipcMain.handle('link:open', async (_, url) => {
   try {
     await shell.openExternal(url);

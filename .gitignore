@@ -23,6 +23,8 @@ verify-*.ts
 deep-*.ts
 simulate-*.ts
 debug-*.ts
+!scripts/check-predict-balance.ts
+!lite-release/predict-fun-market-maker-lite/scripts/check-predict-balance.ts
 *.cjs
 
 # Documentation (keep main README)

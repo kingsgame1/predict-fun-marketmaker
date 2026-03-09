@@ -55,6 +55,32 @@
           关闭后，如授权不足会直接阻止下单。
         </div>
       </section>
+      <section>
+        <div class="label">Predict 余额状态</div>
+        <div class="row">
+          <button id="refreshPredictWallet">检查 Predict 余额</button>
+          <span id="walletStatus" class="badge">余额状态：待检查</span>
+        </div>
+        <div class="wallet-grid">
+          <div class="wallet-card">
+            <div class="wallet-title">Signer 地址</div>
+            <div id="walletSigner" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">Predict 账号</div>
+            <div id="walletPredict" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">USDT 余额</div>
+            <div id="walletBalance" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">Allowance 状态</div>
+            <div id="walletAllowance" class="wallet-value">--</div>
+          </div>
+        </div>
+        <div id="walletWarning" class="hint"></div>
+      </section>
       <section class="hint">
         模板只需填写必填项：
         Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>（实盘再填 <code>JWT_TOKEN</code>）；

@@ -18,6 +18,10 @@ label { display:flex; align-items:center; gap:6px; background:#111827; border:1p
 select, input[type="number"] { background:#020617; color:#e5e7eb; border:1px solid #334155; border-radius:6px; padding:4px 6px; }
 .hint { color:#94a3b8; margin-bottom:8px; font-size:12px; }
 .hint code { color:#c4b5fd; }
+.wallet-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:8px; }
+.wallet-card { background:#111827; border:1px solid #374151; border-radius:10px; padding:10px; }
+.wallet-title { font-size:12px; color:#94a3b8; margin-bottom:6px; }
+.wallet-value { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:#e5e7eb; word-break:break-all; }
 .table-wrap { border:1px solid #334155; border-radius:8px; overflow:auto; max-height:280px; background:#020617; margin-bottom:10px; }
 table { width:100%; border-collapse:collapse; font-size:12px; }
 th, td { border-bottom:1px solid #1f2937; padding:6px; text-align:left; white-space:nowrap; }

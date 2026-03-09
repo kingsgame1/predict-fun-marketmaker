@@ -8,10 +8,22 @@ const marketTableBody = document.getElementById('marketTableBody');
 const selectAllMarkets = document.getElementById('selectAllMarkets');
 const predictAutoApprovals = document.getElementById('predictAutoApprovals');
 const approvalStatus = document.getElementById('approvalStatus');
+const walletStatus = document.getElementById('walletStatus');
+const walletSigner = document.getElementById('walletSigner');
+const walletPredict = document.getElementById('walletPredict');
+const walletBalance = document.getElementById('walletBalance');
+const walletAllowance = document.getElementById('walletAllowance');
+const walletWarning = document.getElementById('walletWarning');
 const api = window.liteApp;
 
 let lastRecommendations = [];
 let approvalState = '待检查';
+
+function shortenAddress(value) {
+  const text = String(value || '').trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(text)) return text || '--';
+  return `${text.slice(0, 6)}...${text.slice(-4)}`;
+}
 
 function pushLog(line) {
   if (!logs) return;
@@ -80,6 +92,72 @@ function setApprovalStatus(state) {
     state === '已就绪' ? '#065f46' : state === '授权失败' ? '#7f1d1d' : '#334155';
 }
 
+function setWalletStatusBadge(state, kind = 'idle') {
+  if (!walletStatus) return;
+  walletStatus.textContent = `余额状态：${state}`;
+  walletStatus.style.background =
+    kind === 'ok' ? '#065f46' : kind === 'error' ? '#7f1d1d' : kind === 'warn' ? '#92400e' : '#334155';
+}
+
+function renderPredictWalletStatus(payload) {
+  const balance = Number(payload?.balance || 0);
+  const approvalReady = Boolean(payload?.approvalReady);
+  setApprovalStatus(approvalReady ? '已就绪' : '待授权');
+  if (walletSigner) walletSigner.textContent = shortenAddress(payload?.signerAddress);
+  if (walletPredict) walletPredict.textContent = shortenAddress(payload?.predictAccountAddress || '(未配置)');
+  if (walletBalance) walletBalance.textContent = Number.isFinite(balance) ? `${balance.toFixed(6)} USDT` : '--';
+  if (walletAllowance) walletAllowance.textContent = approvalReady ? '已就绪' : '待授权';
+
+  const warnings = [];
+  if (!payload?.predictAccountAddress) {
+    warnings.push('未配置 PREDICT_ACCOUNT_ADDRESS，必须填写 Predict 网站账户里的 deposit address。');
+  }
+  if (payload?.suspiciousPredictAccount) {
+    warnings.push('PREDICT_ACCOUNT_ADDRESS 与签名钱包地址相同，疑似填错。');
+  }
+  if (balance <= 0) {
+    warnings.push('Predict 账号 USDT 余额为 0，当前无法安全启动做市。');
+  }
+  if (!approvalReady) {
+    warnings.push('Allowance 未全部就绪，首次交易前需要自动授权或手动授权。');
+  }
+  if (walletWarning) {
+    walletWarning.textContent = warnings.join(' ');
+  }
+  if (warnings.length === 0) {
+    setWalletStatusBadge('已就绪', 'ok');
+  } else if (balance > 0 && payload?.predictAccountAddress) {
+    setWalletStatusBadge('需处理', 'warn');
+  } else {
+    setWalletStatusBadge('异常', 'error');
+  }
+}
+
+async function refreshPredictWalletStatus(forceLog = false) {
+  if (!api) return;
+  const envMap = parseEnvMap(envEditor?.value || '');
+  const venue = (envMap.get('MM_VENUE') || 'predict').toLowerCase();
+  if (venue !== 'predict') {
+    setWalletStatusBadge('非 Predict 模式');
+    if (walletWarning) walletWarning.textContent = '当前场馆不是 Predict，余额检查已跳过。';
+    return;
+  }
+  setWalletStatusBadge('检查中');
+  const res = await api.getPredictWalletStatus();
+  if (!res?.ok) {
+    setWalletStatusBadge('检查失败', 'error');
+    if (walletWarning) walletWarning.textContent = res?.message || '未知错误';
+    if (forceLog) pushLog(`余额检查失败: ${res?.message || 'unknown'}`);
+    return;
+  }
+  renderPredictWalletStatus(res.payload || {});
+  if (forceLog) {
+    pushLog(
+      `Predict 余额检查完成: account=${res.payload?.predictAccountAddress || '(未配置)'} balance=${Number(res.payload?.balance || 0).toFixed(6)} approvals=${res.payload?.approvalReady ? 'ready' : 'pending'}`
+    );
+  }
+}
+
 function renderMarketTable(items, selected = new Set()) {
   marketTableBody.innerHTML = '';
   items.forEach((item) => {
@@ -119,6 +197,7 @@ async function refreshEnv() {
   if (predictAutoApprovals) {
     predictAutoApprovals.checked = (envMap.get('PREDICT_AUTO_SET_APPROVALS') || 'true').toLowerCase() !== 'false';
   }
+  await refreshPredictWalletStatus();
 }
 
 async function refreshStatus() {
@@ -262,10 +341,14 @@ document.getElementById('getJwt').onclick = async () => {
 };
 
 document.getElementById('reloadEnv').onclick = refreshEnv;
+document.getElementById('refreshPredictWallet').onclick = async () => {
+  await refreshPredictWalletStatus(true);
+};
 document.getElementById('saveEnv').onclick = async () => {
   if (!api) return;
   await api.writeEnv(envEditor.value || '');
   pushLog('配置已保存');
+  await refreshPredictWalletStatus();
 };
 
 if (predictAutoApprovals) {
