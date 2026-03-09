@@ -163,6 +163,7 @@ function renderMarketTable(items, selected = new Set()) {
   items.forEach((item) => {
     const tr = document.createElement('tr');
     const checked = selected.has(item.tokenId) ? 'checked' : '';
+    const reasons = Array.isArray(item.reasons) ? item.reasons.join(' | ') : '';
     tr.innerHTML = `
       <td><input type="checkbox" class="market-check" data-token="${item.tokenId}" ${checked} /></td>
       <td>${item.rank}</td>
@@ -179,8 +180,13 @@ function renderMarketTable(items, selected = new Set()) {
       <td>${item.l2NotionalUsd == null ? '--' : formatNum(item.l2NotionalUsd, 2)}</td>
       <td>${item.l1UsableUsd == null ? '--' : formatNum(item.l1UsableUsd, 2)}</td>
       <td>${item.l2UsableUsd == null ? '--' : formatNum(item.l2UsableUsd, 2)}</td>
+      <td>${item.supportRatio == null ? '--' : formatNum(item.supportRatio, 3)}</td>
+      <td>${item.maxLevelGap == null ? '--' : formatNum(item.maxLevelGap, 4)}</td>
+      <td>${item.symmetry == null ? '--' : formatNum(item.symmetry, 3)}</td>
+      <td>${item.centerScore == null ? '--' : formatNum(item.centerScore, 3)}</td>
       <td>${item.tokenId}</td>
       <td class="question" title="${item.question || ''}">${item.question || ''}</td>
+      <td class="question" title="${reasons}">${reasons || '--'}</td>
     `;
     marketTableBody.appendChild(tr);
   });
