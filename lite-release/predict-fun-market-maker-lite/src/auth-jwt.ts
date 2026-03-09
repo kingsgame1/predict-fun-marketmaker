@@ -76,7 +76,7 @@ async function main() {
 
   let signature = '';
   if (config.predictAccountAddress) {
-    const chainId = config.apiBaseUrl.includes('sepolia') ? ChainId.BnbTestnet : ChainId.BnbMainnet;
+    const chainId = config.predictChainId ?? ChainId.BnbMainnet;
     const orderBuilder = await OrderBuilder.make(chainId, wallet, {
       predictAccount: config.predictAccountAddress,
     });

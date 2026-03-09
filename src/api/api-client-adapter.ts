@@ -91,8 +91,20 @@ export class APIClientAdapter {
   }
 
   private getPredictChainId(): number {
-    const apiUrl = String(this.config.apiUrl || '');
-    return /api-testnet|testnet|bnbtestnet/i.test(apiUrl) ? ChainId.BnbTestnet : ChainId.BnbMainnet;
+    return this.config.predictChainId ?? ChainId.BnbMainnet;
+  }
+
+  private toMarketInfo(market: any): MarketInfo {
+    return {
+      marketId: String(market?.event_id ?? market?.marketId ?? market?.token_id ?? ''),
+      marketTitle: String(market?.question ?? market?.marketTitle ?? 'Unknown market'),
+      settlementTime: market?.end_date ? new Date(market.end_date).getTime() : Date.now() + 86400000,
+      outcomes: Array.isArray(market?.outcomes) ? market.outcomes : [],
+      volume: Number(market?.volume_24h ?? market?.volume ?? 0),
+      liquidity: Number(market?.liquidity_24h ?? market?.liquidity ?? 0),
+      status: String(market?.status ?? 'active'),
+      createdAt: market?.createdAt ? Number(market.createdAt) : Date.now()
+    };
   }
 
   private async getPredictOrderBuilder(): Promise<any> {
@@ -122,25 +134,15 @@ export class APIClientAdapter {
    */
   async fetchMarket(marketId: string): Promise<MarketInfo | null> {
     try {
-      const market = await this.predictAPI.fetchMarket(marketId);
+      const market = await this.predictAPI.getMarket(marketId);
 
       if (!market) {
         return null;
       }
 
-      return {
-        marketId: market.marketId,
-        marketTitle: market.marketTitle,
-        settlementTime: market.settlementTime || Date.now() + 86400000,
-        outcomes: market.outcomes || [],
-        volume: market.volume || 0,
-        liquidity: market.liquidity || 0,
-        status: market.status || 'active',
-        createdAt: market.createdAt || Date.now()
-      };
-
-    } catch (error) {
-      console.error(`获取市场信息失败: ${marketId}`, error.message);
+      return this.toMarketInfo(market);
+    } catch (error: any) {
+      console.error(`获取市场信息失败: ${marketId}`, error?.message || error);
       return null;
     }
   }
@@ -150,21 +152,10 @@ export class APIClientAdapter {
    */
   async fetchAllMarkets(): Promise<MarketInfo[]> {
     try {
-      const markets = await this.predictAPI.fetchMarkets();
-
-      return markets.map(m => ({
-        marketId: m.marketId,
-        marketTitle: m.marketTitle,
-        settlementTime: m.settlementTime || Date.now() + 86400000,
-        outcomes: m.outcomes || [],
-        volume: m.volume || 0,
-        liquidity: m.liquidity || 0,
-        status: m.status || 'active',
-        createdAt: m.createdAt || Date.now()
-      }));
-
-    } catch (error) {
-      console.error('获取市场列表失败:', error.message);
+      const markets = await this.predictAPI.getMarkets({ silent: true });
+      return markets.map((m) => this.toMarketInfo(m));
+    } catch (error: any) {
+      console.error('获取市场列表失败:', error?.message || error);
       return [];
     }
   }
@@ -194,8 +185,8 @@ export class APIClientAdapter {
         txHash: result.txHash
       };
 
-    } catch (error) {
-      console.error('创建订单失败:', error.message);
+    } catch (error: any) {
+      console.error('创建订单失败:', error?.message || error);
       throw error;
     }
   }
@@ -205,29 +196,28 @@ export class APIClientAdapter {
    */
   async fetchOrderStatus(orderId: string): Promise<OrderInfo | null> {
     try {
-      // 调用API查询订单状态
-      const orderData = await this.predictAPI.fetchOrder(orderId);
+      const orderData = await this.predictAPI.getOrder(orderId);
 
       if (!orderData) {
         return null;
       }
 
       return {
-        orderId: orderData.orderId || orderId,
-        marketId: orderData.marketId || '',
-        tokenId: orderData.tokenId || '',
-        side: orderData.side || 'buy',
-        orderType: orderData.orderType || 'limit',
-        amount: orderData.amount || 0,
-        price: orderData.price || 0,
-        filledAmount: orderData.filledAmount || 0,
-        status: this.mapOrderStatus(orderData.status),
+        orderId: orderData.id || orderData.order_hash || orderId,
+        marketId: orderData.token_id || '',
+        tokenId: orderData.token_id || '',
+        side: String(orderData.side || 'BUY').toLowerCase() === 'sell' ? 'sell' : 'buy',
+        orderType: String(orderData.order_type || 'LIMIT').toLowerCase() === 'market' ? 'market' : 'limit',
+        amount: Number(orderData.shares || 0),
+        price: Number(orderData.price || 0),
+        filledAmount: 0,
+        status: this.mapOrderStatus(String(orderData.status || 'OPEN').toLowerCase()),
         timestamp: orderData.timestamp || Date.now(),
-        txHash: orderData.txHash
+        txHash: undefined
       };
 
-    } catch (error) {
-      console.error(`查询订单状态失败: ${orderId}`, error.message);
+    } catch (error: any) {
+      console.error(`查询订单状态失败: ${orderId}`, error?.message || error);
       return null;
     }
   }
@@ -237,12 +227,11 @@ export class APIClientAdapter {
    */
   async cancelOrder(orderId: string): Promise<boolean> {
     try {
-      // 调用API取消订单
-      await this.predictAPI.cancelOrder(orderId);
+      await this.predictAPI.cancelOrder({ id: orderId });
       return true;
 
-    } catch (error) {
-      console.error(`取消订单失败: ${orderId}`, error.message);
+    } catch (error: any) {
+      console.error(`取消订单失败: ${orderId}`, error?.message || error);
       return false;
     }
   }
@@ -268,8 +257,8 @@ export class APIClientAdapter {
         timestamp: Date.now()
       };
 
-    } catch (error) {
-      console.error('获取钱包余额失败:', error.message);
+    } catch (error: any) {
+      console.error('获取钱包余额失败:', error?.message || error);
       return null;
     }
   }
@@ -279,9 +268,9 @@ export class APIClientAdapter {
    */
   async fetchOrderBook(marketId: string, tokenId: string): Promise<any> {
     try {
-      return await this.predictAPI.fetchOrderBook(marketId, tokenId);
-    } catch (error) {
-      console.error(`获取订单簿失败: ${marketId}/${tokenId}`, error.message);
+      return await this.predictAPI.getOrderbook(tokenId || marketId);
+    } catch (error: any) {
+      console.error(`获取订单簿失败: ${marketId}/${tokenId}`, error?.message || error);
       return null;
     }
   }
@@ -315,7 +304,7 @@ export class APIClientAdapter {
 
     try {
       // 测试API连接
-      await this.predictAPI.fetchMarkets();
+      await this.predictAPI.getMarkets({ silent: true, maxPages: 1 });
       const apiOk = true;
       const latency = Date.now() - startTime;
 
@@ -355,25 +344,28 @@ export class APIClientAdapter {
 /**
  * 全局API适配器实例
  */
-let globalAPIClient: APIClientAdapter | null = null;
+const globalAPIClients = new Map<PlatformType, APIClientAdapter>();
 
 /**
  * 获取全局API客户端
  */
 export function getAPIClient(platform: PlatformType = PlatformType.PREDICT): APIClientAdapter {
-  if (!globalAPIClient) {
-    // 从环境变量或配置加载
-    const config = {
-      apiUrl: process.env.API_BASE_URL || 'https://api.predict.fun',
-      apiKey: process.env.API_KEY,
-      jwtToken: process.env.JWT_TOKEN,
-      rpcUrl: process.env.RPC_URL,
-      privateKey: process.env.PRIVATE_KEY,
-      predictAddress: process.env.PREDICT_ACCOUNT_ADDRESS
-    };
-
-    globalAPIClient = new APIClientAdapter(platform, config);
+  const cached = globalAPIClients.get(platform);
+  if (cached) {
+    return cached;
   }
 
-  return globalAPIClient;
+  const config = {
+    apiUrl: process.env.API_BASE_URL || 'https://api.predict.fun',
+    apiKey: process.env.API_KEY,
+    jwtToken: process.env.JWT_TOKEN,
+    rpcUrl: process.env.RPC_URL,
+    privateKey: process.env.PRIVATE_KEY,
+    predictAddress: process.env.PREDICT_ACCOUNT_ADDRESS,
+    predictChainId: parseInt(process.env.PREDICT_CHAIN_ID || '56', 10)
+  };
+
+  const client = new APIClientAdapter(platform, config);
+  globalAPIClients.set(platform, client);
+  return client;
 }

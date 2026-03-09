@@ -578,6 +578,20 @@ export class PredictAPI {
     }
   }
 
+  async getOrder(orderId: string): Promise<Order | null> {
+    try {
+      const rawOrder = await this.requestWithFallback<any>(
+        'get',
+        [`/v1/orders/${orderId}`, `/orders/${orderId}`],
+        { requireJwt: true }
+      );
+      return this.normalizeOrder(rawOrder);
+    } catch (error) {
+      console.error(`Error fetching order ${orderId}:`, error);
+      throw error;
+    }
+  }
+
   /**
    * Get positions for an account
    */

@@ -72,7 +72,7 @@ export class OrderManager {
   }
 
   static async create(config: Config): Promise<OrderManager> {
-    const chainId = config.apiBaseUrl.includes('sepolia') ? ChainId.BnbTestnet : ChainId.BnbMainnet;
+    const chainId = config.predictChainId ?? ChainId.BnbMainnet;
     const provider = config.rpcUrl
       ? new JsonRpcProvider(config.rpcUrl)
       : (ProviderByChainId[chainId] as JsonRpcProvider);

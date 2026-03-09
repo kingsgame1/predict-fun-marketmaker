@@ -46,6 +46,19 @@ export class PredictMarketMakerBot {
     return this.config.predictAccountAddress || this.wallet.address;
   }
 
+  private getPredictSafetyConfig() {
+    return {
+      maxSpread: this.config.predictSafeMaxSpread ?? PredictMarketMakerBot.PREDICT_SAFE_MAX_SPREAD,
+      minL1Notional: this.config.predictSafeMinL1Notional ?? PredictMarketMakerBot.PREDICT_SAFE_MIN_L1_NOTIONAL,
+      minL2Notional: this.config.predictSafeMinL2Notional ?? PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_NOTIONAL,
+      minPrice: this.config.predictSafeMinPrice ?? PredictMarketMakerBot.PREDICT_SAFE_MIN_PRICE,
+      maxPrice: this.config.predictSafeMaxPrice ?? PredictMarketMakerBot.PREDICT_SAFE_MAX_PRICE,
+      maxLevelGap: this.config.predictSafeMaxLevelGap ?? PredictMarketMakerBot.PREDICT_SAFE_MAX_LEVEL_GAP,
+      minL2ToL1Ratio:
+        this.config.predictSafeMinL2ToL1Ratio ?? PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_TO_L1_RATIO,
+    };
+  }
+
   constructor() {
     // Load configuration
     this.config = loadConfig();
@@ -65,7 +78,7 @@ export class PredictMarketMakerBot {
     this.marketSelector = new MarketSelector(
       0, // minLiquidity
       0, // minVolume24h
-      PredictMarketMakerBot.PREDICT_SAFE_MAX_SPREAD, // maxSpread
+      this.getPredictSafetyConfig().maxSpread, // maxSpread
       0 // minOrders
     );
 
@@ -145,7 +158,7 @@ export class PredictMarketMakerBot {
     // Score and select markets
     let scoredMarkets = this.marketSelector.selectMarkets(marketsWithRules, orderbooks);
     if (scoredMarkets.length === 0 && orderbooks.size > 0) {
-      const relaxedSelector = new MarketSelector(0, 0, PredictMarketMakerBot.PREDICT_SAFE_MAX_SPREAD, 0);
+      const relaxedSelector = new MarketSelector(0, 0, this.getPredictSafetyConfig().maxSpread, 0);
       const relaxed = relaxedSelector.selectMarkets(marketsWithRules, orderbooks);
       if (relaxed.length > 0) {
         console.log(`ℹ️  Strict selector returned 0, fallback to relaxed selector (${relaxed.length})`);
@@ -284,16 +297,17 @@ export class PredictMarketMakerBot {
       return false;
     }
     const maxSpread =
-      this.config.mmVenue === 'predict' ? PredictMarketMakerBot.PREDICT_SAFE_MAX_SPREAD : 0.2;
+      this.config.mmVenue === 'predict' ? this.getPredictSafetyConfig().maxSpread : 0.2;
     if (bestAsk - bestBid > maxSpread) {
       return false;
     }
     if (this.config.mmVenue === 'predict') {
+      const safety = this.getPredictSafetyConfig();
       const mid = Number(orderbook.mid_price ?? (bestBid + bestAsk) / 2);
       if (
         !Number.isFinite(mid) ||
-        mid < PredictMarketMakerBot.PREDICT_SAFE_MIN_PRICE ||
-        mid > PredictMarketMakerBot.PREDICT_SAFE_MAX_PRICE
+        mid < safety.minPrice ||
+        mid > safety.maxPrice
       ) {
         return false;
       }
@@ -302,22 +316,22 @@ export class PredictMarketMakerBot {
       const bid2 = this.getLevelNotional(orderbook.bids, 1, 'bids');
       const ask2 = this.getLevelNotional(orderbook.asks, 1, 'asks');
       if (
-        Math.min(bid1, ask1) < PredictMarketMakerBot.PREDICT_SAFE_MIN_L1_NOTIONAL ||
-        Math.min(bid2, ask2) < PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_NOTIONAL
+        Math.min(bid1, ask1) < safety.minL1Notional ||
+        Math.min(bid2, ask2) < safety.minL2Notional
       ) {
         return false;
       }
       if (
-        this.getSupportRatio(orderbook.bids, 'bids') < PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_TO_L1_RATIO ||
-        this.getSupportRatio(orderbook.asks, 'asks') < PredictMarketMakerBot.PREDICT_SAFE_MIN_L2_TO_L1_RATIO
+        this.getSupportRatio(orderbook.bids, 'bids') < safety.minL2ToL1Ratio ||
+        this.getSupportRatio(orderbook.asks, 'asks') < safety.minL2ToL1Ratio
       ) {
         return false;
       }
       const bidGap = this.getLevelGap(orderbook.bids, 'bids');
       const askGap = this.getLevelGap(orderbook.asks, 'asks');
       if (
-        bidGap > PredictMarketMakerBot.PREDICT_SAFE_MAX_LEVEL_GAP ||
-        askGap > PredictMarketMakerBot.PREDICT_SAFE_MAX_LEVEL_GAP
+        bidGap > safety.maxLevelGap ||
+        askGap > safety.maxLevelGap
       ) {
         return false;
       }

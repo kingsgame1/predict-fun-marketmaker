@@ -26,6 +26,16 @@ const PREDICT_SAFE_MAX_PRICE = 0.92;
 const PREDICT_SAFE_MAX_LEVEL_GAP = 0.02;
 const PREDICT_SAFE_MIN_L2_TO_L1_RATIO = 0.25;
 
+interface PredictSafetyConfig {
+  maxSpread: number;
+  minL1Notional: number;
+  minL2Notional: number;
+  minPrice: number;
+  maxPrice: number;
+  maxLevelGap: number;
+  minL2ToL1Ratio: number;
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -429,15 +439,28 @@ function readNumber(env: EnvMap, key: string, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function getPredictSafetyConfig(env: EnvMap): PredictSafetyConfig {
+  return {
+    maxSpread: readNumber(env, 'PREDICT_SAFE_MAX_SPREAD', PREDICT_SAFE_MAX_SPREAD),
+    minL1Notional: readNumber(env, 'PREDICT_SAFE_MIN_L1_NOTIONAL', PREDICT_SAFE_MIN_L1_NOTIONAL),
+    minL2Notional: readNumber(env, 'PREDICT_SAFE_MIN_L2_NOTIONAL', PREDICT_SAFE_MIN_L2_NOTIONAL),
+    minPrice: readNumber(env, 'PREDICT_SAFE_MIN_PRICE', PREDICT_SAFE_MIN_PRICE),
+    maxPrice: readNumber(env, 'PREDICT_SAFE_MAX_PRICE', PREDICT_SAFE_MAX_PRICE),
+    maxLevelGap: readNumber(env, 'PREDICT_SAFE_MAX_LEVEL_GAP', PREDICT_SAFE_MAX_LEVEL_GAP),
+    minL2ToL1Ratio: readNumber(env, 'PREDICT_SAFE_MIN_L2_TO_L1_RATIO', PREDICT_SAFE_MIN_L2_TO_L1_RATIO),
+  };
+}
+
 function getSelectorConfig(env: EnvMap, venue: 'predict' | 'probable'): [number, number, number, number] {
+  const predictSafety = getPredictSafetyConfig(env);
   const defaults =
     venue === 'probable'
       ? { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.2, minOrders: 0 }
-      : { minLiquidity: 0, minVolume24h: 0, maxSpread: PREDICT_SAFE_MAX_SPREAD, minOrders: 0 };
+      : { minLiquidity: 0, minVolume24h: 0, maxSpread: predictSafety.maxSpread, minOrders: 0 };
 
   const configuredMaxSpread = readNumber(env, 'MARKET_SELECTOR_MAX_SPREAD', defaults.maxSpread);
   const maxSpread =
-    venue === 'predict' ? Math.min(PREDICT_SAFE_MAX_SPREAD, configuredMaxSpread) : configuredMaxSpread;
+    venue === 'predict' ? Math.min(predictSafety.maxSpread, configuredMaxSpread) : configuredMaxSpread;
 
   return [
     readNumber(env, 'MARKET_SELECTOR_MIN_LIQUIDITY', defaults.minLiquidity),
@@ -466,13 +489,13 @@ function getBookSpread(orderbook: Orderbook | undefined): number | null {
   return bestAsk - bestBid;
 }
 
-function isSafePredictOrderbook(orderbook: Orderbook | undefined): boolean {
+function isSafePredictOrderbook(orderbook: Orderbook | undefined, safety: PredictSafetyConfig): boolean {
   const spread = getBookSpread(orderbook);
-  if (spread === null || spread > PREDICT_SAFE_MAX_SPREAD) {
+  if (spread === null || spread > safety.maxSpread) {
     return false;
   }
   const mid = Number(orderbook?.mid_price ?? 0);
-  if (!Number.isFinite(mid) || mid < PREDICT_SAFE_MIN_PRICE || mid > PREDICT_SAFE_MAX_PRICE) {
+  if (!Number.isFinite(mid) || mid < safety.minPrice || mid > safety.maxPrice) {
     return false;
   }
   const bid1 = readLevel(orderbook, 'bids', 0).notional ?? 0;
@@ -480,12 +503,12 @@ function isSafePredictOrderbook(orderbook: Orderbook | undefined): boolean {
   const bid2 = readLevel(orderbook, 'bids', 1).notional ?? 0;
   const ask2 = readLevel(orderbook, 'asks', 1).notional ?? 0;
   return (
-    Math.min(bid1, ask1) >= PREDICT_SAFE_MIN_L1_NOTIONAL &&
-    Math.min(bid2, ask2) >= PREDICT_SAFE_MIN_L2_NOTIONAL &&
-    getLevelGap(orderbook, 'bids') <= PREDICT_SAFE_MAX_LEVEL_GAP &&
-    getLevelGap(orderbook, 'asks') <= PREDICT_SAFE_MAX_LEVEL_GAP &&
-    getSupportRatio(orderbook, 'bids') >= PREDICT_SAFE_MIN_L2_TO_L1_RATIO &&
-    getSupportRatio(orderbook, 'asks') >= PREDICT_SAFE_MIN_L2_TO_L1_RATIO
+    Math.min(bid1, ask1) >= safety.minL1Notional &&
+    Math.min(bid2, ask2) >= safety.minL2Notional &&
+    getLevelGap(orderbook, 'bids') <= safety.maxLevelGap &&
+    getLevelGap(orderbook, 'asks') <= safety.maxLevelGap &&
+    getSupportRatio(orderbook, 'bids') >= safety.minL2ToL1Ratio &&
+    getSupportRatio(orderbook, 'asks') >= safety.minL2ToL1Ratio
   );
 }
 
@@ -542,6 +565,7 @@ async function main(): Promise<void> {
 
   const envText = fs.readFileSync(args.envPath, 'utf8');
   const env = parseEnv(envText);
+  const predictSafety = getPredictSafetyConfig(env);
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
   const selector = new MarketSelector(minLiquidity, minVolume24h, maxSpread, minOrders);
 
@@ -552,7 +576,7 @@ async function main(): Promise<void> {
 
   let scored = selector.selectMarkets(markets, orderbooks);
   if (scored.length === 0 && args.venue === 'predict' && markets.length > 0 && orderbooks.size > 0) {
-    const relaxedSelector = new MarketSelector(0, 0, PREDICT_SAFE_MAX_SPREAD, 0);
+    const relaxedSelector = new MarketSelector(0, 0, predictSafety.maxSpread, 0);
     const relaxedScored = relaxedSelector.selectMarkets(markets, orderbooks);
     if (relaxedScored.length > 0) {
       console.error(
@@ -565,7 +589,7 @@ async function main(): Promise<void> {
     const fallback = markets
       .filter((market) => {
         const book = orderbooks.get(market.token_id);
-        return isSafePredictOrderbook(book);
+        return isSafePredictOrderbook(book, predictSafety);
       })
       .slice(0, Math.max(args.top * 3, 12))
       .map((market) => {
@@ -587,7 +611,7 @@ async function main(): Promise<void> {
   }
   if (scored.length === 0 && args.venue === 'predict') {
     console.error(
-      `[Predict] 未找到安全盘口：自动推荐仅返回价差<=${(PREDICT_SAFE_MAX_SPREAD * 100).toFixed(0)}%、中间价位于 ${(PREDICT_SAFE_MIN_PRICE * 100).toFixed(0)}%-${(PREDICT_SAFE_MAX_PRICE * 100).toFixed(0)}%、且 L1/L2 深度达标的市场`
+      `[Predict] 未找到安全盘口：自动推荐仅返回价差<=${(predictSafety.maxSpread * 100).toFixed(0)}%、中间价位于 ${(predictSafety.minPrice * 100).toFixed(0)}%-${(predictSafety.maxPrice * 100).toFixed(0)}%、且 L1/L2 深度达标的市场`
     );
   }
   const top = scored.slice(0, Math.max(1, args.top));

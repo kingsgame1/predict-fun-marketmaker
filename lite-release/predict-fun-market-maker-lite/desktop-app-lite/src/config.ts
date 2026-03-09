@@ -1085,6 +1085,19 @@ export function loadConfig(): Config {
     predictAutoSetApprovals: process.env.PREDICT_AUTO_SET_APPROVALS !== 'false',
     predictCollateralBufferBps: parseInt(process.env.PREDICT_COLLATERAL_BUFFER_BPS || '100'),
     predictBuyInsufficientCooldownMs: parseInt(process.env.PREDICT_BUY_INSUFFICIENT_COOLDOWN_MS || '60000'),
+    predictChainId: parseInt(process.env.PREDICT_CHAIN_ID || '56'),
+    predictSafeMaxSpread: parseFloat(process.env.PREDICT_SAFE_MAX_SPREAD || '0.06'),
+    predictSafeMinL1Notional: parseFloat(process.env.PREDICT_SAFE_MIN_L1_NOTIONAL || '25'),
+    predictSafeMinL2Notional: parseFloat(process.env.PREDICT_SAFE_MIN_L2_NOTIONAL || '10'),
+    predictSafeMinL2ToL1Ratio: parseFloat(process.env.PREDICT_SAFE_MIN_L2_TO_L1_RATIO || '0.25'),
+    predictSafeMinPrice: parseFloat(process.env.PREDICT_SAFE_MIN_PRICE || '0.08'),
+    predictSafeMaxPrice: parseFloat(process.env.PREDICT_SAFE_MAX_PRICE || '0.92'),
+    predictSafeMaxLevelGap: parseFloat(process.env.PREDICT_SAFE_MAX_LEVEL_GAP || '0.02'),
+    predictFillPauseMs: parseInt(process.env.PREDICT_FILL_PAUSE_MS || '600000'),
+    predictUnsafeBookPauseMs: parseInt(process.env.PREDICT_UNSAFE_BOOK_PAUSE_MS || '180000'),
+    predictPositionLossLimitAbs: parseFloat(process.env.PREDICT_POSITION_LOSS_LIMIT_ABS || '25'),
+    predictPositionLossLimitRatio: parseFloat(process.env.PREDICT_POSITION_LOSS_LIMIT_RATIO || '0.3'),
+    predictPositionLossPauseMs: parseInt(process.env.PREDICT_POSITION_LOSS_PAUSE_MS || '1800000'),
     polymarketPrivateKey: process.env.POLYMARKET_PRIVATE_KEY,
     polymarketApiKey: process.env.POLYMARKET_API_KEY,
     polymarketApiSecret: process.env.POLYMARKET_API_SECRET,
@@ -1158,6 +1171,18 @@ export function loadConfig(): Config {
 
   if ((config.minSpread ?? 0) > (config.maxSpread ?? 0.08)) {
     throw new Error('MIN_SPREAD cannot be greater than MAX_SPREAD');
+  }
+
+  if (![56, 97].includes(config.predictChainId ?? 56)) {
+    throw new Error('PREDICT_CHAIN_ID must be 56 (mainnet) or 97 (testnet)');
+  }
+
+  if ((config.predictSafeMaxSpread ?? 0) <= 0 || (config.predictSafeMaxSpread ?? 0) > 0.2) {
+    throw new Error('PREDICT_SAFE_MAX_SPREAD must be between 0 and 0.2');
+  }
+
+  if ((config.predictSafeMinPrice ?? 0) < 0 || (config.predictSafeMaxPrice ?? 1) > 1 || (config.predictSafeMinPrice ?? 0) >= (config.predictSafeMaxPrice ?? 1)) {
+    throw new Error('PREDICT_SAFE_MIN_PRICE / PREDICT_SAFE_MAX_PRICE must satisfy 0 <= min < max <= 1');
   }
 
   if ((config.valueSignalWeight ?? 0) < 0 || (config.valueSignalWeight ?? 0) > 1) {

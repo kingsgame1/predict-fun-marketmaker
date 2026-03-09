@@ -350,7 +350,25 @@ export class MarketMaker {
   }
 
   private getPredictSpreadSafetyThreshold(): number {
-    return this.config.mmVenue === 'predict' ? 0.06 : MarketMaker.MAX_ALLOWED_BOOK_SPREAD;
+    return this.config.mmVenue === 'predict'
+      ? (this.config.predictSafeMaxSpread ?? 0.06)
+      : MarketMaker.MAX_ALLOWED_BOOK_SPREAD;
+  }
+
+  private getPredictSafetyConfig() {
+    return {
+      minL1Notional: this.config.predictSafeMinL1Notional ?? MarketMaker.PREDICT_SAFE_MIN_L1_NOTIONAL,
+      minL2Notional: this.config.predictSafeMinL2Notional ?? MarketMaker.PREDICT_SAFE_MIN_L2_NOTIONAL,
+      minL2ToL1Ratio: this.config.predictSafeMinL2ToL1Ratio ?? MarketMaker.PREDICT_SAFE_MIN_L2_TO_L1_RATIO,
+      minPrice: this.config.predictSafeMinPrice ?? MarketMaker.PREDICT_SAFE_MIN_PRICE,
+      maxPrice: this.config.predictSafeMaxPrice ?? MarketMaker.PREDICT_SAFE_MAX_PRICE,
+      maxLevelGap: this.config.predictSafeMaxLevelGap ?? MarketMaker.PREDICT_SAFE_MAX_LEVEL_GAP,
+      fillPauseMs: this.config.predictFillPauseMs ?? MarketMaker.PREDICT_FILL_PAUSE_MS,
+      unsafeBookPauseMs: this.config.predictUnsafeBookPauseMs ?? MarketMaker.PREDICT_UNSAFE_BOOK_PAUSE_MS,
+      positionLossLimitAbs: this.config.predictPositionLossLimitAbs ?? MarketMaker.PREDICT_POSITION_LOSS_LIMIT_ABS,
+      positionLossLimitRatio: this.config.predictPositionLossLimitRatio ?? MarketMaker.PREDICT_POSITION_LOSS_LIMIT_RATIO,
+      positionLossPauseMs: this.config.predictPositionLossPauseMs ?? MarketMaker.PREDICT_POSITION_LOSS_PAUSE_MS,
+    };
   }
 
   private isUnsafeBook(orderbook: Orderbook | null | undefined): boolean {
@@ -366,8 +384,9 @@ export class MarketMaker {
       return true;
     }
     if (this.config.mmVenue === 'predict') {
+      const safety = this.getPredictSafetyConfig();
       const mid = Number(orderbook.mid_price ?? (bestBid + bestAsk) / 2);
-      if (!Number.isFinite(mid) || mid < MarketMaker.PREDICT_SAFE_MIN_PRICE || mid > MarketMaker.PREDICT_SAFE_MAX_PRICE) {
+      if (!Number.isFinite(mid) || mid < safety.minPrice || mid > safety.maxPrice) {
         return true;
       }
       const bid1 = this.getLevelNotional(orderbook.bids, 0, 'bids');
@@ -375,20 +394,20 @@ export class MarketMaker {
       const bid2 = this.getLevelNotional(orderbook.bids, 1, 'bids');
       const ask2 = this.getLevelNotional(orderbook.asks, 1, 'asks');
       if (
-        Math.min(bid1, ask1) < MarketMaker.PREDICT_SAFE_MIN_L1_NOTIONAL ||
-        Math.min(bid2, ask2) < MarketMaker.PREDICT_SAFE_MIN_L2_NOTIONAL
+        Math.min(bid1, ask1) < safety.minL1Notional ||
+        Math.min(bid2, ask2) < safety.minL2Notional
       ) {
         return true;
       }
       if (
-        this.getSupportRatio(orderbook.bids, 'bids') < MarketMaker.PREDICT_SAFE_MIN_L2_TO_L1_RATIO ||
-        this.getSupportRatio(orderbook.asks, 'asks') < MarketMaker.PREDICT_SAFE_MIN_L2_TO_L1_RATIO
+        this.getSupportRatio(orderbook.bids, 'bids') < safety.minL2ToL1Ratio ||
+        this.getSupportRatio(orderbook.asks, 'asks') < safety.minL2ToL1Ratio
       ) {
         return true;
       }
       const bidGap = this.getLevelGap(orderbook.bids, 'bids');
       const askGap = this.getLevelGap(orderbook.asks, 'asks');
-      if (bidGap > MarketMaker.PREDICT_SAFE_MAX_LEVEL_GAP || askGap > MarketMaker.PREDICT_SAFE_MAX_LEVEL_GAP) {
+      if (bidGap > safety.maxLevelGap || askGap > safety.maxLevelGap) {
         return true;
       }
     }
@@ -452,8 +471,9 @@ export class MarketMaker {
       return;
     }
     await this.cancelOrdersForMarket(tokenId);
-    this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_UNSAFE_BOOK_PAUSE_MS);
-    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(MarketMaker.PREDICT_UNSAFE_BOOK_PAUSE_MS / 60000)} 分钟: ${tokenId}`);
+    const pauseMs = this.getPredictSafetyConfig().unsafeBookPauseMs;
+    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(pauseMs / 60000)} 分钟: ${tokenId}`);
   }
 
   private async triggerPredictFillCircuitBreaker(tokenId: string, reason: string): Promise<void> {
@@ -461,8 +481,9 @@ export class MarketMaker {
       return;
     }
     await this.cancelOrdersForMarket(tokenId);
-    this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_FILL_PAUSE_MS);
-    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(MarketMaker.PREDICT_FILL_PAUSE_MS / 60000)} 分钟: ${tokenId}`);
+    const pauseMs = this.getPredictSafetyConfig().fillPauseMs;
+    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(pauseMs / 60000)} 分钟: ${tokenId}`);
   }
 
   private async handlePredictUnsafePair(yesTokenId?: string, noTokenId?: string, reason = '盘口不安全'): Promise<void> {
@@ -480,13 +501,14 @@ export class MarketMaker {
     }
     const pnl = Number(position.pnl || 0);
     const value = Math.abs(Number(position.total_value || 0));
+    const safety = this.getPredictSafetyConfig();
     if (!Number.isFinite(pnl) || pnl >= 0) {
       return false;
     }
-    if (pnl <= -MarketMaker.PREDICT_POSITION_LOSS_LIMIT_ABS) {
+    if (pnl <= -safety.positionLossLimitAbs) {
       return true;
     }
-    if (value > 0 && Math.abs(pnl) / value >= MarketMaker.PREDICT_POSITION_LOSS_LIMIT_RATIO) {
+    if (value > 0 && Math.abs(pnl) / value >= safety.positionLossLimitRatio) {
       return true;
     }
     return false;
@@ -497,7 +519,8 @@ export class MarketMaker {
       return;
     }
     await this.cancelOrdersForMarket(tokenId);
-    this.pauseUntil.set(tokenId, Date.now() + MarketMaker.PREDICT_POSITION_LOSS_PAUSE_MS);
+    const pauseMs = this.getPredictSafetyConfig().positionLossPauseMs;
+    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
     console.warn(
       `🛑 [PredictSafety] 单市场亏损熔断: token=${tokenId} pnl=${Number(position?.pnl || 0).toFixed(2)} value=${Number(position?.total_value || 0).toFixed(2)}`
     );
