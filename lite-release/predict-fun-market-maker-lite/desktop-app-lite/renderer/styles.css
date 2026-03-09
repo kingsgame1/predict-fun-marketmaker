@@ -282,6 +282,41 @@ input[type='number'] {
   margin-bottom: 10px;
 }
 
+.market-quote-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.quote-panel {
+  border-radius: 16px;
+  padding: 12px;
+  border: 1px solid rgba(51, 65, 85, 0.9);
+  background: rgba(2, 6, 23, 0.7);
+}
+
+.quote-panel.bid {
+  background: linear-gradient(180deg, rgba(8, 47, 73, 0.72), rgba(2, 6, 23, 0.78));
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.quote-panel.ask {
+  background: linear-gradient(180deg, rgba(76, 5, 25, 0.72), rgba(2, 6, 23, 0.78));
+  border-color: rgba(251, 113, 133, 0.35);
+}
+
+.quote-panel.secondary {
+  opacity: 0.92;
+}
+
+.market-spread-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
 .metric-panel {
   background: rgba(2, 6, 23, 0.48);
   border: 1px solid rgba(51, 65, 85, 0.8);
@@ -361,6 +396,7 @@ pre {
   }
 
   .market-quote-row,
+  .market-quote-grid,
   .market-liquidity-row,
   .market-stats-row,
   .market-quality-row {

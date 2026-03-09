@@ -242,17 +242,31 @@ function renderMarketCards(items, selected = new Set()) {
           </label>
         </div>
       </div>
-      <div class="market-quote-row">
-        <div class="metric-panel">
-          <div class="metric-label">盘口价差</div>
-          <div class="metric-value">${item.spreadPct == null ? '--' : formatPct(item.spreadPct, 2)}</div>
-          <div class="metric-subvalue">Bid ${item.bestBid == null ? '--' : formatNum(item.bestBid, 4)} / Ask ${item.bestAsk == null ? '--' : formatNum(item.bestAsk, 4)}</div>
+      <div class="market-quote-grid">
+        <div class="quote-panel bid">
+          <div class="metric-label">买一</div>
+          <div class="metric-value">${item.bid1Price == null ? '--' : formatNum(item.bid1Price, 4)}</div>
+          <div class="metric-subvalue">${item.bid1Shares == null ? '--' : formatNum(item.bid1Shares, 2)} 股</div>
         </div>
-        <div class="metric-panel">
-          <div class="metric-label">二档买卖价</div>
-          <div class="metric-value">${bid2Price} / ${ask2Price}</div>
-          <div class="metric-subvalue">买二 / 卖二 · 断层 ${gap}</div>
+        <div class="quote-panel ask">
+          <div class="metric-label">卖一</div>
+          <div class="metric-value">${item.ask1Price == null ? '--' : formatNum(item.ask1Price, 4)}</div>
+          <div class="metric-subvalue">${item.ask1Shares == null ? '--' : formatNum(item.ask1Shares, 2)} 股</div>
         </div>
+        <div class="quote-panel bid secondary">
+          <div class="metric-label">买二</div>
+          <div class="metric-value">${bid2Price}</div>
+          <div class="metric-subvalue">${item.bid2Shares == null ? '--' : formatNum(item.bid2Shares, 2)} 股</div>
+        </div>
+        <div class="quote-panel ask secondary">
+          <div class="metric-label">卖二</div>
+          <div class="metric-value">${ask2Price}</div>
+          <div class="metric-subvalue">${item.ask2Shares == null ? '--' : formatNum(item.ask2Shares, 2)} 股</div>
+        </div>
+      </div>
+      <div class="market-spread-strip">
+        <span class="metric-chip">价差 ${item.spreadPct == null ? '--' : formatPct(item.spreadPct, 2)}</span>
+        <span class="metric-chip">断层 ${gap}</span>
       </div>
       <div class="market-liquidity-row">
         <div class="metric-panel">
