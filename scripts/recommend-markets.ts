@@ -44,6 +44,25 @@ interface MakerQuality {
   liquidityScore: number;
 }
 
+function toFiniteNumber(value: unknown): number {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function sortByLiquidityAndVolume<T>(
+  items: T[],
+  getLiquidity: (item: T) => number,
+  getVolume: (item: T) => number
+): T[] {
+  return [...items].sort((a, b) => {
+    const liquidityDiff = getLiquidity(b) - getLiquidity(a);
+    if (liquidityDiff !== 0) return liquidityDiff;
+    const volumeDiff = getVolume(b) - getVolume(a);
+    if (volumeDiff !== 0) return volumeDiff;
+    return 0;
+  });
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
