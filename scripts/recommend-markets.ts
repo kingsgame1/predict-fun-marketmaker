@@ -36,6 +36,14 @@ interface PredictSafetyConfig {
   minL2ToL1Ratio: number;
 }
 
+interface MakerQuality {
+  supportRatio: number;
+  levelGap: number;
+  symmetry: number;
+  centerScore: number;
+  liquidityScore: number;
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -245,6 +253,37 @@ function normalizeOrderbook(tokenId: string, raw: any): Orderbook {
   };
 }
 
+async function populateOrderbooksWithConcurrency(
+  markets: Market[],
+  concurrency: number,
+  fetcher: (market: Market) => Promise<Orderbook>
+): Promise<Map<string, Orderbook>> {
+  const orderbooks = new Map<string, Orderbook>();
+  const batchSize = Math.max(1, concurrency);
+
+  for (let i = 0; i < markets.length; i += batchSize) {
+    const batch = markets.slice(i, i + batchSize);
+    const settled = await Promise.allSettled(
+      batch.map(async (market) => {
+        const book = await fetcher(market);
+        orderbooks.set(market.token_id, book);
+        market.best_bid = book.best_bid;
+        market.best_ask = book.best_ask;
+        market.spread_pct = book.spread_pct;
+        market.total_orders = (book.bids?.length || 0) + (book.asks?.length || 0);
+      })
+    );
+
+    settled.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`订单簿抓取失败 ${batch[index]?.token_id}:`, result.reason instanceof Error ? result.reason.message : result.reason);
+      }
+    });
+  }
+
+  return orderbooks;
+}
+
 async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets: Market[]; orderbooks: Map<string, Orderbook> }> {
   const apiBaseUrl = env.get('API_BASE_URL') || 'https://api.predict.fun';
   const apiKey = env.get('API_KEY');
@@ -259,20 +298,10 @@ async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets:
     (market) => toFiniteNumber(market.liquidity_24h),
     (market) => toFiniteNumber(market.volume_24h)
   );
-  const selected = rankedMarkets.slice(0, Math.min(rankedMarkets.length, Math.max(scan * 3, 36)));
-  const orderbooks = new Map<string, Orderbook>();
-  for (const market of selected) {
-    try {
-      const book = await api.getOrderbook(market.token_id);
-      orderbooks.set(market.token_id, book);
-      market.best_bid = book.best_bid;
-      market.best_ask = book.best_ask;
-      market.spread_pct = book.spread_pct;
-      market.total_orders = (book.bids?.length || 0) + (book.asks?.length || 0);
-    } catch {
-      // skip bad market
-    }
-  }
+  const selected = rankedMarkets.slice(0, Math.min(rankedMarkets.length, Math.max(scan * 4, 60)));
+  const orderbooks = await populateOrderbooksWithConcurrency(selected, 4, async (market) =>
+    api.getOrderbook(market.token_id)
+  );
   console.error(`[Predict] 订单簿抓取成功: ${orderbooks.size}/${selected.length}`);
   return { markets: selected, orderbooks };
 }
@@ -340,25 +369,21 @@ async function loadProbableMarkets(env: EnvMap, scan: number): Promise<{ markets
     }
   }
 
-  const orderbooks = new Map<string, Orderbook>();
-  for (const market of markets.slice(0, scan)) {
-    try {
-      const bookResponse = await httpGetWithRetry(`${orderbookApiUrl.replace(/\/+$/g, '')}/book`, {
-        params: { token_id: market.token_id },
-        timeout: 8000,
-      });
-      const book = normalizeOrderbook(market.token_id, bookResponse.data);
-      orderbooks.set(market.token_id, book);
-      market.best_bid = book.best_bid;
-      market.best_ask = book.best_ask;
-      market.spread_pct = book.spread_pct;
-      market.total_orders = (book.bids?.length || 0) + (book.asks?.length || 0);
-    } catch {
-      // skip bad market
-    }
-  }
+  const rankedMarkets = sortByLiquidityAndVolume(
+    markets,
+    (market) => toFiniteNumber(market.liquidity_24h),
+    (market) => toFiniteNumber(market.volume_24h)
+  );
+  const selected = rankedMarkets.slice(0, Math.min(rankedMarkets.length, Math.max(scan * 3, 48)));
+  const orderbooks = await populateOrderbooksWithConcurrency(selected, 5, async (market) => {
+    const bookResponse = await httpGetWithRetry(`${orderbookApiUrl.replace(/\/+$/g, '')}/book`, {
+      params: { token_id: market.token_id },
+      timeout: 8000,
+    });
+    return normalizeOrderbook(market.token_id, bookResponse.data);
+  });
 
-  return { markets: markets.slice(0, scan), orderbooks };
+  return { markets: selected, orderbooks };
 }
 
 function readNumber(env: EnvMap, key: string, fallback: number): number {
@@ -478,6 +503,63 @@ function getSupportRatio(orderbook: Orderbook | undefined, side: 'bids' | 'asks'
   return l2 / l1;
 }
 
+function getBookSymmetry(orderbook: Orderbook | undefined): number {
+  const bid = readLevel(orderbook, 'bids', 0).notional ?? 0;
+  const ask = readLevel(orderbook, 'asks', 0).notional ?? 0;
+  if (bid <= 0 || ask <= 0) {
+    return 0;
+  }
+  const minSide = Math.min(bid, ask);
+  const maxSide = Math.max(bid, ask);
+  return maxSide > 0 ? minSide / maxSide : 0;
+}
+
+function getCenterScore(orderbook: Orderbook | undefined): number {
+  const mid = Number(orderbook?.mid_price ?? 0);
+  if (!Number.isFinite(mid) || mid <= 0 || mid >= 1) {
+    return 0;
+  }
+  const distance = Math.abs(mid - 0.5);
+  return Math.max(0, 1 - distance / 0.45);
+}
+
+function getMakerQuality(orderbook: Orderbook | undefined): MakerQuality {
+  const supportRatio = Math.min(getSupportRatio(orderbook, 'bids'), getSupportRatio(orderbook, 'asks'));
+  const levelGap = Math.max(getLevelGap(orderbook, 'bids'), getLevelGap(orderbook, 'asks'));
+  const symmetry = getBookSymmetry(orderbook);
+  const centerScore = getCenterScore(orderbook);
+  const liquidityScore =
+    Math.log10((readLevel(orderbook, 'bids', 0).notional ?? 0) + (readLevel(orderbook, 'asks', 0).notional ?? 0) + 1) +
+    Math.log10((readLevel(orderbook, 'bids', 1).notional ?? 0) + (readLevel(orderbook, 'asks', 1).notional ?? 0) + 1);
+  return { supportRatio, levelGap, symmetry, centerScore, liquidityScore };
+}
+
+function normalizeGroupKey(market: Market): string {
+  const question = String(market.question || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  return String(market.condition_id || market.event_id || question);
+}
+
+function diversifyRecommendations(scored: ReturnType<MarketSelector['selectMarkets']>, count: number) {
+  const selected: typeof scored = [];
+  const perGroup = new Map<string, number>();
+  for (const entry of scored) {
+    const key = normalizeGroupKey(entry.market);
+    const used = perGroup.get(key) || 0;
+    if (used >= 2) {
+      continue;
+    }
+    selected.push(entry);
+    perGroup.set(key, used + 1);
+    if (selected.length >= count) {
+      break;
+    }
+  }
+  return selected;
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!fs.existsSync(args.envPath)) {
@@ -535,7 +617,7 @@ async function main(): Promise<void> {
       `[Predict] 未找到安全盘口：自动推荐仅返回价差<=${(predictSafety.maxSpread * 100).toFixed(0)}%、中间价位于 ${(predictSafety.minPrice * 100).toFixed(0)}%-${(predictSafety.maxPrice * 100).toFixed(0)}%、且 L1/L2 深度达标的市场`
     );
   }
-  const top = scored.slice(0, Math.max(1, args.top));
+  const top = diversifyRecommendations(scored, Math.max(1, args.top));
   const tokenIds = top.map((s) => s.market.token_id);
   const recommendations = top.map((entry, idx) => {
     const book = orderbooks.get(entry.market.token_id);
@@ -549,6 +631,7 @@ async function main(): Promise<void> {
     const l2Notional =
       (bid2.notional && Number.isFinite(bid2.notional) ? bid2.notional : 0) +
       (ask2.notional && Number.isFinite(ask2.notional) ? ask2.notional : 0);
+    const quality = getMakerQuality(book);
 
     return {
       rank: idx + 1,
@@ -573,6 +656,10 @@ async function main(): Promise<void> {
       ask2Shares: toFixedOrNull(ask2.shares, 2),
       l1NotionalUsd: toFixedOrNull(l1Notional > 0 ? l1Notional : null, 2),
       l2NotionalUsd: toFixedOrNull(l2Notional > 0 ? l2Notional : null, 2),
+      supportRatio: toFixedOrNull(quality.supportRatio, 3),
+      maxLevelGap: toFixedOrNull(quality.levelGap, 4),
+      symmetry: toFixedOrNull(quality.symmetry, 3),
+      centerScore: toFixedOrNull(quality.centerScore, 3),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))
