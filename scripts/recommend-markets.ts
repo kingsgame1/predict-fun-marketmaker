@@ -44,6 +44,29 @@ interface MakerQuality {
   liquidityScore: number;
 }
 
+function buildMarketLink(venue: 'predict' | 'probable', market: Market): string {
+  const explicit = String(market.market_url || '').trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const slug = String(market.market_slug || '').trim();
+  if (slug) {
+    return venue === 'predict'
+      ? `https://predict.fun/${encodeURIComponent(slug)}`
+      : `https://probable.markets/${encodeURIComponent(slug)}`;
+  }
+
+  const marketId = String(market.event_id || market.condition_id || market.token_id || '').trim();
+  if (!marketId) {
+    return venue === 'predict' ? 'https://predict.fun?ref=B0CE6' : 'https://probable.markets/?ref=PNRBS9VL';
+  }
+
+  return venue === 'predict'
+    ? `https://api.predict.fun/v1/markets/${encodeURIComponent(marketId)}`
+    : `https://market-api.probable.markets/public/api/v1/markets/${encodeURIComponent(marketId)}`;
+}
+
 function toFiniteNumber(value: unknown): number {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
@@ -656,6 +679,7 @@ async function main(): Promise<void> {
       rank: idx + 1,
       score: Number(entry.score.toFixed(3)),
       tokenId: entry.market.token_id,
+      marketUrl: buildMarketLink(args.venue, entry.market),
       question: (entry.market.question || '').replace(/\s+/g, ' ').trim(),
       spreadPct:
         entry.market.spread_pct !== undefined && Number.isFinite(entry.market.spread_pct)
@@ -669,6 +693,10 @@ async function main(): Promise<void> {
         entry.market.best_ask !== undefined && Number.isFinite(entry.market.best_ask)
           ? Number(entry.market.best_ask.toFixed(6))
           : null,
+      bid1Price: toFixedOrNull(bid1.price, 6),
+      ask1Price: toFixedOrNull(ask1.price, 6),
+      bid2Price: toFixedOrNull(bid2.price, 6),
+      ask2Price: toFixedOrNull(ask2.price, 6),
       bid1Shares: toFixedOrNull(bid1.shares, 2),
       ask1Shares: toFixedOrNull(ask1.shares, 2),
       bid2Shares: toFixedOrNull(bid2.shares, 2),

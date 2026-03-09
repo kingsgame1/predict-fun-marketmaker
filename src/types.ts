@@ -1071,6 +1071,8 @@ export interface Market {
   description?: string;
   condition_id?: string;
   event_id?: string;
+  market_url?: string;
+  market_slug?: string;
   outcome?: string;
   end_date?: string;
   is_neg_risk: boolean;

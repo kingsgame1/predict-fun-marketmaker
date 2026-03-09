@@ -169,6 +169,14 @@ export class ProbableAPI implements MakerApi {
           question,
           condition_id: eventId,
           event_id: eventId,
+          market_url:
+            (market as any)?.market_url ??
+            (market as any)?.marketUrl ??
+            (market as any)?.share_url ??
+            (market as any)?.shareUrl ??
+            (market as any)?.url ??
+            (market as any)?.websiteUrl,
+          market_slug: (market as any)?.slug ?? (market as any)?.market_slug ?? (market as any)?.marketSlug,
           outcome,
           is_neg_risk: false,
           is_yield_bearing: false,

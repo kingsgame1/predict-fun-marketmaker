@@ -271,6 +271,14 @@ export class PredictAPI {
       condition_id: raw?.condition_id ?? raw?.conditionId ?? raw?.condition?.id,
       event_id:
         raw?.event_id ?? raw?.eventId ?? raw?.event?.id ?? raw?.market_id ?? raw?.marketId ?? raw?.id,
+      market_url:
+        raw?.market_url ??
+        raw?.marketUrl ??
+        raw?.share_url ??
+        raw?.shareUrl ??
+        raw?.url ??
+        raw?.websiteUrl,
+      market_slug: raw?.slug ?? raw?.market_slug ?? raw?.marketSlug ?? raw?.event?.slug,
       outcome: raw?.outcome ?? raw?.side ?? raw?.resolution?.outcome,
       end_date: raw?.end_date ?? raw?.endsAt,
       is_neg_risk: Boolean(raw?.is_neg_risk ?? raw?.isNegRisk ?? false),

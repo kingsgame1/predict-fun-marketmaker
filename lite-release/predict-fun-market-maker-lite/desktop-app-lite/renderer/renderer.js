@@ -219,6 +219,8 @@ function renderMarketCards(items, selected = new Set()) {
     const symmetry = item.symmetry == null ? '--' : formatNum(item.symmetry, 3);
     const centerScore = item.centerScore == null ? '--' : formatNum(item.centerScore, 3);
     const scoreText = item.score == null ? '--' : formatNum(item.score, 2);
+    const bid2Price = item.bid2Price == null ? '--' : formatNum(item.bid2Price, 4);
+    const ask2Price = item.ask2Price == null ? '--' : formatNum(item.ask2Price, 4);
 
     card.innerHTML = `
       <div class="market-card-header">
@@ -230,10 +232,15 @@ function renderMarketCards(items, selected = new Set()) {
           </div>
           <h3 class="market-card-title">${escapeHtml(item.question || '--')}</h3>
         </div>
-        <label class="market-check-wrap">
-          <input type="checkbox" class="market-check" data-token="${escapeHtml(item.tokenId)}" ${isSelected ? 'checked' : ''} />
-          选择
-        </label>
+        <div class="market-card-actions">
+          <button class="market-link-btn" type="button" data-market-url="${escapeHtml(item.marketUrl || '')}">
+            打开市场
+          </button>
+          <label class="market-check-wrap">
+            <input type="checkbox" class="market-check" data-token="${escapeHtml(item.tokenId)}" ${isSelected ? 'checked' : ''} />
+            选择
+          </label>
+        </div>
       </div>
       <div class="market-quote-row">
         <div class="metric-panel">
@@ -242,9 +249,9 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-subvalue">Bid ${item.bestBid == null ? '--' : formatNum(item.bestBid, 4)} / Ask ${item.bestAsk == null ? '--' : formatNum(item.bestAsk, 4)}</div>
         </div>
         <div class="metric-panel">
-          <div class="metric-label">盘口结构</div>
-          <div class="metric-value">${supportRatio}</div>
-          <div class="metric-subvalue">支撑率 · 断层 ${gap}</div>
+          <div class="metric-label">二档买卖价</div>
+          <div class="metric-value">${bid2Price} / ${ask2Price}</div>
+          <div class="metric-subvalue">买二 / 卖二 · 断层 ${gap}</div>
         </div>
       </div>
       <div class="market-liquidity-row">
@@ -257,6 +264,18 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-label">二档可挂</div>
           <div class="metric-value">$${item.l2UsableUsd == null ? '--' : formatNum(item.l2UsableUsd, 2)}</div>
           <div class="metric-subvalue">买二 ${item.bid2Shares == null ? '--' : formatNum(item.bid2Shares, 2)} / 卖二 ${item.ask2Shares == null ? '--' : formatNum(item.ask2Shares, 2)}</div>
+        </div>
+      </div>
+      <div class="market-stats-row">
+        <div class="metric-panel">
+          <div class="metric-label">24h 流动性</div>
+          <div class="metric-value">$${item.liquidity24h == null ? '--' : formatNum(item.liquidity24h, 0)}</div>
+          <div class="metric-subvalue">用于判断市场整体资金承载能力</div>
+        </div>
+        <div class="metric-panel">
+          <div class="metric-label">24h 交易量</div>
+          <div class="metric-value">$${item.volume24h == null ? '--' : formatNum(item.volume24h, 0)}</div>
+          <div class="metric-subvalue">用于判断当天活跃度，不单独决定是否推荐</div>
         </div>
       </div>
       <div class="market-quality-row">
@@ -465,6 +484,21 @@ marketCardGrid?.addEventListener('change', (event) => {
     if (marketSummary) {
       marketSummary.textContent = `共 ${lastRecommendations.length} 个推荐，已勾选 ${getCheckedTokenIds().length} 个`;
     }
+  }
+});
+
+marketCardGrid?.addEventListener('click', async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const button = target.closest('.market-link-btn');
+  if (!button) return;
+  const url = button.getAttribute('data-market-url') || '';
+  if (!url) {
+    pushLog('当前市场缺少可打开的链接');
+    return;
+  }
+  if (api) {
+    await api.openExternal(url);
   }
 });
 
