@@ -44,27 +44,191 @@ interface MakerQuality {
   liquidityScore: number;
 }
 
+interface MarketLinkResolution {
+  url: string;
+  label: '打开市场' | '搜索市场';
+  source: 'direct' | 'slug' | 'cache' | 'search' | 'fallback';
+}
+
+interface MarketLinkCacheEntry {
+  url: string;
+  label: '打开市场' | '搜索市场';
+  source: MarketLinkResolution['source'];
+  expiresAt: number;
+  updatedAt: number;
+}
+
+type MarketLinkCache = Record<string, MarketLinkCacheEntry>;
+
 function buildMarketLink(venue: 'predict' | 'probable', market: Market): string {
   const explicit = String(market.market_url || '').trim();
-  if (explicit) {
+  if (explicit && !explicit.includes('api.predict.fun') && !explicit.includes('market-api.probable.markets')) {
     return explicit;
   }
 
   const slug = String(market.market_slug || '').trim();
   if (slug) {
     return venue === 'predict'
-      ? `https://predict.fun/${encodeURIComponent(slug)}`
-      : `https://probable.markets/${encodeURIComponent(slug)}`;
+      ? `https://predict.fun/market/${encodeURIComponent(slug)}?ref=B0CE6`
+      : `https://probable.markets/market/${encodeURIComponent(slug)}?ref=PNRBS9VL`;
   }
 
-  const marketId = String(market.event_id || market.condition_id || market.token_id || '').trim();
-  if (!marketId) {
-    return venue === 'predict' ? 'https://predict.fun?ref=B0CE6' : 'https://probable.markets/?ref=PNRBS9VL';
+  const query = encodeURIComponent(`${market.question || ''} site:${venue === 'predict' ? 'predict.fun/market' : 'probable.markets/market'}`);
+  return `https://duckduckgo.com/?q=${query}`;
+}
+
+function buildMarketLinkLabel(venue: 'predict' | 'probable', market: Market): string {
+  const explicit = String(market.market_url || '').trim();
+  const slug = String(market.market_slug || '').trim();
+  if ((explicit && !explicit.includes('api.predict.fun') && !explicit.includes('market-api.probable.markets')) || slug) {
+    return '打开市场';
+  }
+  return venue === 'predict' ? '搜索市场' : '搜索市场';
+}
+
+function getMarketLinkCachePath(envPath: string): string {
+  return path.join(path.dirname(envPath), 'market-link-cache.json');
+}
+
+function loadMarketLinkCache(cachePath: string): MarketLinkCache {
+  try {
+    if (!fs.existsSync(cachePath)) return {};
+    const raw = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+    return raw && typeof raw === 'object' ? (raw as MarketLinkCache) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveMarketLinkCache(cachePath: string, cache: MarketLinkCache): void {
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+  fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf8');
+}
+
+function normalizeQuestion(question: string): string {
+  return String(question || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildMarketLinkCacheKey(venue: 'predict' | 'probable', market: Market): string {
+  return [
+    venue,
+    market.event_id || '',
+    market.condition_id || '',
+    market.market_slug || '',
+    normalizeQuestion(market.question || ''),
+  ].join('|');
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function unwrapSearchUrl(url: string): string {
+  const text = decodeHtmlEntities(url);
+  try {
+    const parsed = new URL(text, 'https://duckduckgo.com');
+    const uddg = parsed.searchParams.get('uddg');
+    return uddg ? decodeURIComponent(uddg) : parsed.toString();
+  } catch {
+    return text;
+  }
+}
+
+function isValidDirectMarketUrl(venue: 'predict' | 'probable', url: string): boolean {
+  const domain = venue === 'predict' ? 'predict.fun' : 'probable.markets';
+  return new RegExp(`^https?://(?:www\\.)?${domain.replace('.', '\\.')}/market/`, 'i').test(url);
+}
+
+async function searchDirectMarketUrl(
+  venue: 'predict' | 'probable',
+  market: Market
+): Promise<string | null> {
+  const site = venue === 'predict' ? 'predict.fun/market' : 'probable.markets/market';
+  const searchUrl = 'https://html.duckduckgo.com/html/';
+  const query = `"${market.question || ''}" site:${site}`;
+  try {
+    const response = await httpGetWithRetry(searchUrl, {
+      params: { q: query },
+      timeout: 12000,
+      responseType: 'text',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+      },
+      transformResponse: [(data: unknown) => data],
+    });
+    const html = String(response.data || '');
+    const hrefMatches = [...html.matchAll(/href=\"([^\"]+)\"/g)];
+    for (const match of hrefMatches) {
+      const candidate = unwrapSearchUrl(match[1] || '');
+      if (isValidDirectMarketUrl(venue, candidate)) {
+        return candidate;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function resolveMarketLink(
+  venue: 'predict' | 'probable',
+  market: Market,
+  cache: MarketLinkCache,
+  cachePath: string
+): Promise<MarketLinkResolution> {
+  const cacheKey = buildMarketLinkCacheKey(venue, market);
+  const now = Date.now();
+  const cached = cache[cacheKey];
+  if (cached && cached.expiresAt > now) {
+    return { url: cached.url, label: cached.label, source: 'cache' };
   }
 
-  return venue === 'predict'
-    ? `https://api.predict.fun/v1/markets/${encodeURIComponent(marketId)}`
-    : `https://market-api.probable.markets/public/api/v1/markets/${encodeURIComponent(marketId)}`;
+  const directUrl = buildMarketLink(venue, market);
+  if (isValidDirectMarketUrl(venue, directUrl)) {
+    cache[cacheKey] = {
+      url: directUrl,
+      label: '打开市场',
+      source: market.market_slug ? 'slug' : 'direct',
+      updatedAt: now,
+      expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+    };
+    saveMarketLinkCache(cachePath, cache);
+    return { url: directUrl, label: '打开市场', source: market.market_slug ? 'slug' : 'direct' };
+  }
+
+  const searchedUrl = await searchDirectMarketUrl(venue, market);
+  if (searchedUrl) {
+    cache[cacheKey] = {
+      url: searchedUrl,
+      label: '打开市场',
+      source: 'search',
+      updatedAt: now,
+      expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+    };
+    saveMarketLinkCache(cachePath, cache);
+    return { url: searchedUrl, label: '打开市场', source: 'search' };
+  }
+
+  const fallbackUrl = buildMarketLink(venue, market);
+  cache[cacheKey] = {
+    url: fallbackUrl,
+    label: '搜索市场',
+    source: 'fallback',
+    updatedAt: now,
+    expiresAt: now + 24 * 60 * 60 * 1000,
+  };
+  saveMarketLinkCache(cachePath, cache);
+  return { url: fallbackUrl, label: '搜索市场', source: 'fallback' };
 }
 
 function toFiniteNumber(value: unknown): number {
@@ -661,7 +825,9 @@ async function main(): Promise<void> {
   }
   const top = diversifyRecommendations(scored, Math.max(1, args.top));
   const tokenIds = top.map((s) => s.market.token_id);
-  const recommendations = top.map((entry, idx) => {
+  const linkCachePath = getMarketLinkCachePath(args.envPath);
+  const linkCache = loadMarketLinkCache(linkCachePath);
+  const recommendations = await Promise.all(top.map(async (entry, idx) => {
     const book = orderbooks.get(entry.market.token_id);
     const bid1 = readLevel(book, 'bids', 0);
     const ask1 = readLevel(book, 'asks', 0);
@@ -674,12 +840,15 @@ async function main(): Promise<void> {
       (bid2.notional && Number.isFinite(bid2.notional) ? bid2.notional : 0) +
       (ask2.notional && Number.isFinite(ask2.notional) ? ask2.notional : 0);
     const quality = getMakerQuality(book);
+    const marketLink = await resolveMarketLink(args.venue, entry.market, linkCache, linkCachePath);
 
     return {
       rank: idx + 1,
       score: Number(entry.score.toFixed(3)),
       tokenId: entry.market.token_id,
-      marketUrl: buildMarketLink(args.venue, entry.market),
+      marketUrl: marketLink.url,
+      marketLinkLabel: marketLink.label,
+      marketLinkSource: marketLink.source,
       question: (entry.market.question || '').replace(/\s+/g, ' ').trim(),
       spreadPct:
         entry.market.spread_pct !== undefined && Number.isFinite(entry.market.spread_pct)
@@ -717,7 +886,7 @@ async function main(): Promise<void> {
           : null,
       reasons: entry.reasons || [],
     };
-  });
+  }));
 
   const result: Record<string, unknown> = {
     venue: args.venue,

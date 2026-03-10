@@ -234,7 +234,7 @@ function renderMarketCards(items, selected = new Set()) {
         </div>
         <div class="market-card-actions">
           <button class="market-link-btn" type="button" data-market-url="${escapeHtml(item.marketUrl || '')}">
-            打开市场
+            ${escapeHtml(item.marketLinkLabel || '打开市场')}
           </button>
           <label class="market-check-wrap">
             <input type="checkbox" class="market-check" data-token="${escapeHtml(item.tokenId)}" ${isSelected ? 'checked' : ''} />
