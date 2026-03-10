@@ -36,6 +36,35 @@ chmod +x PredictFun.Market.Maker.Lite-1.1.0.AppImage
 
 如果 AppImage 无法启动，先检查系统是否安装 `libfuse2`。
 
+### 平台补充说明
+
+Windows：
+
+- 安装包：`PredictFun.Market.Maker.Lite.Setup.1.1.0.exe`
+- 配置目录：`%APPDATA%\\PredictFunMarketMakerLite`
+- 配置文件：`%APPDATA%\\PredictFunMarketMakerLite\\.env`
+- 最新版本已经内置运行时脚本，不再依赖系统 `npx` / `tsx`
+
+Ubuntu：
+
+- 推荐优先安装：`predict-fun-market-maker-lite-app_1.1.0_amd64.deb`
+- 安装命令：
+
+```bash
+sudo dpkg -i predict-fun-market-maker-lite-app_1.1.0_amd64.deb
+sudo apt-get install -f
+```
+
+- 配置目录：`${XDG_CONFIG_HOME:-~/.config}/predict-fun-market-maker-lite`
+- 配置文件：`${XDG_CONFIG_HOME:-~/.config}/predict-fun-market-maker-lite/.env`
+- 如果不想用 `.deb`，也可以继续使用 `AppImage`
+
+当前版本已静态确认：
+
+- Windows 和 Ubuntu 安装包都包含 `runtime-dist`
+- 打包版会优先执行内置 JS，不再依赖外部 `npx/tsx`
+- Ubuntu `.deb` 已声明 Electron 运行依赖
+
 ### 2. 套用模板
 
 打开应用后：
@@ -128,6 +157,12 @@ PROBABLE_PRIVATE_KEY=你的Probable私钥
   - 旧 Linux 包常见；新版本已修复
 - `spawn EINVAL`
   - 旧 Windows 包常见；新版本已修复
+- Windows 启动后看不到配置
+  - 请确认查看的是 `%APPDATA%\\PredictFunMarketMakerLite\\.env`
+- Ubuntu 安装 `.deb` 后无法启动
+  - 先执行 `sudo apt-get install -f` 补齐依赖
+- Ubuntu 的 AppImage 无法运行
+  - 先执行 `chmod +x *.AppImage`，再确认系统已安装 `libfuse2`
 
 ---
 
