@@ -49,6 +49,15 @@ export interface PredictCollateralState {
   allowance: string;
 }
 
+export interface PredictApprovalDiagnostic {
+  signerAddress: string;
+  makerAddress: string;
+  chainId: number;
+  nativeBalanceWei: bigint;
+  nativeBalance: string;
+  autoSetApprovals: boolean;
+}
+
 export class OrderManager {
   private readonly config: Config;
   private readonly chainId: number;
@@ -105,13 +114,43 @@ export class OrderManager {
     return result;
   }
 
+  async getApprovalDiagnostic(): Promise<PredictApprovalDiagnostic> {
+    const signerAddress = this.getSignerAddress();
+    const makerAddress = this.getMakerAddress();
+    const nativeBalanceWei = await this.provider.getBalance(signerAddress);
+
+    return {
+      signerAddress,
+      makerAddress,
+      chainId: this.chainId,
+      nativeBalanceWei,
+      nativeBalance: formatUnits(nativeBalanceWei, 18),
+      autoSetApprovals: this.config.predictAutoSetApprovals !== false,
+    };
+  }
+
   async ensureTradingReady(): Promise<void> {
     if (this.approvalsReady || this.config.predictAutoSetApprovals === false) {
       return;
     }
     const result = await this.setApprovals();
     if (!result?.success) {
-      throw new Error('Predict approvals failed: setApprovals returned success=false');
+      const diag = await this.getApprovalDiagnostic();
+      const detail = [
+        'Predict approvals failed',
+        `signer=${diag.signerAddress}`,
+        `maker=${diag.makerAddress}`,
+        `chainId=${diag.chainId}`,
+        `nativeBalance=${Number(diag.nativeBalance).toFixed(6)}`,
+        diag.signerAddress !== diag.makerAddress
+          ? 'note=需要由签名钱包持有原生币支付 approvals gas，Predict 账号余额不能替代 gas'
+          : 'note=签名钱包需要持有原生币支付 approvals gas',
+        result?.message ? `message=${result.message}` : null,
+        result?.error ? `error=${result.error}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | ');
+      throw new Error(detail);
     }
   }
 

@@ -170,6 +170,17 @@ async function buildRuntimeBundle() {
 
   transpileDir(srcDst, path.join(runtimeRoot, 'src'));
   transpileDir(scriptsDst, path.join(runtimeRoot, 'scripts'));
+  fs.writeFileSync(
+    path.join(runtimeRoot, 'package.json'),
+    JSON.stringify(
+      {
+        type: 'module',
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
   console.log(`[copy-source] ✅ runtime-dist 已生成`);
 }
 
