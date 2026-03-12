@@ -221,6 +221,44 @@ function renderMarketCards(items, selected = new Set()) {
     const scoreText = item.score == null ? '--' : formatNum(item.score, 2);
     const bid2Price = item.bid2Price == null ? '--' : formatNum(item.bid2Price, 4);
     const ask2Price = item.ask2Price == null ? '--' : formatNum(item.ask2Price, 4);
+    const liquidityPanels = [];
+    if (item.l1UsableUsd != null && Number(item.l1UsableUsd) > 0) {
+      liquidityPanels.push(`
+        <div class="metric-panel">
+          <div class="metric-label">一档可挂</div>
+          <div class="metric-value">$${formatNum(item.l1UsableUsd, 2)}</div>
+          <div class="metric-subvalue">买一 ${item.bid1Shares == null ? '--' : formatNum(item.bid1Shares, 2)} / 卖一 ${item.ask1Shares == null ? '--' : formatNum(item.ask1Shares, 2)}</div>
+        </div>
+      `);
+    }
+    if (item.l2UsableUsd != null && Number(item.l2UsableUsd) > 0) {
+      liquidityPanels.push(`
+        <div class="metric-panel">
+          <div class="metric-label">二档可挂</div>
+          <div class="metric-value">$${formatNum(item.l2UsableUsd, 2)}</div>
+          <div class="metric-subvalue">买二 ${item.bid2Shares == null ? '--' : formatNum(item.bid2Shares, 2)} / 卖二 ${item.ask2Shares == null ? '--' : formatNum(item.ask2Shares, 2)}</div>
+        </div>
+      `);
+    }
+    const statsPanels = [];
+    if (item.liquidity24h != null && Number(item.liquidity24h) > 0) {
+      statsPanels.push(`
+        <div class="metric-panel">
+          <div class="metric-label">24h 流动性</div>
+          <div class="metric-value">$${formatNum(item.liquidity24h, 0)}</div>
+          <div class="metric-subvalue">用于判断市场整体资金承载能力</div>
+        </div>
+      `);
+    }
+    if (item.volume24h != null && Number(item.volume24h) > 0) {
+      statsPanels.push(`
+        <div class="metric-panel">
+          <div class="metric-label">24h 交易量</div>
+          <div class="metric-value">$${formatNum(item.volume24h, 0)}</div>
+          <div class="metric-subvalue">用于判断当天活跃度，不单独决定是否推荐</div>
+        </div>
+      `);
+    }
 
     card.innerHTML = `
       <div class="market-card-header">
@@ -268,30 +306,8 @@ function renderMarketCards(items, selected = new Set()) {
         <span class="metric-chip">价差 ${item.spreadPct == null ? '--' : formatPct(item.spreadPct, 2)}</span>
         <span class="metric-chip">断层 ${gap}</span>
       </div>
-      <div class="market-liquidity-row">
-        <div class="metric-panel">
-          <div class="metric-label">一档可挂</div>
-          <div class="metric-value">$${item.l1UsableUsd == null ? '--' : formatNum(item.l1UsableUsd, 2)}</div>
-          <div class="metric-subvalue">买一 ${item.bid1Shares == null ? '--' : formatNum(item.bid1Shares, 2)} / 卖一 ${item.ask1Shares == null ? '--' : formatNum(item.ask1Shares, 2)}</div>
-        </div>
-        <div class="metric-panel">
-          <div class="metric-label">二档可挂</div>
-          <div class="metric-value">$${item.l2UsableUsd == null ? '--' : formatNum(item.l2UsableUsd, 2)}</div>
-          <div class="metric-subvalue">买二 ${item.bid2Shares == null ? '--' : formatNum(item.bid2Shares, 2)} / 卖二 ${item.ask2Shares == null ? '--' : formatNum(item.ask2Shares, 2)}</div>
-        </div>
-      </div>
-      <div class="market-stats-row">
-        <div class="metric-panel">
-          <div class="metric-label">24h 流动性</div>
-          <div class="metric-value">$${item.liquidity24h == null ? '--' : formatNum(item.liquidity24h, 0)}</div>
-          <div class="metric-subvalue">用于判断市场整体资金承载能力</div>
-        </div>
-        <div class="metric-panel">
-          <div class="metric-label">24h 交易量</div>
-          <div class="metric-value">$${item.volume24h == null ? '--' : formatNum(item.volume24h, 0)}</div>
-          <div class="metric-subvalue">用于判断当天活跃度，不单独决定是否推荐</div>
-        </div>
-      </div>
+      ${liquidityPanels.length ? `<div class="market-liquidity-row">${liquidityPanels.join('')}</div>` : ''}
+      ${statsPanels.length ? `<div class="market-stats-row">${statsPanels.join('')}</div>` : ''}
       <div class="market-quality-row">
         <span class="metric-chip">对称度 ${escapeHtml(symmetry)}</span>
         <span class="metric-chip">中心度 ${escapeHtml(centerScore)}</span>

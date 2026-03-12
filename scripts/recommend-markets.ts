@@ -44,6 +44,16 @@ interface MakerQuality {
   liquidityScore: number;
 }
 
+function slugifyQuestion(question: string): string {
+  return String(question || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[$]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
 interface MarketLinkResolution {
   url: string;
   label: '打开市场' | '搜索市场';
@@ -73,6 +83,13 @@ function buildMarketLink(venue: 'predict' | 'probable', market: Market): string 
       : `https://probable.markets/market/${encodeURIComponent(slug)}?ref=PNRBS9VL`;
   }
 
+  if (venue === 'predict') {
+    const derivedSlug = slugifyQuestion(String(market.question || ''));
+    if (derivedSlug) {
+      return `https://predict.fun/market/${encodeURIComponent(derivedSlug)}?ref=B0CE6`;
+    }
+  }
+
   const query = encodeURIComponent(`${market.question || ''} site:${venue === 'predict' ? 'predict.fun/market' : 'probable.markets/market'}`);
   return `https://duckduckgo.com/?q=${query}`;
 }
@@ -83,7 +100,10 @@ function buildMarketLinkLabel(venue: 'predict' | 'probable', market: Market): st
   if ((explicit && !explicit.includes('api.predict.fun') && !explicit.includes('market-api.probable.markets')) || slug) {
     return '打开市场';
   }
-  return venue === 'predict' ? '搜索市场' : '搜索市场';
+  if (venue === 'predict' && slugifyQuestion(String(market.question || ''))) {
+    return '打开市场';
+  }
+  return '搜索市场';
 }
 
 function getMarketLinkCachePath(envPath: string): string {
@@ -229,6 +249,23 @@ async function resolveMarketLink(
   };
   saveMarketLinkCache(cachePath, cache);
   return { url: fallbackUrl, label: '搜索市场', source: 'fallback' };
+}
+
+async function hydratePredictMarketLink(api: PredictAPI, market: Market): Promise<Market> {
+  if (market.market_url || market.market_slug || !market.event_id) {
+    return market;
+  }
+
+  try {
+    const detail = await api.getMarket(String(market.event_id));
+    return {
+      ...market,
+      market_url: detail.market_url || market.market_url,
+      market_slug: detail.market_slug || market.market_slug,
+    };
+  } catch {
+    return market;
+  }
 }
 
 function toFiniteNumber(value: unknown): number {
@@ -840,7 +877,9 @@ async function main(): Promise<void> {
       (bid2.notional && Number.isFinite(bid2.notional) ? bid2.notional : 0) +
       (ask2.notional && Number.isFinite(ask2.notional) ? ask2.notional : 0);
     const quality = getMakerQuality(book);
-    const marketLink = await resolveMarketLink(args.venue, entry.market, linkCache, linkCachePath);
+    const linkedMarket =
+      args.venue === 'predict' ? await hydratePredictMarketLink(client as PredictAPI, entry.market) : entry.market;
+    const marketLink = await resolveMarketLink(args.venue, linkedMarket, linkCache, linkCachePath);
 
     return {
       rank: idx + 1,
