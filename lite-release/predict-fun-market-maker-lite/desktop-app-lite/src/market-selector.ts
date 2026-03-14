@@ -1,6 +1,7 @@
 /**
  * Market Selector
- * 面向做市的市场推荐：优先真实可挂流动性、盘口连续性、双边对称性
+ * 面向做市的市场推荐：优先真实可挂流动性、盘口连续性、双边对称性，
+ * 对 Polymarket 额外叠加流动性激励（奖励速率、最小挂单、最大奖励价差）评估。
  */
 
 import type { Market, Orderbook, OrderbookEntry } from './types.js';
@@ -20,6 +21,24 @@ interface LevelLiquidity {
   l2Usable: number;
   l1Total: number;
   l2Total: number;
+}
+
+interface PolymarketRewardProfile {
+  enabled: boolean;
+  acceptingOrders: boolean;
+  minSize: number;
+  maxSpread: number;
+  dailyRate: number;
+  hourlyRate: number;
+  l1SizeFit: number;
+  l2SizeFit: number;
+  spreadFit: number;
+  fitScore: number;
+  bonus: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 export class MarketSelector {
@@ -70,7 +89,11 @@ export class MarketSelector {
     const levelGap = Math.max(this.getLevelGap(orderbook, 'bids'), this.getLevelGap(orderbook, 'asks'));
     const symmetry = this.getBookSymmetry(orderbook);
     const mid = Number(orderbook.mid_price || 0);
+    const rewardProfile = this.getPolymarketRewardProfile(market, orderbook);
 
+    if (market.polymarket_accepting_orders === false) {
+      return { market, score: 0, reasons: ['Polymarket 市场当前不接受下单'] };
+    }
     if (liquidity < this.minLiquidity) {
       return { market, score: 0, reasons: [`流动性不足: $${liquidity.toFixed(0)} < $${this.minLiquidity}`] };
     }
@@ -132,6 +155,36 @@ export class MarketSelector {
       reasons.push('盘口双边不对称，降权');
     }
 
+    if (rewardProfile.enabled) {
+      score += rewardProfile.bonus;
+      reasons.push(`激励日速率: ${rewardProfile.dailyRate.toFixed(0)}`);
+      reasons.push(`激励门槛: ${rewardProfile.minSize.toFixed(0)} 股 / ${(rewardProfile.maxSpread * 100).toFixed(2)}¢`);
+      reasons.push(`激励适配度: ${(rewardProfile.fitScore * 100).toFixed(0)}%`);
+
+      if (!rewardProfile.acceptingOrders) {
+        score *= 0.8;
+        reasons.push('激励市场当前不接受下单，明显降权');
+      } else if (rewardProfile.fitScore >= 0.85) {
+        score += 4;
+        reasons.push('盘口与激励规则匹配，加分');
+      } else if (rewardProfile.fitScore >= 0.6) {
+        score += 2;
+        reasons.push('激励较强，且一二档基本满足奖励条件');
+      } else {
+        score *= 0.94;
+        reasons.push('有激励，但当前盘口/深度适配度一般，降权');
+      }
+
+      if (rewardProfile.spreadFit <= 0) {
+        score *= 0.9;
+        reasons.push('当前盘口宽于激励价差上限，降权');
+      }
+      if (rewardProfile.l2SizeFit < 0.6) {
+        score *= 0.92;
+        reasons.push('二档深度不足以稳定吃到激励，降权');
+      }
+    }
+
     reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);
     reasons.push(`24h交易量: $${volume.toFixed(0)}`);
     reasons.push(`一档可挂: $${levels.l1Usable.toFixed(2)}`);
@@ -145,6 +198,57 @@ export class MarketSelector {
     reasons.push(`价差: ${spreadPct.toFixed(2)}%`);
 
     return { market, score, reasons };
+  }
+
+  private getPolymarketRewardProfile(market: Market, orderbook: Orderbook): PolymarketRewardProfile {
+    const dailyRate = Number(market.polymarket_reward_daily_rate || 0);
+    const minSize = Number(market.polymarket_reward_min_size || 0);
+    const maxSpread = Number(market.polymarket_reward_max_spread || 0);
+    const enabled = Boolean(market.polymarket_rewards_enabled) && dailyRate > 0 && minSize > 0 && maxSpread > 0;
+    const bid1Shares = this.getLevelShares(orderbook.bids, 0, 'bids') || 0;
+    const ask1Shares = this.getLevelShares(orderbook.asks, 0, 'asks') || 0;
+    const bid2Shares = this.getLevelShares(orderbook.bids, 1, 'bids') || 0;
+    const ask2Shares = this.getLevelShares(orderbook.asks, 1, 'asks') || 0;
+    const l1MinShares = bid1Shares > 0 && ask1Shares > 0 ? Math.min(bid1Shares, ask1Shares) : 0;
+    const l2MinShares = bid2Shares > 0 && ask2Shares > 0 ? Math.min(bid2Shares, ask2Shares) : 0;
+    const spread = Number(orderbook.spread || 0);
+
+    if (!enabled) {
+      return {
+        enabled: false,
+        acceptingOrders: market.polymarket_accepting_orders !== false,
+        minSize,
+        maxSpread,
+        dailyRate,
+        hourlyRate: dailyRate > 0 ? dailyRate / 24 : 0,
+        l1SizeFit: 0,
+        l2SizeFit: 0,
+        spreadFit: 0,
+        fitScore: 0,
+        bonus: 0,
+      };
+    }
+
+    const l1SizeFit = clamp(l1MinShares / minSize, 0, 1.25);
+    const l2SizeFit = clamp(l2MinShares / minSize, 0, 1.25);
+    const spreadFit = spread > 0 ? clamp(1 - spread / maxSpread, 0, 1) : 0;
+    const fitScore = clamp(0.3 * spreadFit + 0.25 * (l1SizeFit / 1.25) + 0.45 * (l2SizeFit / 1.25), 0, 1.1);
+    const rewardStrength = Math.min(20, Math.log10(dailyRate + 1) * 4.5);
+    const bonus = rewardStrength * (0.35 + 0.65 * fitScore);
+
+    return {
+      enabled,
+      acceptingOrders: market.polymarket_accepting_orders !== false,
+      minSize,
+      maxSpread,
+      dailyRate,
+      hourlyRate: dailyRate / 24,
+      l1SizeFit,
+      l2SizeFit,
+      spreadFit,
+      fitScore,
+      bonus,
+    };
   }
 
   private getLevelLiquidity(orderbook: Orderbook): LevelLiquidity {
@@ -266,7 +370,7 @@ export class MarketSelector {
   }
 
   printAnalysis(scoredMarkets: MarketScore[]): void {
-    console.log('\n📊 市场分析（按真实可挂流动性与盘口质量排序）:');
+    console.log('\n📊 市场分析（按真实可挂流动性、盘口质量与激励匹配度排序）:');
     console.log('─'.repeat(80));
 
     for (let i = 0; i < Math.min(10, scoredMarkets.length); i++) {

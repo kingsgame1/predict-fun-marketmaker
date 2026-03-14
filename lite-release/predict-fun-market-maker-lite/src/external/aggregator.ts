@@ -2,22 +2,18 @@ import type { Config, Market, Orderbook } from '../types.js';
 import type { PlatformMarket } from './types.js';
 import { PolymarketDataProvider } from './polymarket.js';
 import { OpinionDataProvider } from './opinion.js';
-import { ProbableDataProvider } from './probable.js';
 import { buildPredictPlatformMarkets } from './predict.js';
 import { CrossPlatformMappingStore } from './mapping.js';
 import { PolymarketWebSocketFeed } from './polymarket-ws.js';
 import { OpinionWebSocketFeed } from './opinion-ws.js';
-import { ProbableWebSocketFeed } from './probable-ws.js';
 
 export class CrossPlatformAggregator {
   private config: Config;
   private polymarket?: PolymarketDataProvider;
   private opinion?: OpinionDataProvider;
-  private probable?: ProbableDataProvider;
   private mappingStore?: CrossPlatformMappingStore;
   private polymarketWs?: PolymarketWebSocketFeed;
   private opinionWs?: OpinionWebSocketFeed;
-  private probableWs?: ProbableWebSocketFeed;
   private wsSubscribers = new Set<(platform: PlatformMarket['platform'], tokenId: string) => void>();
   private wsHookAttached = false;
 
@@ -91,37 +87,6 @@ export class CrossPlatformAggregator {
       }, this.opinionWs);
     }
 
-    if (config.probableEnabled !== false && config.probableMarketApiUrl && config.probableOrderbookApiUrl) {
-      if (config.probableWsEnabled) {
-        this.probableWs = new ProbableWebSocketFeed({
-          baseUrl: config.probableOrderbookApiUrl,
-          wsUrl: config.probableWsUrl || 'wss://ws.probable.markets/public/api/v1',
-          chainId: config.probableChainId || 56,
-          staleTimeoutMs: config.probableWsStaleMs,
-          resetOnReconnect: config.probableWsResetOnReconnect,
-          reconnectMinMs: 1000,
-          reconnectMaxMs: 15000,
-        });
-        this.probableWs.start();
-      }
-
-      if (requireWs && !config.probableWsEnabled) {
-        console.warn('CROSS_PLATFORM_REQUIRE_WS=true but PROBABLE_WS_ENABLED=false, Probable data will be skipped.');
-      }
-
-      this.probable = new ProbableDataProvider({
-        marketApiUrl: config.probableMarketApiUrl,
-        orderbookApiUrl: config.probableOrderbookApiUrl,
-        maxMarkets: config.probableMaxMarkets || 30,
-        feeBps: config.probableFeeBps || 0,
-        depthLevels: config.crossPlatformDepthLevels,
-        useWebSocket: config.probableWsEnabled,
-        requireWebSocket: requireWs,
-        cacheTtlMs: config.probableCacheTtlMs || 60000,
-        wsMaxAgeMs: config.arbWsMaxAgeMs || 10000,
-      }, this.probableWs);
-    }
-
     if (config.crossPlatformMappingPath) {
       this.mappingStore = new CrossPlatformMappingStore(config.crossPlatformMappingPath);
     }
@@ -146,22 +111,12 @@ export class CrossPlatformAggregator {
       lastMessageAt: number;
       messageCount: number;
     };
-    probable?: {
-      connected: boolean;
-      subscribed: number;
-      cacheSize: number;
-      lastMessageAt: number;
-      messageCount: number;
-    };
   } {
     return {
       polymarket: this.polymarketWs?.getStatus(),
       opinion: this.opinionWs?.getStatus(),
-      probable: this.probableWs?.getStatus(),
     };
-  }
-
-  onWsOrderbook(callback: (platform: PlatformMarket['platform'], tokenId: string) => void): () => void {
+  }  onWsOrderbook(callback: (platform: PlatformMarket['platform'], tokenId: string) => void): () => void {
     this.wsSubscribers.add(callback);
     if (!this.wsHookAttached) {
       this.wsHookAttached = true;
@@ -173,11 +128,6 @@ export class CrossPlatformAggregator {
       if (this.opinionWs) {
         this.opinionWs.onOrderbook((tokenId) => {
           this.notifyWsSubscribers('Opinion', tokenId);
-        });
-      }
-      if (this.probableWs) {
-        this.probableWs.onOrderbook((tokenId) => {
-          this.notifyWsSubscribers('Probable', tokenId);
         });
       }
     }
@@ -193,20 +143,18 @@ export class CrossPlatformAggregator {
     for (const callback of this.wsSubscribers) {
       callback(platform, tokenId);
     }
-  }
-
-  async getPlatformMarkets(
+  }  async getPlatformMarkets(
     predictMarkets: Market[],
     predictOrderbooks: Map<string, Orderbook>
   ): Promise<Map<string, PlatformMarket[]>> {
     const platformMap = new Map<string, PlatformMarket[]>();
 
-      const predict = buildPredictPlatformMarkets(
-        predictMarkets,
-        predictOrderbooks,
-        this.config.predictFeeBps || 0,
-        this.config.crossPlatformDepthLevels
-      );
+    const predict = buildPredictPlatformMarkets(
+      predictMarkets,
+      predictOrderbooks,
+      this.config.predictFeeBps || 0,
+      this.config.crossPlatformDepthLevels
+    );
     platformMap.set('Predict', predict);
 
     if (this.polymarket) {
@@ -224,15 +172,6 @@ export class CrossPlatformAggregator {
         platformMap.set('Opinion', markets);
       } catch (error) {
         console.error('Failed to load Opinion data:', error);
-      }
-    }
-
-    if (this.probable) {
-      try {
-        const markets = await this.probable.getMarkets();
-        platformMap.set('Probable', markets);
-      } catch (error) {
-        console.error('Failed to load Probable data:', error);
       }
     }
 

@@ -1,7 +1,7 @@
 {
   "name": "predict-fun-market-maker-lite",
   "version": "2.0.0",
-  "description": "Lite market-maker edition for Predict.fun and Probable",
+  "description": "Lite market-maker edition for Predict.fun and Polymarket",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -13,7 +13,6 @@
     "setup:approvals": "tsx src/setup-approvals.ts",
     "smoke:predict": "tsx scripts/smoke-trade.ts",
     "template:predict": "node scripts/apply-mm-template.mjs predict",
-    "template:probable": "node scripts/apply-mm-template.mjs probable",
     "market:recommend": "tsx scripts/recommend-markets.ts",
     "market:apply": "tsx scripts/recommend-markets.ts --apply",
     "app:install": "npm --prefix desktop-app-lite install",
@@ -22,12 +21,10 @@
   "keywords": [
     "predict",
     "market-maker",
-    "probable",
     "liquidity"
   ],
   "license": "MIT",
   "dependencies": {
-    "@prob/clob": "latest",
     "@polymarket/clob-client": "^5.2.3",
     "@polymarket/order-utils": "^3.0.1",
     "@predictdotfun/sdk": "^1.0.0",

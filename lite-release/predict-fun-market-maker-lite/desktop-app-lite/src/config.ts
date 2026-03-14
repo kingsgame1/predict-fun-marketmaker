@@ -127,6 +127,10 @@ export function loadConfig(): Config {
     mmAutoTuneMaxMult: parseFloat(process.env.MM_AUTO_TUNE_MAX_MULT || '2.5'),
     mmAutoTuneMinEvents: parseInt(process.env.MM_AUTO_TUNE_MIN_EVENTS || '20'),
     mmAutoTuneUpdateMs: parseInt(process.env.MM_AUTO_TUNE_UPDATE_MS || '2000'),
+    mmAutoTuneTouchBufferWeight: parseFloat(process.env.MM_AUTO_TUNE_TOUCH_BUFFER_WEIGHT || '0'),
+    mmAutoTuneSizeWeight: parseFloat(process.env.MM_AUTO_TUNE_SIZE_WEIGHT || '0'),
+    mmAutoTuneCancelWeight: parseFloat(process.env.MM_AUTO_TUNE_CANCEL_WEIGHT || '0'),
+    mmAutoTuneRepriceWeight: parseFloat(process.env.MM_AUTO_TUNE_REPRICE_WEIGHT || '0'),
     mmCooldownVolMultiplier: parseFloat(process.env.MM_COOLDOWN_VOL_MULTIPLIER || '1.2'),
     mmImbalanceLevels: parseInt(process.env.MM_IMBALANCE_LEVELS || '3'),
     mmImbalanceWeight: parseFloat(process.env.MM_IMBALANCE_WEIGHT || '0.25'),
@@ -171,6 +175,16 @@ export function loadConfig(): Config {
     mmRiskThrottleOnlyFarThreshold: parseFloat(process.env.MM_RISK_THROTTLE_ONLY_FAR_THRESHOLD || '0'),
     mmRiskThrottleOnlyFarLayers: parseInt(process.env.MM_RISK_THROTTLE_ONLY_FAR_LAYERS || '0'),
     mmRiskThrottleLayerCap: parseInt(process.env.MM_RISK_THROTTLE_LAYER_CAP || '0'),
+    mmNearTouchBurstLimit: parseInt(process.env.MM_NEAR_TOUCH_BURST_LIMIT || '0'),
+    mmNearTouchBurstWindowMs: parseInt(process.env.MM_NEAR_TOUCH_BURST_WINDOW_MS || '30000'),
+    mmNearTouchBurstHoldMs: parseInt(process.env.MM_NEAR_TOUCH_BURST_HOLD_MS || '0'),
+    mmNearTouchBurstSafeMode: process.env.MM_NEAR_TOUCH_BURST_SAFE_MODE === 'true',
+    mmNearTouchBurstSafeModeMs: parseInt(process.env.MM_NEAR_TOUCH_BURST_SAFE_MODE_MS || '0'),
+    mmFillBurstLimit: parseInt(process.env.MM_FILL_BURST_LIMIT || '0'),
+    mmFillBurstWindowMs: parseInt(process.env.MM_FILL_BURST_WINDOW_MS || '30000'),
+    mmFillBurstHoldMs: parseInt(process.env.MM_FILL_BURST_HOLD_MS || '0'),
+    mmFillBurstSafeMode: process.env.MM_FILL_BURST_SAFE_MODE === 'true',
+    mmFillBurstSafeModeMs: parseInt(process.env.MM_FILL_BURST_SAFE_MODE_MS || '0'),
     mmMetricsPath: process.env.MM_METRICS_PATH || 'data/mm-metrics.json',
     mmMetricsFlushMs: parseInt(process.env.MM_METRICS_FLUSH_MS || '5000'),
     mmWsEnabled: process.env.MM_WS_ENABLED === 'true',
@@ -315,6 +329,12 @@ export function loadConfig(): Config {
     mmAsymSpreadMaxFactor: parseFloat(process.env.MM_ASYM_SPREAD_MAX_FACTOR || '1.8'),
     mmQuoteOffsetBps: parseFloat(process.env.MM_QUOTE_OFFSET_BPS || '0'),
     mmTouchBufferBps: parseFloat(process.env.MM_TOUCH_BUFFER_BPS || '0'),
+    mmTouchBufferVolWeight: parseFloat(process.env.MM_TOUCH_BUFFER_VOL_WEIGHT || '0'),
+    mmTouchBufferVolMaxBps: parseFloat(process.env.MM_TOUCH_BUFFER_VOL_MAX_BPS || '0'),
+    mmTouchBufferDepthSpeedWeight: parseFloat(process.env.MM_TOUCH_BUFFER_DEPTH_SPEED_WEIGHT || '0'),
+    mmTouchBufferDepthSpeedMaxBps: parseFloat(process.env.MM_TOUCH_BUFFER_DEPTH_SPEED_MAX_BPS || '0'),
+    mmTouchBufferFixedCents: parseFloat(process.env.MM_TOUCH_BUFFER_FIXED_CENTS || '0'),
+    mmQuoteSecondLayer: process.env.MM_QUOTE_SECOND_LAYER === 'true',
     mmFillRiskSpreadBps: parseFloat(process.env.MM_FILL_RISK_SPREAD_BPS || '0'),
     mmNearTouchPenaltyBps: parseFloat(process.env.MM_NEAR_TOUCH_PENALTY_BPS || '0'),
     mmNearTouchPenaltyMaxBps: parseFloat(process.env.MM_NEAR_TOUCH_PENALTY_MAX_BPS || '0'),
@@ -463,6 +483,38 @@ export function loadConfig(): Config {
     mmLayerRestoreOnlyFar: process.env.MM_LAYER_RESTORE_ONLY_FAR === 'true',
     mmLayerRestoreTouchBufferBps: parseFloat(process.env.MM_LAYER_RESTORE_TOUCH_BUFFER_BPS || '0'),
     mmLayerRestoreNoNearTouch: process.env.MM_LAYER_RESTORE_NO_NEAR_TOUCH === 'true',
+    mmLayerGuardNearBps: parseFloat(process.env.MM_LAYER_GUARD_NEAR_BPS || '0'),
+    mmLayerGuardMinDepthShares: parseFloat(process.env.MM_LAYER_GUARD_MIN_DEPTH_SHARES || '0'),
+    mmLayerGuardMinDepthUsd: parseFloat(process.env.MM_LAYER_GUARD_MIN_DEPTH_USD || '0'),
+    mmLayerGuardDepthSpeedBps: parseFloat(process.env.MM_LAYER_GUARD_DEPTH_SPEED_BPS || '0'),
+    mmFastCancelBps: parseFloat(process.env.MM_FAST_CANCEL_BPS || '0'),
+    mmFastCancelWindowMs: parseInt(process.env.MM_FAST_CANCEL_WINDOW_MS || '0'),
+    mmFastCancelDepthSpeedBps: parseFloat(process.env.MM_FAST_CANCEL_DEPTH_SPEED_BPS || '0'),
+    mmFastCancelSpreadJumpBps: parseFloat(process.env.MM_FAST_CANCEL_SPREAD_JUMP_BPS || '0'),
+    mmDepthSpeedPauseBps: parseFloat(process.env.MM_DEPTH_SPEED_PAUSE_BPS || '0'),
+    mmDepthSpeedPauseMs: parseInt(process.env.MM_DEPTH_SPEED_PAUSE_MS || '0'),
+    mmProtectiveDepthSpeedBps: parseFloat(process.env.MM_PROTECTIVE_DEPTH_SPEED_BPS || '0'),
+    mmProtectiveSpreadJumpBps: parseFloat(process.env.MM_PROTECTIVE_SPREAD_JUMP_BPS || '0'),
+    mmProtectiveTemplateEnabled: process.env.MM_PROTECTIVE_TEMPLATE_ENABLED === 'true',
+    mmProtectiveHoldMs: parseInt(process.env.MM_PROTECTIVE_HOLD_MS || '0'),
+    mmProtectiveMinIntervalMs: parseInt(process.env.MM_PROTECTIVE_MIN_INTERVAL_MS || '0'),
+    mmProtectiveLayerCountCap: parseInt(process.env.MM_PROTECTIVE_LAYER_COUNT_CAP || '0'),
+    mmProtectiveOnlyFar: process.env.MM_PROTECTIVE_ONLY_FAR === 'true',
+    mmProtectiveForceSingle: process.env.MM_PROTECTIVE_FORCE_SINGLE === 'true',
+    mmProtectiveSingleSide: (process.env.MM_PROTECTIVE_SINGLE_SIDE || 'NONE').toUpperCase() as
+      | 'BUY'
+      | 'SELL'
+      | 'NONE',
+    mmProtectiveSingleSideMode: (process.env.MM_PROTECTIVE_SINGLE_SIDE_MODE || 'NORMAL').toUpperCase() as
+      | 'NORMAL'
+      | 'REMOTE',
+    mmProtectiveSingleSideOffsetBps: parseFloat(process.env.MM_PROTECTIVE_SINGLE_SIDE_OFFSET_BPS || '0'),
+    mmProtectiveSingleSideAuto: process.env.MM_PROTECTIVE_SINGLE_SIDE_AUTO === 'true',
+    mmProtectiveSingleSideImbalanceThreshold: parseFloat(
+      process.env.MM_PROTECTIVE_SINGLE_SIDE_IMBALANCE_THRESHOLD || '0.15'
+    ),
+    mmProtectiveSizeScale: parseFloat(process.env.MM_PROTECTIVE_SIZE_SCALE || '0'),
+    mmProtectiveTouchBufferAddBps: parseFloat(process.env.MM_PROTECTIVE_TOUCH_BUFFER_ADD_BPS || '0'),
     mmLayerRestoreNearTouchBps: parseFloat(process.env.MM_LAYER_RESTORE_NEAR_TOUCH_BPS || '0'),
     mmLayerRestoreForceRefresh: process.env.MM_LAYER_RESTORE_FORCE_REFRESH === 'true',
     mmLayerRestoreForceCleanup: process.env.MM_LAYER_RESTORE_FORCE_CLEANUP === 'true',
@@ -484,6 +536,8 @@ export function loadConfig(): Config {
     mmSizeImbalanceWeight: parseFloat(process.env.MM_SIZE_IMBALANCE_WEIGHT || '0.3'),
     mmSizeMinFactor: parseFloat(process.env.MM_SIZE_MIN_FACTOR || '0.3'),
     mmSizeMaxFactor: parseFloat(process.env.MM_SIZE_MAX_FACTOR || '1.4'),
+    mmSizeVolWeight: parseFloat(process.env.MM_SIZE_VOL_WEIGHT || '0'),
+    mmSizeDepthSpeedWeight: parseFloat(process.env.MM_SIZE_DEPTH_SPEED_WEIGHT || '0'),
     mmSoftCancelBps: parseFloat(process.env.MM_SOFT_CANCEL_BPS || '0.0012'),
     mmHardCancelBps: parseFloat(process.env.MM_HARD_CANCEL_BPS || '0.0025'),
     mmSoftCancelCooldownMs: parseInt(process.env.MM_SOFT_CANCEL_COOLDOWN_MS || '2000'),
@@ -514,8 +568,15 @@ export function loadConfig(): Config {
     mmDynamicCancelDecayMs: parseInt(process.env.MM_DYNAMIC_CANCEL_DECAY_MS || '60000'),
     mmDynamicCancelMaxBoost: parseFloat(process.env.MM_DYNAMIC_CANCEL_MAX_BOOST || '2'),
     mmOnlyPointsMarkets: process.env.MM_ONLY_POINTS_MARKETS === 'true',
+    mmPointsAssumeActive: process.env.MM_POINTS_ASSUME_ACTIVE === 'true',
+    mmPointsMinShares: parseFloat(process.env.MM_POINTS_MIN_SHARES || '0'),
+    mmPointsMaxSpreadCents: parseFloat(process.env.MM_POINTS_MAX_SPREAD_CENTS || '0'),
+    mmPointsMaxSpread: parseFloat(process.env.MM_POINTS_MAX_SPREAD || '0'),
     mmPointsMinOnly: process.env.MM_POINTS_MIN_ONLY === 'true',
     mmPointsMinMultiplier: parseFloat(process.env.MM_POINTS_MIN_MULTIPLIER || '1'),
+    mmPointsPrioritize: process.env.MM_POINTS_PRIORITIZE !== 'false', // 默认启用积分优先
+    mmPointsOptimization: process.env.MM_POINTS_OPTIMIZATION !== 'false', // 默认启用积分优化
+    mmPointsV2Optimizer: process.env.MM_POINTS_V2_OPTIMIZER !== 'false', // 默认启用 V2 优化器
     antiFillBps: parseFloat(process.env.ANTI_FILL_BPS || '0.002'),
     nearTouchBps: parseFloat(process.env.NEAR_TOUCH_BPS || '0.0015'),
     cooldownAfterCancelMs: parseInt(process.env.COOLDOWN_AFTER_CANCEL_MS || '4000'),
@@ -537,6 +598,7 @@ export function loadConfig(): Config {
     crossPlatformMaxShares: parseInt(process.env.CROSS_PLATFORM_MAX_SHARES || '200'),
     crossPlatformDepthLevels: parseInt(process.env.CROSS_PLATFORM_DEPTH_LEVELS || '10'),
     crossPlatformMaxVwapLevels: parseInt(process.env.CROSS_PLATFORM_MAX_VWAP_LEVELS || '0'),
+    crossPlatformMaxVwapDeviationBps: parseFloat(process.env.CROSS_PLATFORM_MAX_VWAP_DEVIATION_BPS || '0'),
     crossPlatformWsRealtime: process.env.CROSS_PLATFORM_WS_REALTIME === 'true',
     crossPlatformWsRealtimeIntervalMs: parseInt(process.env.CROSS_PLATFORM_WS_REALTIME_INTERVAL_MS || '600'),
     crossPlatformWsRealtimeMaxBatch: parseInt(process.env.CROSS_PLATFORM_WS_REALTIME_MAX_BATCH || '30'),
@@ -560,8 +622,42 @@ export function loadConfig(): Config {
     crossPlatformPreSubmitLegVwapSpreadBps: parseFloat(process.env.CROSS_PLATFORM_PRE_SUBMIT_LEG_VWAP_SPREAD_BPS || '0'),
     crossPlatformPreSubmitTotalCostBps: parseFloat(process.env.CROSS_PLATFORM_PRE_SUBMIT_TOTAL_COST_BPS || '0'),
     crossPlatformPreSubmitLegCostSpreadBps: parseFloat(process.env.CROSS_PLATFORM_PRE_SUBMIT_LEG_COST_SPREAD_BPS || '0'),
+    crossPlatformPreSubmitRecheckMs: parseInt(process.env.CROSS_PLATFORM_PRE_SUBMIT_RECHECK_MS || '0'),
+    crossPlatformPreSubmitGlobal: process.env.CROSS_PLATFORM_PRE_SUBMIT_GLOBAL === 'true',
+    crossPlatformShadowMinProfitUsd: parseFloat(process.env.CROSS_PLATFORM_SHADOW_MIN_PROFIT_USD || '0'),
+    crossPlatformShadowMinProfitBps: parseFloat(process.env.CROSS_PLATFORM_SHADOW_MIN_PROFIT_BPS || '0'),
+    crossPlatformShadowImpactBps: parseFloat(process.env.CROSS_PLATFORM_SHADOW_IMPACT_BPS || '0'),
+    crossPlatformShadowImpactPerLevelBps: parseFloat(process.env.CROSS_PLATFORM_SHADOW_IMPACT_PER_LEVEL_BPS || '0'),
+    crossHedgeSimilarityWeight: parseFloat(process.env.CROSS_HEDGE_SIMILARITY_WEIGHT || '0.7'),
+    crossHedgeDepthWeight: parseFloat(process.env.CROSS_HEDGE_DEPTH_WEIGHT || '0.3'),
+    crossHedgeMinDepthUsd: parseFloat(process.env.CROSS_HEDGE_MIN_DEPTH_USD || '0'),
+
+    // 完美对冲策略配置
+    perfectHedgeEnabled: process.env.PERFECT_HEDGE_ENABLED === 'true',
+    perfectHedgeTolerance: parseFloat(process.env.PERFECT_HEDGE_TOLERANCE || '0.05'),
+    perfectHedgeMinSize: parseFloat(process.env.PERFECT_HEDGE_MIN_SIZE || '50'),
+    perfectHedgeMaxSize: parseFloat(process.env.PERFECT_HEDGE_MAX_SIZE || '500'),
+    perfectHedgeAutoBalance: process.env.PERFECT_HEDGE_AUTO_BALANCE !== 'false',
+    perfectHedgeBalanceSlippageBps: parseInt(process.env.PERFECT_HEDGE_BALANCE_SLIPPAGE_BPS || '300'),
+
+    // 统一做市商策略配置（整合所有优点）
+    unifiedMarketMakerEnabled: process.env.UNIFIED_MARKET_MAKER_ENABLED === 'true',
+    unifiedMarketMakerTolerance: parseFloat(process.env.UNIFIED_MARKET_MAKER_TOLERANCE || '0.05'),
+    unifiedMarketMakerMinSize: parseFloat(process.env.UNIFIED_MARKET_MAKER_MIN_SIZE || '10'),
+    unifiedMarketMakerMaxSize: parseFloat(process.env.UNIFIED_MARKET_MAKER_MAX_SIZE || '500'),
+    unifiedMarketMakerBuySpreadBps: parseInt(process.env.UNIFIED_MARKET_MAKER_BUY_SPREAD_BPS || '150'),
+    unifiedMarketMakerSellSpreadBps: parseInt(process.env.UNIFIED_MARKET_MAKER_SELL_SPREAD_BPS || '150'),
+    unifiedMarketMakerHedgeSlippageBps: parseInt(process.env.UNIFIED_MARKET_MAKER_HEDGE_SLIPPAGE_BPS || '250'),
+    unifiedMarketMakerAsyncHedging: process.env.UNIFIED_MARKET_MAKER_ASYNC_HEDGING !== 'false',
+    unifiedMarketMakerDualTrackMode: process.env.UNIFIED_MARKET_MAKER_DUAL_TRACK_MODE !== 'false',
+    unifiedMarketMakerDynamicOffsetMode: process.env.UNIFIED_MARKET_MAKER_DYNAMIC_OFFSET_MODE !== 'false',
+    unifiedMarketMakerBuyOffsetBps: parseInt(process.env.UNIFIED_MARKET_MAKER_BUY_OFFSET_BPS || '100'),
+    unifiedMarketMakerSellOffsetBps: parseInt(process.env.UNIFIED_MARKET_MAKER_SELL_OFFSET_BPS || '100'),
+    unifiedMarketMakerMonitorTierOne: process.env.UNIFIED_MARKET_MAKER_MONITOR_TIER_ONE !== 'false',
+
     crossPlatformAdaptiveSize: process.env.CROSS_PLATFORM_ADAPTIVE_SIZE !== 'false',
     crossPlatformMinDepthShares: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_SHARES || '1'),
+    crossPlatformMinDepthUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_DEPTH_USD || '0'),
     crossPlatformMinNotionalUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_NOTIONAL_USD || '0'),
     crossPlatformMinProfitUsd: parseFloat(process.env.CROSS_PLATFORM_MIN_PROFIT_USD || '0'),
     crossPlatformMinProfitBps: parseFloat(process.env.CROSS_PLATFORM_MIN_PROFIT_BPS || '0'),
@@ -590,6 +686,22 @@ export function loadConfig(): Config {
     crossPlatformFailurePauseMs: parseInt(process.env.CROSS_PLATFORM_FAILURE_PAUSE_MS || '0'),
     crossPlatformFailurePauseMaxMs: parseInt(process.env.CROSS_PLATFORM_FAILURE_PAUSE_MAX_MS || '0'),
     crossPlatformFailurePauseBackoff: parseFloat(process.env.CROSS_PLATFORM_FAILURE_PAUSE_BACKOFF || '1.5'),
+    crossPlatformFailureRateWindowMs: parseInt(process.env.CROSS_PLATFORM_FAILURE_RATE_WINDOW_MS || '0'),
+    crossPlatformFailureRateMinAttempts: parseInt(process.env.CROSS_PLATFORM_FAILURE_RATE_MIN_ATTEMPTS || '0'),
+    crossPlatformFailureRateThreshold: parseFloat(process.env.CROSS_PLATFORM_FAILURE_RATE_THRESHOLD || '0'),
+    crossPlatformFailureRateTightenMax: parseFloat(process.env.CROSS_PLATFORM_FAILURE_RATE_TIGHTEN_MAX || '1'),
+    crossPlatformFailureRateStabilitySamplesAdd: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_SAMPLES_ADD || '0'
+    ),
+    crossPlatformFailureRateStabilityIntervalAddMs: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_INTERVAL_ADD_MS || '0'
+    ),
+    crossPlatformFailureRateStabilityMaxSamples: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_MAX_SAMPLES || '0'
+    ),
+    crossPlatformFailureRateStabilityMaxIntervalMs: parseInt(
+      process.env.CROSS_PLATFORM_FAILURE_RATE_STABILITY_MAX_INTERVAL_MS || '0'
+    ),
     crossPlatformReasonPreflightPenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_PREFLIGHT_PENALTY || '0.4'),
     crossPlatformReasonExecutionPenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_EXECUTION_PENALTY || '0.7'),
     crossPlatformReasonPostTradePenalty: parseFloat(process.env.CROSS_PLATFORM_REASON_POSTTRADE_PENALTY || '1.2'),
@@ -964,7 +1076,7 @@ export function loadConfig(): Config {
     crossPlatformSuccessChunkDelayTightenMs: parseInt(process.env.CROSS_PLATFORM_SUCCESS_CHUNK_DELAY_TIGHTEN_MS || '0'),
     crossPlatformFailureChunkFactorDown: parseFloat(process.env.CROSS_PLATFORM_FAILURE_CHUNK_FACTOR_DOWN || '0'),
     crossPlatformSuccessChunkFactorUp: parseFloat(process.env.CROSS_PLATFORM_SUCCESS_CHUNK_FACTOR_UP || '0'),
-    autoConfirmAll: process.env.AUTO_CONFIRM !== 'false',  // 默认 true
+    autoConfirmAll: process.env.AUTO_CONFIRM === 'true',
     crossPlatformRequireWs: process.env.CROSS_PLATFORM_REQUIRE_WS === 'true',
     crossPlatformMappingPath: process.env.CROSS_PLATFORM_MAPPING_PATH || 'cross-platform-mapping.json',
     crossPlatformUseMapping: process.env.CROSS_PLATFORM_USE_MAPPING !== 'false',
@@ -997,6 +1109,9 @@ export function loadConfig(): Config {
     arbExecutionCooldownMs: parseInt(process.env.ARB_EXECUTION_COOLDOWN_MS || '60000'),
     arbScanIntervalMs: parseInt(process.env.ARB_SCAN_INTERVAL_MS || '10000'),
     arbMaxMarkets: parseInt(process.env.ARB_MAX_MARKETS || '80'),
+    arbOpportunitiesPath: process.env.ARB_OPPORTUNITIES_PATH || 'data/arb-opportunities.json',
+    arbCommandPath: process.env.ARB_COMMAND_PATH || 'data/arb-command.json',
+    arbSnapshotMax: parseInt(process.env.ARB_SNAPSHOT_MAX || '50'),
     arbOrderbookConcurrency: parseInt(process.env.ARB_ORDERBOOK_CONCURRENCY || '8'),
     arbMarketsCacheMs: parseInt(process.env.ARB_MARKETS_CACHE_MS || '10000'),
     arbWsMaxAgeMs: parseInt(process.env.ARB_WS_MAX_AGE_MS || '10000'),
@@ -1066,16 +1181,6 @@ export function loadConfig(): Config {
     polymarketWsStaleMs: parseInt(process.env.POLYMARKET_WS_STALE_MS || '20000'),
     polymarketWsResetOnReconnect: process.env.POLYMARKET_WS_RESET_ON_RECONNECT !== 'false',
     polymarketCacheTtlMs: parseInt(process.env.POLYMARKET_CACHE_TTL_MS || '60000'),
-    probableEnabled: (process.env.PROBABLE_ENABLED || '').toLowerCase() === 'true',
-    probableMarketApiUrl: process.env.PROBABLE_MARKET_API_URL || 'https://market-api.probable.markets',
-    probableOrderbookApiUrl: process.env.PROBABLE_ORDERBOOK_API_URL || 'https://api.probable.markets/public/api/v1',
-    probableMaxMarkets: parseInt(process.env.PROBABLE_MAX_MARKETS || '200'),
-    probableFeeBps: parseFloat(process.env.PROBABLE_FEE_BPS || '0'),
-    probableWsEnabled: process.env.PROBABLE_WS_ENABLED === 'true',
-    probableWsUrl: process.env.PROBABLE_WS_URL || 'wss://ws.probable.markets/public/api/v1',
-    probableWsStaleMs: parseInt(process.env.PROBABLE_WS_STALE_MS || '20000'),
-    probableWsResetOnReconnect: process.env.PROBABLE_WS_RESET_ON_RECONNECT !== 'false',
-    probableCacheTtlMs: parseInt(process.env.PROBABLE_CACHE_TTL_MS || '60000'),
     predictWsEnabled: process.env.PREDICT_WS_ENABLED === 'true',
     predictWsUrl: process.env.PREDICT_WS_URL || 'wss://ws.predict.fun/ws',
     predictWsApiKey: process.env.PREDICT_WS_API_KEY || process.env.API_KEY,
@@ -1104,10 +1209,6 @@ export function loadConfig(): Config {
     polymarketApiPassphrase: process.env.POLYMARKET_API_PASSPHRASE,
     polymarketChainId: parseInt(process.env.POLYMARKET_CHAIN_ID || '137'),
     polymarketAutoDeriveApiKey: process.env.POLYMARKET_AUTO_DERIVE_API_KEY !== 'false',
-    probablePrivateKey: process.env.PROBABLE_PRIVATE_KEY,
-    probableChainId: parseInt(process.env.PROBABLE_CHAIN_ID || '56'),
-    probableAutoDeriveApiKey: process.env.PROBABLE_AUTO_DERIVE_API_KEY !== 'false',
-    probableRpcUrl: process.env.PROBABLE_RPC_URL,
     opinionOpenApiUrl: process.env.OPINION_OPENAPI_URL || 'https://proxy.opinion.trade:8443/openapi',
     opinionApiKey: process.env.OPINION_API_KEY,
     opinionMaxMarkets: parseInt(process.env.OPINION_MAX_MARKETS || '30'),
@@ -1126,44 +1227,37 @@ export function loadConfig(): Config {
       ? process.env.MARKET_TOKEN_IDS.split(',').map((s) => s.trim())
       : undefined,
     refreshInterval: parseInt(process.env.REFRESH_INTERVAL || '5000'),
-    enableTrading: process.env.ENABLE_TRADING !== 'false',  // 默认 true
-    // Unified Strategy Config (默认启用)
-    unifiedStrategyEnabled: process.env.UNIFIED_STRATEGY_ENABLED !== 'false',  // 默认 true
-    unifiedStrategyTolerance: parseFloat(process.env.UNIFIED_STRATEGY_TOLERANCE || '0.05'),
-    unifiedStrategyMinSize: parseFloat(process.env.UNIFIED_STRATEGY_MIN_SIZE || '10'),
-    unifiedStrategyMaxSize: parseFloat(process.env.UNIFIED_STRATEGY_MAX_SIZE || '500'),
-    unifiedStrategyBuyOffsetBps: parseFloat(process.env.UNIFIED_STRATEGY_BUY_OFFSET_BPS || '100'),
-    unifiedStrategySellOffsetBps: parseFloat(process.env.UNIFIED_STRATEGY_SELL_OFFSET_BPS || '100'),
-    unifiedStrategyHedgeSlippageBps: parseFloat(process.env.UNIFIED_STRATEGY_HEDGE_SLIPPAGE_BPS || '250'),
-    unifiedStrategyMaxUnhedgedShares: parseFloat(process.env.UNIFIED_STRATEGY_MAX_UNHEDGED_SHARES || '100'),
-    unifiedStrategyAsyncHedging: process.env.UNIFIED_STRATEGY_ASYNC_HEDGING !== 'false',
-    unifiedStrategyDualTrackMode: process.env.UNIFIED_STRATEGY_DUAL_TRACK_MODE !== 'false',
-    unifiedStrategyDynamicOffsetMode: process.env.UNIFIED_STRATEGY_DYNAMIC_OFFSET_MODE !== 'false',
+    enableTrading: process.env.ENABLE_TRADING === 'true',
   };
 
-  // Validate critical fields by active venue
+  // Validate critical fields
   const venue = String(config.mmVenue || 'predict').toLowerCase();
   const hasPrivateKey = Boolean(config.privateKey && String(config.privateKey).trim());
   const hasApiKey = Boolean(config.apiKey && String(config.apiKey).trim());
   const hasPredictAccountAddress = Boolean(
     config.predictAccountAddress && String(config.predictAccountAddress).trim()
   );
-  const hasProbablePrivateKey = Boolean(
-    (config.probablePrivateKey && String(config.probablePrivateKey).trim()) ||
-      (config.privateKey && String(config.privateKey).trim())
+  const hasPolymarketPrivateKey = Boolean(
+    (config.polymarketPrivateKey && String(config.polymarketPrivateKey).trim()) || hasPrivateKey
   );
 
-  if (venue === 'probable') {
-    if (!hasProbablePrivateKey) {
-      throw new Error('PROBABLE_PRIVATE_KEY is required in .env file for probable venue');
+  if (venue !== 'predict' && venue !== 'polymarket') {
+    throw new Error('MM_VENUE 仅支持 predict 或 polymarket');
+  }
+
+  if (venue === 'polymarket') {
+    if (!hasPolymarketPrivateKey) {
+      throw new Error('POLYMARKET_PRIVATE_KEY is required in .env file when MM_VENUE=polymarket');
     }
   } else {
     if (!hasPrivateKey) {
       throw new Error('PRIVATE_KEY is required in .env file');
     }
+
     if (!hasApiKey) {
       throw new Error('API_KEY is required in .env file');
     }
+
     if (config.enableTrading && !hasPredictAccountAddress) {
       throw new Error('PREDICT_ACCOUNT_ADDRESS is required in .env file when ENABLE_TRADING=true for predict venue');
     }
@@ -1377,6 +1471,9 @@ export function loadConfig(): Config {
   if ((config.crossPlatformMinDepthShares ?? 0) < 0) {
     config.crossPlatformMinDepthShares = 0;
   }
+  if ((config.crossPlatformMinDepthUsd ?? 0) < 0) {
+    config.crossPlatformMinDepthUsd = 0;
+  }
   if ((config.crossPlatformDepthUsage ?? 0) <= 0 || (config.crossPlatformDepthUsage ?? 0) > 1) {
     config.crossPlatformDepthUsage = 0.5;
   }
@@ -1413,6 +1510,33 @@ export function loadConfig(): Config {
   }
   if ((config.crossPlatformFailurePauseBackoff ?? 0) < 1) {
     config.crossPlatformFailurePauseBackoff = 1.2;
+  }
+  if ((config.crossPlatformFailureRateWindowMs ?? 0) < 0) {
+    config.crossPlatformFailureRateWindowMs = 0;
+  }
+  if ((config.crossPlatformFailureRateMinAttempts ?? 0) < 0) {
+    config.crossPlatformFailureRateMinAttempts = 0;
+  }
+  if ((config.crossPlatformFailureRateThreshold ?? 0) < 0) {
+    config.crossPlatformFailureRateThreshold = 0;
+  }
+  if ((config.crossPlatformFailureRateThreshold ?? 0) > 100) {
+    config.crossPlatformFailureRateThreshold = 100;
+  }
+  if ((config.crossPlatformFailureRateTightenMax ?? 0) < 1) {
+    config.crossPlatformFailureRateTightenMax = 1;
+  }
+  if ((config.crossPlatformFailureRateStabilitySamplesAdd ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilitySamplesAdd = 0;
+  }
+  if ((config.crossPlatformFailureRateStabilityIntervalAddMs ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilityIntervalAddMs = 0;
+  }
+  if ((config.crossPlatformFailureRateStabilityMaxSamples ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilityMaxSamples = 0;
+  }
+  if ((config.crossPlatformFailureRateStabilityMaxIntervalMs ?? 0) < 0) {
+    config.crossPlatformFailureRateStabilityMaxIntervalMs = 0;
   }
   if ((config.crossPlatformReasonPreflightPenalty ?? 0) < 0) {
     config.crossPlatformReasonPreflightPenalty = 0.4;
@@ -2112,8 +2236,18 @@ export function printConfig(config: Config): void {
   console.log(`Near Touch Bps: ${(config.nearTouchBps ?? 0) * 100}%`);
   console.log(`MM Only Points Markets: ${config.mmOnlyPointsMarkets ? '✅' : '❌'}`);
   console.log(
+    `MM Points Fallback: ${
+      config.mmPointsAssumeActive
+        ? `active minShares=${config.mmPointsMinShares || 0} maxSpreadCents=${config.mmPointsMaxSpreadCents || 0}`
+        : 'off'
+    }`
+  );
+  console.log(
     `MM Points Min Only: ${config.mmPointsMinOnly ? '✅' : '❌'} x${config.mmPointsMinMultiplier ?? 1}`
   );
+  console.log(`MM Points Prioritize: ${config.mmPointsPrioritize !== false ? '✅' : '❌'}`);
+  console.log(`MM Points Optimization: ${config.mmPointsOptimization !== false ? '✅' : '❌'}`);
+  console.log(`MM Points V2 Optimizer: ${config.mmPointsV2Optimizer !== false ? '✅ (Elite)' : '❌ (Legacy)'}`);
   console.log(`Hedge On Fill: ${config.hedgeOnFill ? '✅' : '❌'}`);
   console.log(`Hedge Mode: ${config.hedgeMode}`);
   console.log(`Cross-Platform Enabled: ${config.crossPlatformEnabled ? '✅' : '❌'}`);
@@ -2184,6 +2318,8 @@ export function printConfig(config: Config): void {
   console.log(`Cross Require WS: ${config.crossPlatformRequireWs ? '✅' : '❌'}`);
   console.log(`Arb Scan Interval: ${config.arbScanIntervalMs}ms`);
   console.log(`Arb Max Markets: ${config.arbMaxMarkets}`);
+  console.log(`Arb Snapshot Max: ${config.arbSnapshotMax} path=${config.arbOpportunitiesPath}`);
+  console.log(`Arb Command Path: ${config.arbCommandPath}`);
   console.log(`Arb WS Max Age: ${config.arbWsMaxAgeMs}ms`);
   console.log(`Arb WS Health Log: ${config.arbWsHealthLogMs}ms`);
   console.log(`Arb Preflight: ${config.arbPreflightEnabled ? '✅' : '❌'} maxAge=${config.arbPreflightMaxAgeMs}ms`);

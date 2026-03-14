@@ -546,7 +546,7 @@ export class MarketMaker {
     }
 
     if (
-      this.config.mmVenue !== 'probable' &&
+      this.config.mmVenue === 'predict' &&
       this.config.predictAutoSetApprovals !== false &&
       typeof (this.orderManager as any)?.ensureTradingReady === 'function'
     ) {
@@ -5494,7 +5494,7 @@ export class MarketMaker {
     }
 
     try {
-      if (side === 'BUY' && this.config.mmVenue !== 'probable') {
+      if (side === 'BUY' && this.config.mmVenue === 'predict') {
         const blockRemainingMs = this.getPredictBuyBlockRemainingMs(market.token_id);
         if (blockRemainingMs > 0) {
           console.log(
@@ -5505,7 +5505,7 @@ export class MarketMaker {
       }
       if (
         side === 'BUY' &&
-        this.config.mmVenue !== 'probable' &&
+        this.config.mmVenue === 'predict' &&
         typeof (this.orderManager as any)?.ensureBuyCollateralReady === 'function'
       ) {
         await (this.orderManager as any).ensureBuyCollateralReady(
@@ -5636,7 +5636,7 @@ export class MarketMaker {
       return true;
     } catch (error) {
       const message = this.getErrorMessage(error);
-      if (side === 'BUY' && this.config.mmVenue !== 'probable' && this.isPredictBuyInsufficientError(message)) {
+      if (side === 'BUY' && this.config.mmVenue === 'predict' && this.isPredictBuyInsufficientError(message)) {
         const cooldownMs = Math.max(1000, this.config.predictBuyInsufficientCooldownMs ?? 60000);
         this.predictBuyInsufficientUntil.set(market.token_id, Date.now() + cooldownMs);
         console.error(

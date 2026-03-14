@@ -221,6 +221,7 @@ function renderMarketCards(items, selected = new Set()) {
     const scoreText = item.score == null ? '--' : formatNum(item.score, 2);
     const bid2Price = item.bid2Price == null ? '--' : formatNum(item.bid2Price, 4);
     const ask2Price = item.ask2Price == null ? '--' : formatNum(item.ask2Price, 4);
+
     const liquidityPanels = [];
     if (item.l1UsableUsd != null && Number(item.l1UsableUsd) > 0) {
       liquidityPanels.push(`
@@ -240,6 +241,7 @@ function renderMarketCards(items, selected = new Set()) {
         </div>
       `);
     }
+
     const statsPanels = [];
     if (item.liquidity24h != null && Number(item.liquidity24h) > 0) {
       statsPanels.push(`
@@ -256,6 +258,18 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-label">24h 交易量</div>
           <div class="metric-value">$${formatNum(item.volume24h, 0)}</div>
           <div class="metric-subvalue">用于判断当天活跃度，不单独决定是否推荐</div>
+        </div>
+      `);
+    }
+
+    const incentivePanels = [];
+    if (item.rewardEnabled) {
+      incentivePanels.push(`
+        <div class="metric-panel incentive-panel">
+          <div class="metric-label">流动性激励</div>
+          <div class="metric-value">日速率 ${item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)}</div>
+          <div class="metric-subvalue">最小单边 ${item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)} 股 / 最大奖励价差 ${item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)}¢</div>
+          <div class="metric-subvalue">激励适配度 ${item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)}</div>
         </div>
       `);
     }
@@ -308,6 +322,7 @@ function renderMarketCards(items, selected = new Set()) {
       </div>
       ${liquidityPanels.length ? `<div class="market-liquidity-row">${liquidityPanels.join('')}</div>` : ''}
       ${statsPanels.length ? `<div class="market-stats-row">${statsPanels.join('')}</div>` : ''}
+      ${incentivePanels.length ? `<div class="market-stats-row">${incentivePanels.join('')}</div>` : ''}
       <div class="market-quality-row">
         <span class="metric-chip">对称度 ${escapeHtml(symmetry)}</span>
         <span class="metric-chip">中心度 ${escapeHtml(centerScore)}</span>
@@ -342,7 +357,7 @@ async function refreshStatus() {
 
 async function scanMarkets() {
   if (!api) return;
-  const venue = marketVenue.value === 'probable' ? 'probable' : 'predict';
+  const venue = marketVenue.value === 'polymarket' ? 'polymarket' : 'predict';
   const scan = Math.max(10, Number(scanCount.value || 80));
   const top = Math.max(5, Number(topCount.value || 30));
   pushLog(`开始扫描市场 venue=${venue} scan=${scan} top=${top}`);
@@ -351,7 +366,7 @@ async function scanMarkets() {
     const msg = res?.message || 'unknown';
     pushLog(`市场扫描失败: ${msg}`);
     if (String(msg).includes('ENOTFOUND')) {
-      pushLog('网络解析失败：请检查网络/DNS，或在 .env 中确认 PROBABLE_MARKET_API_URL / API_BASE_URL 可访问。');
+      pushLog('网络解析失败：请检查网络/DNS，或在 .env 中确认 POLYMARKET_GAMMA_URL / API_BASE_URL 可访问。');
     }
     return;
   }
@@ -370,7 +385,7 @@ async function scanMarkets() {
 
 async function applyAutoMarkets() {
   if (!api) return;
-  const venue = marketVenue.value === 'probable' ? 'probable' : 'predict';
+  const venue = marketVenue.value === 'polymarket' ? 'polymarket' : 'predict';
   const scan = Math.max(10, Number(scanCount.value || 80));
   const top = Math.max(5, Number(topCount.value || 30));
   const res = await api.applyAutoMarkets(venue, top, scan);
@@ -448,10 +463,10 @@ document.getElementById('tplPredict').onclick = async () => {
   await refreshEnv();
 };
 
-document.getElementById('tplProbable').onclick = async () => {
+document.getElementById('tplPolymarket').onclick = async () => {
   if (!api) return;
-  const r = await api.applyTemplate('probable');
-  pushLog(r.ok ? '已应用 Probable 模板' : `模板失败: ${r.message || 'unknown'}`);
+  const r = await api.applyTemplate('polymarket');
+  pushLog(r.ok ? '已应用 Polymarket 模板' : `模板失败: ${r.message || 'unknown'}`);
   await refreshEnv();
 };
 
@@ -576,7 +591,346 @@ refreshStatus();
 
 const LINKS = {
   linkPredict: 'https://predict.fun?ref=B0CE6',
-  linkProbable: 'https://probable.markets/?ref=PNRBS9VL',
+  linkPolymarket: 'https://polymarket.com',
+  linkX: 'https://x.com/ccjing_eth',
+  linkTG: 'https://t.me/+VAhPSvs7jrxjYTY1',
+};
+
+Object.entries(LINKS).forEach(([id, url]) => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.onclick = async (e) => {
+      e.preventDefault();
+      if (api) {
+        await api.openExternal(url);
+      }
+    };
+  }
+});
+ + formatNum(item.volume24h, 0) + '</div>\n          <div class="metric-subvalue">用于判断当天活跃度，不单独决定是否推荐</div>\n        </div>\n      ');
+    }
+    const incentivePanels = [];
+    if (item.rewardEnabled) {
+      incentivePanels.push('\n        <div class="metric-panel incentive-panel">\n          <div class="metric-label">流动性激励</div>\n          <div class="metric-value">日速率 ' + (item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)) + '</div>\n          <div class="metric-subvalue">最小单边 ' + (item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)) + ' 股 / 最大奖励价差 ' + (item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)) + '¢</div>\n          <div class="metric-subvalue">激励适配度 ' + (item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)) + '</div>\n        </div>\n      ');
+    }
+
+    card.innerHTML = `
+      <div class="market-card-header">
+        <div>
+          <div class="market-topline">
+            <span class="rank-chip">#${escapeHtml(item.rank)}</span>
+            <span class="score-chip">Score ${escapeHtml(scoreText)}</span>
+            <span class="status-chip">${escapeHtml(item.activeStatus || '未应用')}</span>
+          </div>
+          <h3 class="market-card-title">${escapeHtml(item.question || '--')}</h3>
+        </div>
+        <div class="market-card-actions">
+          <button class="market-link-btn" type="button" data-market-url="${escapeHtml(item.marketUrl || '')}">
+            ${escapeHtml(item.marketLinkLabel || '打开市场')}
+          </button>
+          <label class="market-check-wrap">
+            <input type="checkbox" class="market-check" data-token="${escapeHtml(item.tokenId)}" ${isSelected ? 'checked' : ''} />
+            选择
+          </label>
+        </div>
+      </div>
+      <div class="market-quote-grid">
+        <div class="quote-panel bid">
+          <div class="metric-label">买一</div>
+          <div class="metric-value">${item.bid1Price == null ? '--' : formatNum(item.bid1Price, 4)}</div>
+          <div class="metric-subvalue">${item.bid1Shares == null ? '--' : formatNum(item.bid1Shares, 2)} 股</div>
+        </div>
+        <div class="quote-panel ask">
+          <div class="metric-label">卖一</div>
+          <div class="metric-value">${item.ask1Price == null ? '--' : formatNum(item.ask1Price, 4)}</div>
+          <div class="metric-subvalue">${item.ask1Shares == null ? '--' : formatNum(item.ask1Shares, 2)} 股</div>
+        </div>
+        <div class="quote-panel bid secondary">
+          <div class="metric-label">买二</div>
+          <div class="metric-value">${bid2Price}</div>
+          <div class="metric-subvalue">${item.bid2Shares == null ? '--' : formatNum(item.bid2Shares, 2)} 股</div>
+        </div>
+        <div class="quote-panel ask secondary">
+          <div class="metric-label">卖二</div>
+          <div class="metric-value">${ask2Price}</div>
+          <div class="metric-subvalue">${item.ask2Shares == null ? '--' : formatNum(item.ask2Shares, 2)} 股</div>
+        </div>
+      </div>
+      <div class="market-spread-strip">
+        <span class="metric-chip">价差 ${item.spreadPct == null ? '--' : formatPct(item.spreadPct, 2)}</span>
+        <span class="metric-chip">断层 ${gap}</span>
+      </div>
+      ${liquidityPanels.length ? `<div class="market-liquidity-row">${liquidityPanels.join('')}</div>` : ''}
+      ${statsPanels.length ? `<div class="market-stats-row">${statsPanels.join('')}</div>` : ''}
+      <div class="market-quality-row">
+        <span class="metric-chip">对称度 ${escapeHtml(symmetry)}</span>
+        <span class="metric-chip">中心度 ${escapeHtml(centerScore)}</span>
+        <span class="quote-chip">L1双边 $${item.l1NotionalUsd == null ? '--' : formatNum(item.l1NotionalUsd, 2)}</span>
+        <span class="quote-chip ask">L2双边 $${item.l2NotionalUsd == null ? '--' : formatNum(item.l2NotionalUsd, 2)}</span>
+      </div>
+      <div class="market-reasons">${reasons.length ? reasons.map((reason) => `<span class="reason-chip">${escapeHtml(reason)}</span>`).join('') : '<span class="reason-chip">暂无推荐说明</span>'}</div>
+      <div class="market-token">Token: ${escapeHtml(item.tokenId)}</div>
+    `;
+    marketCardGrid.appendChild(card);
+  });
+
+  updateSelectAllState();
+}
+
+async function refreshEnv() {
+  if (!api || !envEditor) return;
+  envEditor.value = await api.readEnv();
+  const envMap = parseEnvMap(envEditor.value);
+  if (predictAutoApprovals) {
+    predictAutoApprovals.checked = (envMap.get('PREDICT_AUTO_SET_APPROVALS') || 'true').toLowerCase() !== 'false';
+  }
+  await refreshPredictWalletStatus();
+}
+
+async function refreshStatus() {
+  if (!api || !status) return;
+  const s = await api.status();
+  status.textContent = s.running ? '运行中' : '未运行';
+  status.style.background = s.running ? '#065f46' : '#334155';
+}
+
+async function scanMarkets() {
+  if (!api) return;
+  const venue = marketVenue.value === 'polymarket' ? 'polymarket' : 'predict';
+  const scan = Math.max(10, Number(scanCount.value || 80));
+  const top = Math.max(5, Number(topCount.value || 30));
+  pushLog(`开始扫描市场 venue=${venue} scan=${scan} top=${top}`);
+  const res = await api.scanMarkets(venue, top, scan);
+  if (!res?.ok) {
+    const msg = res?.message || 'unknown';
+    pushLog(`市场扫描失败: ${msg}`);
+    if (String(msg).includes('ENOTFOUND')) {
+      pushLog('网络解析失败：请检查网络/DNS，或在 .env 中确认 POLYMARKET_GAMMA_URL / API_BASE_URL 可访问。');
+    }
+    return;
+  }
+  const payload = res.payload || {};
+  lastRecommendations = Array.isArray(payload.recommendations) ? payload.recommendations : [];
+  renderMarketCards(lastRecommendations);
+  pushLog(`扫描完成: valid=${payload.validMarkets || 0}, recommendations=${lastRecommendations.length}`);
+  if (lastRecommendations.length === 0) {
+    const tip =
+      venue === 'predict'
+        ? '未找到可推荐市场。请先确认 API_KEY 已填写，或提高 scan/top 后重试。'
+        : '未找到可推荐市场。请提高 scan/top，或切换到流动性更高时段。';
+    pushLog(tip);
+  }
+}
+
+async function applyAutoMarkets() {
+  if (!api) return;
+  const venue = marketVenue.value === 'polymarket' ? 'polymarket' : 'predict';
+  const scan = Math.max(10, Number(scanCount.value || 80));
+  const top = Math.max(5, Number(topCount.value || 30));
+  const res = await api.applyAutoMarkets(venue, top, scan);
+  if (!res?.ok) {
+    pushLog(`自动应用失败: ${res?.message || 'unknown'}`);
+    return;
+  }
+  const applied = res.payload?.appliedTokenIds || [];
+  pushLog(`自动应用成功: ${applied.length} 个 token 已写入 MARKET_TOKEN_IDS`);
+  await refreshEnv();
+  const appliedSet = new Set(applied);
+  renderMarketCards(
+    lastRecommendations.map((item) => ({
+      ...item,
+      activeStatus: appliedSet.has(item.tokenId) ? '已应用' : item.activeStatus,
+    })),
+    appliedSet
+  );
+}
+
+async function applyManualMarkets() {
+  if (!api) return;
+  const ids = getCheckedTokenIds();
+  if (ids.length === 0) {
+    pushLog('请先勾选市场再应用');
+    return;
+  }
+  const res = await api.setManualMarkets(ids);
+  if (!res?.ok) {
+    pushLog(`手动应用失败: ${res?.message || 'unknown'}`);
+    return;
+  }
+  pushLog(`手动应用成功: ${res.tokenCount || ids.length} 个 token 已写入 MARKET_TOKEN_IDS`);
+  await refreshEnv();
+  const selectedSet = new Set(ids);
+  renderMarketCards(
+    lastRecommendations.map((item) => ({
+      ...item,
+      activeStatus: selectedSet.has(item.tokenId) ? '已应用' : item.activeStatus,
+    })),
+    selectedSet
+  );
+}
+
+async function reloadManualMarkets() {
+  if (!api) return;
+  const res = await api.getManualMarkets();
+  if (!res?.ok) {
+    pushLog(`读取手动选择失败: ${res?.message || 'unknown'}`);
+    return;
+  }
+  const selected = new Set(res.tokenIds || parseIds(envEditor.value.match(/^MARKET_TOKEN_IDS=(.*)$/m)?.[1] || ''));
+  renderMarketCards(lastRecommendations, selected);
+  pushLog(`当前 MARKET_TOKEN_IDS 共 ${selected.size} 个`);
+}
+
+document.getElementById('startMM').onclick = async () => {
+  if (!api) return;
+  const r = await api.startMM();
+  pushLog(r.ok ? '已启动做市' : `启动失败: ${r.message || 'unknown'}`);
+  refreshStatus();
+};
+
+document.getElementById('stopMM').onclick = async () => {
+  if (!api) return;
+  const r = await api.stopMM();
+  pushLog(r.ok ? '已停止做市' : `停止失败: ${r.message || 'unknown'}`);
+  refreshStatus();
+};
+
+document.getElementById('tplPredict').onclick = async () => {
+  if (!api) return;
+  const r = await api.applyTemplate('predict');
+  pushLog(r.ok ? '已应用 Predict 模板' : `模板失败: ${r.message || 'unknown'}`);
+  await refreshEnv();
+};
+
+document.getElementById('tplPolymarket').onclick = async () => {
+  if (!api) return;
+  const r = await api.applyTemplate('polymarket');
+  pushLog(r.ok ? '已应用 Polymarket 模板' : `模板失败: ${r.message || 'unknown'}`);
+  await refreshEnv();
+};
+
+document.getElementById('scanMarkets').onclick = scanMarkets;
+document.getElementById('applyAutoMarkets').onclick = applyAutoMarkets;
+document.getElementById('applyManualMarkets').onclick = applyManualMarkets;
+document.getElementById('reloadManualMarkets').onclick = reloadManualMarkets;
+
+document.getElementById('getJwt').onclick = async () => {
+  if (!api) return;
+  pushLog('正在获取 JWT Token...');
+  const r = await api.getJwt();
+  if (r.ok) {
+    pushLog('✅ JWT Token 获取成功！');
+    await refreshEnv();
+  } else {
+    pushLog(`❌ 获取 JWT 失败: ${r.message || '未知错误'}`);
+  }
+};
+
+document.getElementById('reloadEnv').onclick = refreshEnv;
+document.getElementById('refreshPredictWallet').onclick = async () => {
+  await refreshPredictWalletStatus(true);
+};
+document.getElementById('saveEnv').onclick = async () => {
+  if (!api) return;
+  await api.writeEnv(envEditor.value || '');
+  pushLog('配置已保存');
+  await refreshPredictWalletStatus();
+};
+
+if (predictAutoApprovals) {
+  predictAutoApprovals.onchange = () => {
+    envEditor.value = upsertEnv(
+      envEditor.value || '',
+      'PREDICT_AUTO_SET_APPROVALS',
+      predictAutoApprovals.checked ? 'true' : 'false'
+    );
+    pushLog(`已${predictAutoApprovals.checked ? '开启' : '关闭'} Predict 自动授权，记得点击“保存配置”。`);
+  };
+}
+
+selectAllMarkets.onchange = () => {
+  const checks = Array.from(document.querySelectorAll('.market-check'));
+  checks.forEach((el) => {
+    el.checked = selectAllMarkets.checked;
+  });
+  updateSelectAllState();
+  if (marketSummary) {
+    marketSummary.textContent = `共 ${lastRecommendations.length} 个推荐，已勾选 ${getCheckedTokenIds().length} 个`;
+  }
+};
+
+marketCardGrid?.addEventListener('change', (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement && target.classList.contains('market-check')) {
+    const card = target.closest('.market-card');
+    if (card) card.classList.toggle('selected', target.checked);
+    updateSelectAllState();
+    if (marketSummary) {
+      marketSummary.textContent = `共 ${lastRecommendations.length} 个推荐，已勾选 ${getCheckedTokenIds().length} 个`;
+    }
+  }
+});
+
+marketCardGrid?.addEventListener('click', async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const button = target.closest('.market-link-btn');
+  if (!button) return;
+  const url = button.getAttribute('data-market-url') || '';
+  if (!url) {
+    pushLog('当前市场缺少可打开的链接');
+    return;
+  }
+  if (api) {
+    await api.openExternal(url);
+  }
+});
+
+if (!api) {
+  pushLog('错误: preload bridge 未注入，按钮不可用。请重启 app。');
+  if (status) {
+    status.textContent = '桥接失败';
+    status.style.background = '#7f1d1d';
+  }
+} else {
+  api.onLog((payload) => {
+    const message = payload.message || '';
+    const normalized = String(message);
+    if (
+      normalized.includes('Checking Predict approvals') ||
+      normalized.includes('USDT allowance insufficient') ||
+      normalized.includes('Insufficient collateral')
+    ) {
+      setApprovalStatus('待授权');
+    }
+    if (
+      normalized.includes('Predict approvals ready') ||
+      normalized.includes('Approvals set successfully') ||
+      normalized.includes('授权成功')
+    ) {
+      setApprovalStatus('已就绪');
+    }
+    if (
+      normalized.includes('授权失败') ||
+      normalized.includes('allowance insufficient after auto-approval') ||
+      normalized.includes('Failed to set approvals')
+    ) {
+      setApprovalStatus('授权失败');
+    }
+    pushLog(message);
+  });
+  api.onStatus(() => refreshStatus());
+}
+
+pushLog('UI 已加载，可开始操作。');
+setApprovalStatus(approvalState);
+renderMarketCards([]);
+refreshEnv();
+refreshStatus();
+
+const LINKS = {
+  linkPredict: 'https://predict.fun?ref=B0CE6',
+  linkPolymarket: 'https://polymarket.com',
   linkX: 'https://x.com/ccjing_eth',
   linkTG: 'https://t.me/+VAhPSvs7jrxjYTY1',
 };

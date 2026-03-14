@@ -15,8 +15,8 @@
       "polymarketNoTokenId": "<Polymarket NO tokenId>",
       "opinionYesTokenId": "<Opinion YES tokenId>",
       "opinionNoTokenId": "<Opinion NO tokenId>",
-      "probableYesTokenId": "<Probable YES tokenId>",
-      "probableNoTokenId": "<Probable NO tokenId>"
+      "polymarketYesTokenId": "<Polymarket YES tokenId>",
+      "polymarketNoTokenId": "<Polymarket NO tokenId>"
     }
   ]
 }

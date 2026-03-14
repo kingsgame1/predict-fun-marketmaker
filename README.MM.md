@@ -265,7 +265,6 @@ npm run start:mm
 - 挂双边限价单赚取积分
 - 智能撤单避免成交
 - 支持 liquidity points 规则
-- Probable 做市：在 `.env` 中设置 `MM_VENUE=probable` + `PROBABLE_ENABLED=true`
 
 ### 套利模式
 
@@ -314,7 +313,7 @@ Kalshi：魔术 43%，马刺 57%
 若分别买入魔术 41¢ 与马刺 57¢，总成本 98¢，无论哪队赢都结算 100¢，净收益 2¢。
 注意事项：手续费、转账成本、平台结算差异与事件定义一致性都会影响实际收益。
 补充：脚本内置跨平台套利检测器，但需要你自行接入 Polymarket/Kalshi 的行情数据源。
-现在已接入 Polymarket、Opinion 与 Probable 的行情源。跨平台一键套利需要配置对应的 API Key/私钥。
+现在已接入 Polymarket、Opinion 与 Polymarket 的行情源。跨平台一键套利需要配置对应的 API Key/私钥。
 若需要无人值守，一键套利可设置 `AUTO_CONFIRM=true` 且 `CROSS_PLATFORM_AUTO_EXECUTE=true`。
 为了保证事件严格对应，建议维护 `cross-platform-mapping.json`，用 `predictMarketId` 显式映射外部平台的 Yes/No tokenId。
 
@@ -400,7 +399,6 @@ npm run setup:approvals
 跨平台一键套利额外依赖：
 - Polymarket: 需要配置 `POLYMARKET_PRIVATE_KEY`，可自动派生 API Key 或手动填入 `POLYMARKET_API_*`
 - Opinion: 需要安装 `opinion_clob_sdk`（Python），并配置 `OPINION_API_KEY` 与 `OPINION_PRIVATE_KEY`
-- Probable: 需要配置 `PROBABLE_PRIVATE_KEY`（BSC），并设置 `PROBABLE_ENABLED=true`
 
 ## 📊 输出示例
 

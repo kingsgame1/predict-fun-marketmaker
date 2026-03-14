@@ -11,8 +11,6 @@ export interface CrossPlatformMappingEntry {
   polymarketNoTokenId?: string;
   opinionYesTokenId?: string;
   opinionNoTokenId?: string;
-  probableYesTokenId?: string;
-  probableNoTokenId?: string;
 }
 
 export interface CrossPlatformMappingFile {
@@ -88,15 +86,6 @@ export class CrossPlatformMappingStore {
     );
     if (opinion) {
       results.push(opinion);
-    }
-
-    const probable = this.findByTokens(
-      allMarkets.get('Probable') || [],
-      entry.probableYesTokenId,
-      entry.probableNoTokenId
-    );
-    if (probable) {
-      results.push(probable);
     }
 
     return results;
@@ -212,8 +201,6 @@ export class CrossPlatformMappingStore {
       this.addTokenIndex('Polymarket', entry.polymarketNoTokenId, entry);
       this.addTokenIndex('Opinion', entry.opinionYesTokenId, entry);
       this.addTokenIndex('Opinion', entry.opinionNoTokenId, entry);
-      this.addTokenIndex('Probable', entry.probableYesTokenId, entry);
-      this.addTokenIndex('Probable', entry.probableNoTokenId, entry);
     }
   }
 

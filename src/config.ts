@@ -1181,16 +1181,6 @@ export function loadConfig(): Config {
     polymarketWsStaleMs: parseInt(process.env.POLYMARKET_WS_STALE_MS || '20000'),
     polymarketWsResetOnReconnect: process.env.POLYMARKET_WS_RESET_ON_RECONNECT !== 'false',
     polymarketCacheTtlMs: parseInt(process.env.POLYMARKET_CACHE_TTL_MS || '60000'),
-    probableEnabled: (process.env.PROBABLE_ENABLED || '').toLowerCase() === 'true',
-    probableMarketApiUrl: process.env.PROBABLE_MARKET_API_URL || 'https://market-api.probable.markets',
-    probableOrderbookApiUrl: process.env.PROBABLE_ORDERBOOK_API_URL || 'https://api.probable.markets',
-    probableMaxMarkets: parseInt(process.env.PROBABLE_MAX_MARKETS || '30'),
-    probableFeeBps: parseFloat(process.env.PROBABLE_FEE_BPS || '0'),
-    probableWsEnabled: process.env.PROBABLE_WS_ENABLED === 'true',
-    probableWsUrl: process.env.PROBABLE_WS_URL || 'wss://ws.probable.markets/public/api/v1',
-    probableWsStaleMs: parseInt(process.env.PROBABLE_WS_STALE_MS || '20000'),
-    probableWsResetOnReconnect: process.env.PROBABLE_WS_RESET_ON_RECONNECT !== 'false',
-    probableCacheTtlMs: parseInt(process.env.PROBABLE_CACHE_TTL_MS || '60000'),
     predictWsEnabled: process.env.PREDICT_WS_ENABLED === 'true',
     predictWsUrl: process.env.PREDICT_WS_URL || 'wss://ws.predict.fun/ws',
     predictWsApiKey: process.env.PREDICT_WS_API_KEY || process.env.API_KEY,
@@ -1219,10 +1209,6 @@ export function loadConfig(): Config {
     polymarketApiPassphrase: process.env.POLYMARKET_API_PASSPHRASE,
     polymarketChainId: parseInt(process.env.POLYMARKET_CHAIN_ID || '137'),
     polymarketAutoDeriveApiKey: process.env.POLYMARKET_AUTO_DERIVE_API_KEY !== 'false',
-    probablePrivateKey: process.env.PROBABLE_PRIVATE_KEY,
-    probableChainId: parseInt(process.env.PROBABLE_CHAIN_ID || '56'),
-    probableAutoDeriveApiKey: process.env.PROBABLE_AUTO_DERIVE_API_KEY !== 'false',
-    probableRpcUrl: process.env.PROBABLE_RPC_URL,
     opinionOpenApiUrl: process.env.OPINION_OPENAPI_URL || 'https://proxy.opinion.trade:8443/openapi',
     opinionApiKey: process.env.OPINION_API_KEY,
     opinionMaxMarkets: parseInt(process.env.OPINION_MAX_MARKETS || '30'),
@@ -1251,16 +1237,30 @@ export function loadConfig(): Config {
   const hasPredictAccountAddress = Boolean(
     config.predictAccountAddress && String(config.predictAccountAddress).trim()
   );
-  if (!hasPrivateKey) {
-    throw new Error('PRIVATE_KEY is required in .env file');
+  const hasPolymarketPrivateKey = Boolean(
+    (config.polymarketPrivateKey && String(config.polymarketPrivateKey).trim()) || hasPrivateKey
+  );
+
+  if (venue !== 'predict' && venue !== 'polymarket') {
+    throw new Error('MM_VENUE 仅支持 predict 或 polymarket');
   }
 
-  if (!hasApiKey) {
-    throw new Error('API_KEY is required in .env file');
-  }
+  if (venue === 'polymarket') {
+    if (!hasPolymarketPrivateKey) {
+      throw new Error('POLYMARKET_PRIVATE_KEY is required in .env file when MM_VENUE=polymarket');
+    }
+  } else {
+    if (!hasPrivateKey) {
+      throw new Error('PRIVATE_KEY is required in .env file');
+    }
 
-  if (venue !== 'probable' && config.enableTrading && !hasPredictAccountAddress) {
-    throw new Error('PREDICT_ACCOUNT_ADDRESS is required in .env file when ENABLE_TRADING=true for predict venue');
+    if (!hasApiKey) {
+      throw new Error('API_KEY is required in .env file');
+    }
+
+    if (config.enableTrading && !hasPredictAccountAddress) {
+      throw new Error('PREDICT_ACCOUNT_ADDRESS is required in .env file when ENABLE_TRADING=true for predict venue');
+    }
   }
 
   if ((config.minSpread ?? 0) > (config.maxSpread ?? 0.08)) {

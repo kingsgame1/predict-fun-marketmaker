@@ -31,7 +31,7 @@ function writeLitePackage() {
   const lite = {
     name: 'predict-fun-market-maker-lite',
     version: source.version,
-    description: 'Lite market-maker edition for Predict.fun and Probable',
+    description: 'Lite market-maker edition for Predict.fun and Polymarket',
     type: 'module',
     main: 'dist/index.js',
     scripts: {
@@ -43,13 +43,13 @@ function writeLitePackage() {
       'setup:approvals': 'tsx src/setup-approvals.ts',
       'smoke:predict': 'tsx scripts/smoke-trade.ts',
       'template:predict': 'node scripts/apply-mm-template.mjs predict',
-      'template:probable': 'node scripts/apply-mm-template.mjs probable',
+      'template:polymarket': 'node scripts/apply-mm-template.mjs polymarket',
       'market:recommend': 'tsx scripts/recommend-markets.ts',
       'market:apply': 'tsx scripts/recommend-markets.ts --apply',
       'app:install': 'npm --prefix desktop-app-lite install',
       'app:dev': 'npm --prefix desktop-app-lite run dev',
     },
-    keywords: ['predict', 'market-maker', 'probable', 'liquidity'],
+    keywords: ['predict', 'market-maker', 'polymarket', 'liquidity'],
     license: source.license || 'MIT',
     dependencies: source.dependencies,
     devDependencies: source.devDependencies,
@@ -63,12 +63,12 @@ function writeLiteReadme() {
 Lite edition with only market-maker operations:
 - unified market-making strategy
 - market recommendation + selection apply
-- order configuration templates for Predict / Probable
+- order configuration templates for Predict / Polymarket
 
 ## Referral
 
 - Predict: https://predict.fun?ref=B0CE6
-- Probable: https://probable.markets/?ref=PNRBS9VL
+- Polymarket: https://polymarket.com
 
 ## Quick Start
 
@@ -82,7 +82,7 @@ Apply venue template:
 \`\`\`bash
 npm run template:predict
 # or
-npm run template:probable
+npm run template:polymarket
 \`\`\`
 
 Recommend and apply top markets:
@@ -108,7 +108,7 @@ npm run app:dev
 Important:
 - Keep \`ENABLE_TRADING=false\` for first run.
 - For live trading on Predict, set \`JWT_TOKEN\` and run \`npm run setup:approvals\`.
-- For Probable, set \`PROBABLE_PRIVATE_KEY\` and keep \`MM_REQUIRE_JWT=false\`.
+- For Polymarket, set \`POLYMARKET_PRIVATE_KEY\` and keep \`MM_REQUIRE_JWT=false\`.
 `;
   fs.writeFileSync(path.join(outDir, 'README.md'), readme, 'utf8');
 }
@@ -273,13 +273,13 @@ ipcMain.handle('mm:start', () => startMM());
 ipcMain.handle('mm:stop', () => stopMM());
 ipcMain.handle('mm:status', () => ({ running: Boolean(mmProcess) }));
 ipcMain.handle('template:apply', async (_, venue) => {
-  if (venue !== 'predict' && venue !== 'probable') {
+  if (venue !== 'predict' && venue !== 'polymarket') {
     return { ok: false, message: 'invalid venue' };
   }
   return await spawnAndPipe('node', ['scripts/apply-mm-template.mjs', venue], 'template');
 });
 ipcMain.handle('market:apply', async (_, venue) => {
-  const v = venue === 'probable' ? 'probable' : 'predict';
+  const v = venue === 'polymarket' ? 'polymarket' : 'predict';
   return await spawnAndPipe(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['tsx', 'scripts/recommend-markets.ts', '--venue', v, '--apply'], 'market');
 });
 `;
@@ -321,11 +321,11 @@ contextBridge.exposeInMainWorld('liteApp', {
       </section>
       <section class="row">
         <button id="tplPredict">套用 Predict 模板</button>
-        <button id="tplProbable">套用 Probable 模板</button>
+        <button id="tplPolymarket">套用 Polymarket 模板</button>
       </section>
       <section class="row">
         <button id="marketPredict">推荐并应用 Predict 市场</button>
-        <button id="marketProbable">推荐并应用 Probable 市场</button>
+        <button id="marketPolymarket">推荐并应用 Polymarket 市场</button>
       </section>
       <section>
         <div class="label">.env 配置</div>
@@ -396,9 +396,9 @@ document.getElementById('tplPredict').onclick = async () => {
   pushLog(r.ok ? '已应用 Predict 模板' : '模板失败');
 };
 
-document.getElementById('tplProbable').onclick = async () => {
-  const r = await window.liteApp.applyTemplate('probable');
-  pushLog(r.ok ? '已应用 Probable 模板' : '模板失败');
+document.getElementById('tplPolymarket').onclick = async () => {
+  const r = await window.liteApp.applyTemplate('polymarket');
+  pushLog(r.ok ? '已应用 Polymarket 模板' : '模板失败');
 };
 
 document.getElementById('marketPredict').onclick = async () => {
@@ -406,9 +406,9 @@ document.getElementById('marketPredict').onclick = async () => {
   pushLog(r.ok ? '已应用 Predict 市场推荐' : '市场推荐失败');
 };
 
-document.getElementById('marketProbable').onclick = async () => {
-  const r = await window.liteApp.applyMarkets('probable');
-  pushLog(r.ok ? '已应用 Probable 市场推荐' : '市场推荐失败');
+document.getElementById('marketPolymarket').onclick = async () => {
+  const r = await window.liteApp.applyMarkets('polymarket');
+  pushLog(r.ok ? '已应用 Polymarket 市场推荐' : '市场推荐失败');
 };
 
 document.getElementById('reloadEnv').onclick = refreshEnv;

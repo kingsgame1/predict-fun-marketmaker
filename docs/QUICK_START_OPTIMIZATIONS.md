@@ -24,8 +24,6 @@ vim .env
 
 ```env
 # ============ 必填项 ============
-# Predict/Probable API
-API_BASE_URL=https://api.predict.fun  # 或 https://api.probable.markets
 API_KEY=your_api_key_here
 JWT_TOKEN=your_jwt_token_here
 
@@ -375,7 +373,6 @@ MIN_AGE_HOURS=2                  # 至少2小时
 - **完整优化指南**: `docs/IMMEDIATE_OPTIMIZATIONS.md`
 - **确定性尾盘套利**: `docs/DETERMINISTIC_SWEEP_GUIDE.md`
 - **时机判断指南**: `docs/SWEEP_TIMING_GUIDE.md`
-- **第二档策略**: `docs/PROBABLE_SECOND_LAYER_STRATEGY.md`
 
 ### 日志调试
 

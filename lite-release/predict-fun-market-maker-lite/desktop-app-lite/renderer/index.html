@@ -20,8 +20,8 @@
         <a id="linkPredict" class="link-btn predict" title="Predict.fun">
           <span class="icon">📈</span> Predict
         </a>
-        <a id="linkProbable" class="link-btn probable" title="Probable">
-          <span class="icon">🎯</span> Probable
+        <a id="linkPolymarket" class="link-btn polymarket" title="Polymarket">
+          <span class="icon">🔷</span> Polymarket
         </a>
         <a id="linkX" class="link-btn x" title="Twitter/X">
           <span class="icon">𝕏</span>
@@ -36,7 +36,7 @@
       </section>
       <section class="row">
         <button id="tplPredict">套用 Predict 模板</button>
-        <button id="tplProbable">套用 Probable 模板</button>
+        <button id="tplPolymarket">套用 Polymarket 模板</button>
       </section>
       <section class="row">
         <button id="getJwt" class="jwt-btn">🔑 获取 JWT Token</button>
@@ -81,7 +81,7 @@
         <div id="walletWarning" class="hint"></div>
       </section>
       <section class="hint">
-        模板只需填写必填项： Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>/<code>PREDICT_ACCOUNT_ADDRESS</code>（实盘再填 <code>JWT_TOKEN</code>）；Probable 填 <code>PROBABLE_PRIVATE_KEY</code>。API/WS 默认值按官方文档自动写入。
+        模板只需填写必填项： Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>/<code>PREDICT_ACCOUNT_ADDRESS</code>（实盘再填 <code>JWT_TOKEN</code>）；Polymarket 填 <code>POLYMARKET_PRIVATE_KEY</code>。API/WS 默认值按官方文档自动写入。
       </section>
       <section>
         <div class="label">市场筛选与推荐</div>
@@ -89,7 +89,7 @@
           <label>场馆
             <select id="marketVenue">
               <option value="predict">Predict</option>
-              <option value="probable">Probable</option>
+              <option value="polymarket">Polymarket</option>
             </select>
           </label>
           <label>扫描数量

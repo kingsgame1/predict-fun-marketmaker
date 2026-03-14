@@ -4,18 +4,13 @@
 
 ## 1. 必填配置
 
-- `MM_VENUE`：交易场馆（`predict` / `probable`），默认 `predict`。
 - `API_BASE_URL`：Predict API 入口（官方默认 `https://api.predict.fun`）。
 - `API_KEY`：`MM_VENUE=predict` 时必填（需自行申请）。
-- `PRIVATE_KEY`：`MM_VENUE=predict` 时必填；`MM_VENUE=probable` 时可作为兼容私钥字段。
-- `PROBABLE_PRIVATE_KEY`：`MM_VENUE=probable` 时必填（需自行获取）。
 - `JWT_TOKEN`：仅 Predict 实盘私有接口必填（`ENABLE_TRADING=true` 且 `MM_REQUIRE_JWT=true`）。
 - `RPC_URL`：可选。链上签名/审批更稳定。
 
 ## 2. 做市商参数
 
-- `MM_VENUE`：做市商交易所（`predict` 或 `probable`）。
-- `MM_REQUIRE_JWT`：是否强制需要 JWT（Probable 可设为 `false`）。
 - `SPREAD`：基础价差（如 0.02 = 2%）。
 - `MIN_SPREAD` / `MAX_SPREAD`：价差上下限。
 - `USE_VALUE_SIGNAL`：是否用价值信号调整挂单。
@@ -714,7 +709,6 @@
 - `CROSS_PLATFORM_QUALITY_PROFIT_MAX`：质量分收益门槛放大上限（<=0 表示不限制）。
 - `CROSS_PLATFORM_ALLOWLIST_TOKENS`：token 白名单（逗号分隔）。
 - `CROSS_PLATFORM_BLOCKLIST_TOKENS`：token 黑名单（逗号分隔）。
-- `CROSS_PLATFORM_ALLOWLIST_PLATFORMS`：平台白名单（Predict/Polymarket/Opinion/Probable）。
 - `CROSS_PLATFORM_BLOCKLIST_PLATFORMS`：平台黑名单。
 - `CROSS_PLATFORM_CHUNK_MAX_SHARES`：单次执行最大份额（>0 启用分块）。
 - `CROSS_PLATFORM_CHUNK_MAX_NOTIONAL`：单次执行最大名义金额（>0 启用分块）。
@@ -924,23 +918,6 @@
 - `POLYMARKET_API_KEY/SECRET/PASSPHRASE`：API 凭证。
 - `POLYMARKET_CHAIN_ID`：链 ID。
 - `POLYMARKET_AUTO_DERIVE_API_KEY`：自动派生。
-
-## 12. Probable
-
-- `PROBABLE_ENABLED`：是否启用 Probable 数据/执行。
-- `PROBABLE_MARKET_API_URL`：市场列表 API（market-api）。
-- `PROBABLE_ORDERBOOK_API_URL`：订单簿 API（public api v1）。
-- `PROBABLE_MAX_MARKETS`：扫描上限。
-- `PROBABLE_FEE_BPS`：手续费估算。
-- `PROBABLE_WS_ENABLED`：WS 开关。
-- `PROBABLE_WS_URL`：WS 地址。
-- `PROBABLE_WS_STALE_MS`：WS 无消息的最大容忍时长，超时重连。
-- `PROBABLE_WS_RESET_ON_RECONNECT`：重连后清空缓存，触发 REST 回补。
-- `PROBABLE_CACHE_TTL_MS`：市场列表缓存。
-- `PROBABLE_PRIVATE_KEY`：签名私钥（BSC）。
-- `PROBABLE_CHAIN_ID`：链 ID（默认 56）。
-- `PROBABLE_AUTO_DERIVE_API_KEY`：自动派生 API Key。
-- `PROBABLE_RPC_URL`：自定义 RPC（可选）。
 
 ## 13. Predict WS
 

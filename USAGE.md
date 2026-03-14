@@ -55,14 +55,10 @@
 跨平台一键套利：
 - `CROSS_PLATFORM_ENABLED=true`
 - `CROSS_PLATFORM_AUTO_EXECUTE=true`
-- 配置 Polymarket / Opinion / Probable 的密钥
-- 使用 Probable 时设置 `PROBABLE_ENABLED=true`
+- 配置 Polymarket / Opinion / Polymarket 的密钥
 
-Probable 做市商：
-- `MM_VENUE=probable`
-- `PROBABLE_ENABLED=true`
-- `PROBABLE_PRIVATE_KEY=...`
-- 如需 WS：`PROBABLE_WS_ENABLED=true`
+Polymarket 做市商：
+- `MM_VENUE=polymarket`
 - 可选：`CROSS_PLATFORM_ADAPTIVE_SIZE=true`（按深度缩小下单量）
 - 可选：`CROSS_PLATFORM_DEPTH_USAGE=0.5`（使用深度的最大比例）
 - 可选：`CROSS_PLATFORM_MAX_NOTIONAL=200`（名义金额上限）
@@ -87,9 +83,7 @@ Probable 做市商：
 - `POLYMARKET_WS_ENABLED=true`
 - `POLYMARKET_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market`
 
-实时行情（Probable WebSocket）：
-- `PROBABLE_WS_ENABLED=true`
-- `PROBABLE_WS_URL=wss://ws.probable.markets/public/api/v1`
+实时行情（Polymarket WebSocket）：
 
 实时行情（Predict WebSocket）：
 - `PREDICT_WS_ENABLED=true`
@@ -202,16 +196,16 @@ WS 健康日志：
 - `MM_HOLD_NEAR_TOUCH_MS=800`：接近成交时短暂观察，避免误撤。
 - `MM_DYNAMIC_CANCEL_ON_FILL=true`：一旦成交，提高撤单敏感度。
 
-## Probable 积分做市模板（挂单为主）
+## Polymarket 积分做市模板（挂单为主）
 
-如果你要在 Probable 上用“积分激励”模式，建议一键套用模板（桌面端按钮），核心是：
+如果你要在 Polymarket 上用“积分激励”模式，建议一键套用模板（桌面端按钮），核心是：
 
-- `MM_VENUE=probable` + `MM_REQUIRE_JWT=false`
+- `MM_VENUE=polymarket` + `MM_REQUIRE_JWT=false`
 - `MM_ONLY_POINTS_MARKETS=true` + `MM_POINTS_MIN_ONLY=true`
 - `MM_ORDER_DEPTH_USAGE=0.2`（保守深度利用）
 - 开启 `MM_AUTO_TUNE_ENABLED=true` 让参数自适应盘口变化
 
-若想在成交后自动降低持仓风险，可用“Probable 对冲模板”，它会默认开启：
+若想在成交后自动降低持仓风险，可用“Polymarket 对冲模板”，它会默认开启：
 
 - `HEDGE_ON_FILL=true` + `HEDGE_MODE=CROSS`（跨平台对冲）
 - `CROSS_PLATFORM_ENABLED=true` + `CROSS_PLATFORM_WS_REALTIME=true`
@@ -232,8 +226,8 @@ WS 健康日志：
 
 1. **做市防吃单模板**：自动开启盘口缓冲 + 成交压力价差 + 近触碰撤单。
 2. **套利稳健模板**：自动启用 WS + 预检 + VWAP 偏离二次确认 + 稳定性窗口。
-3. **Probable 积分做市模板**：切换到 Probable + 只做积分市场 + 最小挂单 + 自适应调参。
-4. **Probable 对冲模板**：Probable 做市成交后自动对冲/平仓，降低意外持仓风险。
+3. **Polymarket 积分做市模板**：切换到 Polymarket + 只做积分市场 + 最小挂单 + 自适应调参。
+4. **Polymarket 对冲模板**：Polymarket 做市成交后自动对冲/平仓，降低意外持仓风险。
 
 ## 跨平台 WS 实时扫描（进阶）
 

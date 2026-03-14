@@ -866,4 +866,3 @@ MAX_POSITION_LOSS_PCT=20          # 持仓亏损20%时强制平仓
 
 **文档版本**: v1.1.0
 **更新日期**: 2026-02-25
-**适用平台**: Predict.fun & Probable

@@ -124,7 +124,6 @@
 ### 策略文档
 - `docs/DETERMINISTIC_SWEEP_GUIDE.md` - 确定性尾盘套利
 - `docs/SWEEP_TIMING_GUIDE.md` - 时机判断
-- `docs/PROBABLE_SECOND_LAYER_STRATEGY.md` - 第二档策略
 
 ---
 
@@ -239,7 +238,6 @@ console.log(`成交金额: ${result.totalFilled}`);
 - HTTP/HTTPS (API调用)
 
 ### 主要库
-- Predict API / Probable API
 - WebSocket (ws)
 - Node.js标准库
 
@@ -337,7 +335,6 @@ console.log(`成交金额: ${result.totalFilled}`);
 ### 策略指南
 - 确定性尾盘: `docs/DETERMINISTIC_SWEEP_GUIDE.md`
 - 时机判断: `docs/SWEEP_TIMING_GUIDE.md`
-- 第二档策略: `docs/PROBABLE_SECOND_LAYER_STRATEGY.md`
 
 ---
 

@@ -604,249 +604,6 @@ class OpinionExecutor implements PlatformExecutor {
   }
 }
 
-class ProbableExecutor implements PlatformExecutor {
-  platform: ExternalPlatform = 'Probable';
-  private client: any;
-  private autoDerive: boolean;
-  private apiReady = false;
-  private cancelOpenMs: number;
-  private orderType?: string;
-  private orderbookApiUrl: string;
-
-  constructor(config: Config) {
-    const privateKey = config.probablePrivateKey || '';
-    const chainId = config.probableChainId || 56;
-    const normalizedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-    const account = privateKeyToAccount(normalizedKey as `0x${string}`);
-    const chain = chainId === bscTestnet.id ? bscTestnet : bsc;
-    const transport = config.probableRpcUrl ? http(config.probableRpcUrl) : http();
-    const wallet = createWalletClient({ account, chain, transport });
-
-    this.client = createClobClient({
-      baseUrl: config.probableOrderbookApiUrl || 'https://api.probable.markets/public/api/v1',
-      wsUrl: config.probableWsUrl || 'wss://ws.probable.markets/public/api/v1',
-      chainId,
-      wallet,
-    } as any);
-
-    this.autoDerive = config.probableAutoDeriveApiKey !== false;
-    this.cancelOpenMs = config.crossPlatformCancelOpenMs || 0;
-    this.orderType = config.crossPlatformOrderType;
-    this.orderbookApiUrl = config.probableOrderbookApiUrl || 'https://api.probable.markets/public/api/v1';
-  }
-
-  private async ensureApiKey(): Promise<void> {
-    if (this.apiReady || !this.autoDerive) {
-      return;
-    }
-    try {
-      const clientAny = this.client as any;
-      if (typeof clientAny.generateApiKey === 'function') {
-        await clientAny.generateApiKey();
-        this.apiReady = true;
-      }
-    } catch (error) {
-      console.warn('Probable API key derive failed:', error);
-    }
-  }
-
-  async execute(legs: PlatformLeg[], options?: PlatformExecuteOptions): Promise<ExecutionResult> {
-    await this.ensureApiKey();
-    const orderIds: string[] = [];
-    const useLimit = options?.useLimit ?? true;
-    const timeInForce = this.resolveTimeInForce(options);
-
-    for (const leg of legs) {
-      const side = leg.side === 'BUY' ? OrderSide.Buy : OrderSide.Sell;
-      let order: any;
-      if (useLimit && typeof (this.client as any).createLimitOrder === 'function') {
-        order = await (this.client as any).createLimitOrder({
-          tokenId: leg.tokenId,
-          price: leg.price,
-          size: leg.shares,
-          side,
-          timeInForce,
-        });
-      } else if (typeof (this.client as any).createMarketOrder === 'function') {
-        order = await (this.client as any).createMarketOrder({
-          tokenId: leg.tokenId,
-          size: leg.shares,
-          side,
-        });
-      } else {
-        order = await (this.client as any).createLimitOrder({
-          tokenId: leg.tokenId,
-          price: leg.price,
-          size: leg.shares,
-          side,
-          timeInForce,
-        });
-      }
-
-      const result: any = await (this.client as any).postOrder(order);
-      const orderId = result?.orderId || result?.orderID || result?.id || order?.id;
-      if (orderId) {
-        orderIds.push(String(orderId));
-        if (useLimit && this.cancelOpenMs > 0) {
-          this.scheduleCancel(String(orderId));
-        }
-      }
-    }
-
-    return { platform: this.platform, orderIds, legs };
-  }
-
-  async cancelOrders(orderIds: string[]): Promise<void> {
-    if (!orderIds || orderIds.length === 0) {
-      return;
-    }
-    const clientAny = this.client as any;
-    try {
-      if (typeof clientAny.cancelOrders === 'function') {
-        await clientAny.cancelOrders(orderIds);
-        return;
-      }
-      if (typeof clientAny.cancelOrder === 'function') {
-        for (const id of orderIds) {
-          await clientAny.cancelOrder(id);
-        }
-        return;
-      }
-    } catch (error) {
-      console.warn('Probable cancel failed:', error);
-    }
-  }
-
-  async checkOpenOrders(orderIds: string[]): Promise<string[]> {
-    if (!orderIds || orderIds.length === 0) {
-      return [];
-    }
-    const clientAny = this.client as any;
-    try {
-      if (typeof clientAny.getOpenOrders !== 'function') {
-        return [];
-      }
-      const response = await clientAny.getOpenOrders();
-      const list = Array.isArray(response)
-        ? response
-        : Array.isArray(response?.orders)
-        ? response.orders
-        : Array.isArray(response?.data)
-        ? response.data
-        : [];
-      return list
-        .map((order: any) => order?.id || order?.orderId || order?.orderID)
-        .filter((id: any) => id && orderIds.includes(String(id)))
-        .map((id: any) => String(id));
-    } catch (error) {
-      console.warn('Probable open order check failed:', error);
-      return [];
-    }
-  }
-
-  async hedgeLegs(legs: PlatformLeg[], slippageBps: number): Promise<void> {
-    await this.ensureApiKey();
-    const slippage = slippageBps / 10000;
-    for (const leg of legs) {
-      const book = await this.fetchOrderbook(leg.tokenId);
-      if (!book) continue;
-      const hedgeSide = leg.side === 'BUY' ? 'SELL' : 'BUY';
-      const refPrice = hedgeSide === 'BUY' ? book.bestAsk : book.bestBid;
-      if (!refPrice || !Number.isFinite(refPrice) || refPrice <= 0) {
-        continue;
-      }
-      const hedgePrice =
-        hedgeSide === 'BUY'
-          ? Math.min(1, refPrice * (1 + slippage))
-          : Math.max(0.0001, refPrice * (1 - slippage));
-      const side = hedgeSide === 'BUY' ? OrderSide.Buy : OrderSide.Sell;
-      if (typeof (this.client as any).createLimitOrder !== 'function') {
-        continue;
-      }
-      const order = await (this.client as any).createLimitOrder({
-        tokenId: leg.tokenId,
-        price: hedgePrice,
-        size: leg.shares,
-        side,
-        timeInForce: this.resolveTimeInForce({ orderType: 'FOK' }),
-      });
-      await (this.client as any).postOrder(order);
-    }
-  }
-
-  private async fetchOrderbook(tokenId: string): Promise<{ bestBid?: number; bestAsk?: number } | null> {
-    const clientAny = this.client as any;
-    try {
-      if (typeof clientAny.getOrderBook === 'function') {
-        const book = await clientAny.getOrderBook(tokenId);
-        const bids = Array.isArray(book?.bids) ? book.bids : [];
-        const asks = Array.isArray(book?.asks) ? book.asks : [];
-        const bestBid = bids
-          .map((level: any) => Number(level?.price ?? level?.[0]))
-          .filter((price: number) => Number.isFinite(price))
-          .sort((a: number, b: number) => b - a)[0];
-        const bestAsk = asks
-          .map((level: any) => Number(level?.price ?? level?.[0]))
-          .filter((price: number) => Number.isFinite(price))
-          .sort((a: number, b: number) => a - b)[0];
-        return { bestBid, bestAsk };
-      }
-    } catch {
-      // fallback to REST
-    }
-
-    try {
-      const url = `${this.orderbookApiUrl.replace(/\/+$/, '')}/book?token_id=${encodeURIComponent(tokenId)}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        return null;
-      }
-      const data: any = await response.json();
-      const bids = Array.isArray(data?.bids) ? data.bids : data?.result?.bids || [];
-      const asks = Array.isArray(data?.asks) ? data.asks : data?.result?.asks || [];
-      const bestBid = bids
-        .map((level: any) => Number(level?.price ?? level?.[0]))
-        .filter((price: number) => Number.isFinite(price))
-        .sort((a: number, b: number) => b - a)[0];
-      const bestAsk = asks
-        .map((level: any) => Number(level?.price ?? level?.[0]))
-        .filter((price: number) => Number.isFinite(price))
-        .sort((a: number, b: number) => a - b)[0];
-      return { bestBid, bestAsk };
-    } catch {
-      return null;
-    }
-  }
-
-  private resolveTimeInForce(options?: PlatformExecuteOptions): any {
-    const useFok = options?.useFok === true;
-    const configured = (useFok ? 'FOK' : options?.orderType || this.orderType || '').toUpperCase();
-    const map: Record<string, any> = {
-      GTC: (LimitTimeInForce as any).GTC,
-      FOK: (LimitTimeInForce as any).FOK,
-      FAK: (LimitTimeInForce as any).IOC ?? (LimitTimeInForce as any).FAK,
-      IOC: (LimitTimeInForce as any).IOC,
-      GTD: (LimitTimeInForce as any).GTD,
-    };
-    const fallback = map.GTC ?? 'GTC';
-    const resolved = map[configured] ?? fallback;
-    return resolved;
-  }
-
-  private scheduleCancel(orderId: string): void {
-    if (!this.cancelOpenMs || this.cancelOpenMs <= 0) {
-      return;
-    }
-    setTimeout(async () => {
-      try {
-        await this.cancelOrders([orderId]);
-      } catch {
-        // ignore
-      }
-    }, this.cancelOpenMs);
-  }
-}
-
 export class CrossPlatformExecutionRouter {
   private executors: Map<ExternalPlatform, PlatformExecutor> = new Map();
   private config: Config;
@@ -976,10 +733,6 @@ export class CrossPlatformExecutionRouter {
 
     if (config.opinionApiKey && config.opinionPrivateKey) {
       this.executors.set('Opinion', new OpinionExecutor(config));
-    }
-
-    if (config.probablePrivateKey) {
-      this.executors.set('Probable', new ProbableExecutor(config));
     }
   }
 
@@ -3866,7 +3619,7 @@ export class CrossPlatformExecutionRouter {
       this.wsHealthChunkFactor = this.computeWsHealthChunkFactor();
     }
 
-    const platformSet = new Set<ExternalPlatform>(['Predict', 'Polymarket', 'Opinion', 'Probable']);
+    const platformSet = new Set<ExternalPlatform>(['Predict', 'Polymarket', 'Opinion']);
 
     if (Array.isArray(data?.tokenScores)) {
       for (const entry of data.tokenScores) {
@@ -4909,9 +4662,6 @@ export class CrossPlatformExecutionRouter {
     if (platform === 'Opinion') {
       return this.config.opinionFeeBps || 0;
     }
-    if (platform === 'Probable') {
-      return this.config.probableFeeBps || 0;
-    }
     return 0;
   }
 
@@ -4979,20 +4729,6 @@ export class CrossPlatformExecutionRouter {
       return this.normalizeSnapshot(
         this.limitEntries(this.parseRawEntries(book?.bids), depthLevels),
         this.limitEntries(this.parseRawEntries(book?.asks), depthLevels)
-      );
-    }
-
-    if (leg.platform === 'Probable') {
-      const base = this.config.probableOrderbookApiUrl || 'https://api.probable.markets/public/api/v1';
-      const url = `${base.replace(/\/+$/, '')}/book?token_id=${encodeURIComponent(leg.tokenId)}`;
-      const response = await fetch(url, { method: 'GET' });
-      if (!response.ok) {
-        return null;
-      }
-      const data: any = await response.json();
-      return this.normalizeSnapshot(
-        this.limitEntries(this.parseRawEntries(data?.bids || data?.result?.bids), depthLevels),
-        this.limitEntries(this.parseRawEntries(data?.asks || data?.result?.asks), depthLevels)
       );
     }
 

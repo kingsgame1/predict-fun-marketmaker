@@ -404,11 +404,11 @@ function upsertEnv(text, updates) {
   return `${lines.join('\n').replace(/\n+$/g, '')}\n`;
 }
 
-async function fetchProbableActiveTokenSet(envMap) {
-  const baseUrl = (envMap.get('PROBABLE_MARKET_API_URL') || 'https://market-api.probable.markets').replace(/\/+$/g, '');
-  const configuredLimit = Number(envMap.get('PROBABLE_MAX_MARKETS') || 200);
+async function fetchPolymarketActiveTokenSet(envMap) {
+  const baseUrl = (envMap.get('POLYMARKET_GAMMA_URL') || 'https://gamma-api.polymarket.com').replace(/\/+$/g, '');
+  const configuredLimit = Number(envMap.get('POLYMARKET_MAX_MARKETS') || 200);
   const limit = Math.min(500, Math.max(80, Number.isFinite(configuredLimit) ? configuredLimit : 200));
-  const url = `${baseUrl}/public/api/v1/markets/?active=true&closed=false&limit=${limit}`;
+  const url = `${baseUrl}/markets?active=true&closed=false&limit=${limit}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
@@ -428,20 +428,19 @@ async function fetchProbableActiveTokenSet(envMap) {
       ? raw.data.markets
       : Array.isArray(raw?.data)
       ? raw.data
-      : Array.isArray(raw?.result)
-      ? raw.result
       : Array.isArray(raw)
       ? raw
       : [];
 
     const tokenSet = new Set();
-    for (const item of list) {
-      if (item?.active === false || item?.closed === true) continue;
-      const outcomes = toArray(item?.outcomes || item?.outcomeNames);
-      const tokens = toArray(item?.clobTokenIds || item?.clob_token_ids || item?.tokens || item?.tokenIds);
-      if (outcomes.length < 2 || tokens.length < 2) continue;
-      for (const tokenId of tokens) {
-        if (tokenId) tokenSet.add(String(tokenId));
+    for (const entry of list) {
+      const items = Array.isArray(entry?.markets) && entry.markets.length > 0 ? entry.markets.map((child) => ({ ...entry, ...child })) : [entry];
+      for (const item of items) {
+        if (item?.active === false || item?.closed === true || item?.archived === true) continue;
+        const tokens = toArray(item?.clobTokenIds || item?.tokens || item?.tokenIds);
+        for (const tokenId of tokens) {
+          if (tokenId) tokenSet.add(String(tokenId));
+        }
       }
     }
     return tokenSet;
@@ -450,17 +449,17 @@ async function fetchProbableActiveTokenSet(envMap) {
   }
 }
 
-async function validateProbableTokenIds(tokenIds) {
+async function validatePolymarketTokenIds(tokenIds) {
   const envMap = parseEnv(readEnv());
-  const activeTokenSet = await fetchProbableActiveTokenSet(envMap);
+  const activeTokenSet = await fetchPolymarketActiveTokenSet(envMap);
   const valid = tokenIds.filter((id) => activeTokenSet.has(String(id)));
   const invalid = tokenIds.filter((id) => !activeTokenSet.has(String(id)));
   return { valid, invalid, activeCount: activeTokenSet.size };
 }
 
-async function sanitizeProbableConfiguredTokenIds() {
+async function sanitizePolymarketConfiguredTokenIds() {
   const envMap = parseEnv(readEnv());
-  if ((envMap.get('MM_VENUE') || '').trim().toLowerCase() !== 'probable') {
+  if ((envMap.get('MM_VENUE') || '').trim().toLowerCase() !== 'polymarket') {
     return { ok: true, skipped: true, filteredTokenIds: [] };
   }
 
@@ -474,7 +473,7 @@ async function sanitizeProbableConfiguredTokenIds() {
 
   let validation;
   try {
-    validation = await validateProbableTokenIds(tokenIds);
+    validation = await validatePolymarketTokenIds(tokenIds);
   } catch (error) {
     sendLog(`[market] 启动前 token 校验跳过: ${error.message}`);
     return { ok: true, skipped: true, filteredTokenIds: tokenIds };
@@ -482,14 +481,14 @@ async function sanitizeProbableConfiguredTokenIds() {
 
   const { valid, invalid, activeCount } = validation;
   if (invalid.length === 0) {
-    sendLog(`[market] Probable 启动前校验通过: ${valid.length}/${tokenIds.length} token 在当前活跃池内 (active=${activeCount})`);
+    sendLog(`[market] Polymarket 启动前校验通过: ${valid.length}/${tokenIds.length} token 在当前活跃池内 (active=${activeCount})`);
     return { ok: true, valid, invalid, activeCount, filteredTokenIds: valid };
   }
 
   if (valid.length === 0) {
     return {
       ok: false,
-      message: '当前 MARKET_TOKEN_IDS 全部不在 Probable 活跃市场中，请先重新扫描并应用市场',
+      message: '当前 MARKET_TOKEN_IDS 全部不在 Polymarket 活跃市场中，请先重新扫描并应用市场',
       invalid,
       activeCount,
       filteredTokenIds: [],
@@ -529,7 +528,7 @@ function applyTemplate(venue) {
 
     const next = venue === 'predict'
       ? buildPredictTemplate(existing)
-      : buildProbableTemplate(existing);
+      : buildPolymarketTemplate(existing);
 
     // 备份
     if (fs.existsSync(envPath)) {
@@ -595,10 +594,10 @@ PREDICT_AUTO_SET_APPROVALS=true
 PREDICT_COLLATERAL_BUFFER_BPS=100
 # BUY 因余额/抵押不足失败后的冷却时间，单位毫秒（默认 60 秒）
 PREDICT_BUY_INSUFFICIENT_COOLDOWN_MS=60000
-PROBABLE_ENABLED=false
+POLYMARKET_ENABLED=false
 MM_WS_ENABLED=true
 PREDICT_WS_ENABLED=true
-PROBABLE_WS_ENABLED=false
+POLYMARKET_WS_ENABLED=false
 
 # ---- YES/NO 对冲策略（启用后自动对冲）----
 UNIFIED_STRATEGY_ENABLED=true
@@ -618,7 +617,7 @@ MARKET_TOKEN_IDS=${marketIds}
 `;
 }
 
-function buildProbableTemplate(existing) {
+function buildPolymarketTemplate(existing) {
   const pick = (key, placeholder = '') => {
     const value = (existing.get(key) || '').trim();
     if (!value) return placeholder;
@@ -629,46 +628,42 @@ function buildProbableTemplate(existing) {
     return value;
   };
 
-  const probableKey = pick('PROBABLE_PRIVATE_KEY', '请填写你的_Probable_私钥（必填）');
+  const polymarketKey = pick('POLYMARKET_PRIVATE_KEY', '请填写你的_Polymarket_私钥（必填）');
   const privateKey = pick('PRIVATE_KEY', '');
   const marketIds = pick('MARKET_TOKEN_IDS', '');
   const minSize = pick('UNIFIED_STRATEGY_MIN_SIZE', '100');
   const maxSize = pick('UNIFIED_STRATEGY_MAX_SIZE', '500');
 
   return `# ==============================
-# Probable 做市模板（统一策略）
+# Polymarket 做市模板（统一策略）
 # 只展示你需要填写的字段；其余参数使用系统统一策略默认值
 # ==============================
 
 # ---- 需要你填写（必填） ----
-# [需自行获取] Probable 私钥（必填）
-PROBABLE_PRIVATE_KEY=${probableKey}
-# 兼容字段（可留空；如有值可与 PROBABLE_PRIVATE_KEY 一致）
+# [需自行获取] Polymarket 私钥（必填）
+POLYMARKET_PRIVATE_KEY=${polymarketKey}
+# 兼容字段（可留空；如有值可与 POLYMARKET_PRIVATE_KEY 一致）
 PRIVATE_KEY=${privateKey}
 
 # ---- 官方默认 API / WS（直接使用）----
-# 文档来源：https://developer.probable.markets/
-# Market API: /public/api/v1/markets/
-# Orderbook API: /public/api/v1/book
-MM_VENUE=probable
-PROBABLE_MARKET_API_URL=https://market-api.probable.markets
-PROBABLE_ORDERBOOK_API_URL=https://api.probable.markets/public/api/v1
-# [官方默认 WS] 直接使用即可
-PROBABLE_WS_URL=wss://ws.probable.markets/public/api/v1
-PROBABLE_CHAIN_ID=56
-# 启动/校验时拉取的活跃市场窗口（默认 200）
-PROBABLE_MAX_MARKETS=200
+# 文档来源：https://docs.polymarket.com/
+MM_VENUE=polymarket
+POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
+POLYMARKET_CLOB_URL=https://clob.polymarket.com
+POLYMARKET_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market
+POLYMARKET_CHAIN_ID=137
+POLYMARKET_AUTO_DERIVE_API_KEY=true
+POLYMARKET_MAX_MARKETS=120
 
 # ---- 统一做市策略开关（自动）----
 MM_REQUIRE_JWT=false
-PROBABLE_ENABLED=true
 MM_WS_ENABLED=true
-PROBABLE_WS_ENABLED=true
+POLYMARKET_WS_ENABLED=true
 PREDICT_WS_ENABLED=false
 UNIFIED_STRATEGY_ENABLED=true
 
-ENABLE_TRADING=true
-AUTO_CONFIRM=true
+ENABLE_TRADING=false
+AUTO_CONFIRM=false
 
 # ---- 订单大小配置 ----
 # 每笔订单的最小股数（默认 100）
@@ -822,7 +817,7 @@ async function startMM() {
 
   let filteredTokenIds = [];
   try {
-    const sanitizeResult = await sanitizeProbableConfiguredTokenIds();
+    const sanitizeResult = await sanitizePolymarketConfiguredTokenIds();
     if (!sanitizeResult.ok) {
       return { ok: false, message: sanitizeResult.message || '启动前 token 校验失败' };
     }
@@ -889,19 +884,19 @@ async function setManualMarketSelection(tokenIds) {
     ? tokenIds.map((x) => String(x).trim()).filter((x) => x.length > 0)
     : [];
   const envMap = parseEnv(readEnv());
-  const isProbableVenue = (envMap.get('MM_VENUE') || '').trim().toLowerCase() === 'probable';
+  const isPolymarketVenue = (envMap.get('MM_VENUE') || '').trim().toLowerCase() === 'polymarket';
   let finalTokens = tokens;
 
-  if (isProbableVenue && finalTokens.length > 0) {
+  if (isPolymarketVenue && finalTokens.length > 0) {
     try {
-      const { valid, invalid } = await validateProbableTokenIds(finalTokens);
+      const { valid, invalid } = await validatePolymarketTokenIds(finalTokens);
       finalTokens = valid;
       if (invalid.length > 0) {
         sendLog(`[market] 手动选择时过滤了 ${invalid.length} 个非活跃 token`);
         sendLog(`[market] 已过滤: ${invalid.join(', ')}`);
       }
       if (finalTokens.length === 0) {
-        return { ok: false, message: '你勾选的 token 当前都不在 Probable 活跃市场中，请重新扫描后再应用' };
+        return { ok: false, message: '你勾选的 token 当前都不在 Polymarket 活跃市场中，请重新扫描后再应用' };
       }
     } catch (error) {
       sendLog(`[market] 手动选择校验失败，使用原始 token: ${error.message}`);
@@ -913,10 +908,10 @@ async function setManualMarketSelection(tokenIds) {
   const updates = {
     MARKET_TOKEN_IDS: finalTokens.join(','),
   };
-  if (isProbableVenue) {
-    const currentProbableMaxMarkets = Number(currentEnvMap.get('PROBABLE_MAX_MARKETS') || 0);
-    updates.PROBABLE_MAX_MARKETS = String(
-      Math.max(200, Number.isFinite(currentProbableMaxMarkets) ? currentProbableMaxMarkets : 0)
+  if (isPolymarketVenue) {
+    const currentPolymarketMaxMarkets = Number(currentEnvMap.get('POLYMARKET_MAX_MARKETS') || 0);
+    updates.POLYMARKET_MAX_MARKETS = String(
+      Math.max(120, Number.isFinite(currentPolymarketMaxMarkets) ? currentPolymarketMaxMarkets : 0)
     );
   }
   const next = upsertEnv(envText, updates);
@@ -985,7 +980,7 @@ ipcMain.handle('mm:start', async () => await startMM());
 ipcMain.handle('mm:stop', () => stopMM());
 ipcMain.handle('mm:status', () => ({ running: Boolean(mmProcess) }));
 ipcMain.handle('template:apply', (_, venue) => {
-  if (venue !== 'predict' && venue !== 'probable') {
+  if (venue !== 'predict' && venue !== 'polymarket') {
     return { ok: false, message: 'invalid venue' };
   }
   sendLog(`[template] 应用 ${venue} 模板...`);
@@ -998,11 +993,11 @@ ipcMain.handle('template:apply', (_, venue) => {
   return result;
 });
 ipcMain.handle('market:scan', async (_, venue, top, scan) => {
-  const v = venue === 'probable' ? 'probable' : 'predict';
+  const v = venue === 'polymarket' ? 'polymarket' : 'predict';
   return await runRecommendJson(v, { top, scan, apply: false });
 });
 ipcMain.handle('market:apply-auto', async (_, venue, top, scan) => {
-  const v = venue === 'probable' ? 'probable' : 'predict';
+  const v = venue === 'polymarket' ? 'polymarket' : 'predict';
   return await runRecommendJson(v, { top, scan, apply: true });
 });
 ipcMain.handle('market:set-manual', async (_, tokenIds) => await setManualMarketSelection(tokenIds));

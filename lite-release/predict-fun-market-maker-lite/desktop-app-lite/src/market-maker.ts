@@ -3,18 +3,91 @@
  * Production-oriented quoting + risk controls
  */
 
-import type { Config, Market, Orderbook, Order, OrderbookEntry, Position } from './types.js';
+import type { Config, Market, Orderbook, Order, OrderbookEntry, Position, LiquidityActivation } from './types.js';
 import type { MakerApi, MakerOrderManager } from './mm/venue.js';
 import { OrderManager } from './order-manager.js';
+// 统一做市商策略（整合了所有优点）
+import {
+  UnifiedMarketMakerStrategy,
+  UnifiedState,
+  type UnifiedMarketMakerConfig,
+  type UnifiedAction
+} from './strategies/unified-market-maker-strategy.js';
+
+// 两阶段循环对冲策略
+import {
+  TwoPhaseHedgeStrategy,
+  TwoPhaseState,
+  twoPhaseHedgeStrategy
+} from './strategies/two-phase-hedge-strategy.js';
+
+// Phase 1: 导入增强模块
+import {
+  VolatilityEstimator,
+  OrderFlowEstimator,
+  InventoryClassifier,
+  InventoryState,
+  MeanReversionPredictor
+} from './analysis/types.js';
+import {
+  DynamicASModel
+} from './pricing/types.js';
 import { ValueMismatchDetector } from './arbitrage/value-detector.js';
-import { estimateBuy, estimateSell } from './arbitrage/orderbook-vwap.js';
 import { CrossPlatformAggregator } from './external/aggregator.js';
 import { CrossPlatformExecutionRouter } from './external/execution.js';
-import { findBestMatch } from './external/match.js';
+import { similarityScore } from './external/match.js';
 import type { PlatformLeg, PlatformMarket } from './external/types.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { UnifiedStrategy } from './strategies/unified-strategy.js';
+import { pointsManager } from './mm/points/points-manager.js';
+// import { spreadCache } from './mm/cache/spread-cache.js';
+import { pointsOptimizerEngine, type PointsMarketScore } from './mm/points/points-optimizer.js';
+import { pointsSystemIntegration } from './mm/points/points-integration.js';
+import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './mm/points/points-optimizer-v2.js';
+
+// CRITICAL FIX #2: 统一的持仓快照接口，解决类型不一致问题
+interface PositionSnapshot {
+  yesAmount: number;
+  noAmount: number;
+  net: number;
+  timestamp: number;
+}
+
+// MEDIUM FIX #3: 定义做市商常量（消除魔法数字）
+const MARKET_MAKER_CONSTANTS = {
+  // 基础常量
+  MIN_TICK: 0.0001,
+  BPS_MULTIPLIER: 10000,
+  EPSILON: 0.0001,  // 浮点数比较精度
+
+  // 时间相关
+  DEFAULT_MIN_INTERVAL_MS: 3000,
+  ORDERBOOK_CACHE_MAX_AGE_MS: 2000,
+  FILL_DETECTION_COOLDOWN_MS: 5000,
+
+  // 价差相关
+  DEFAULT_SPREAD_CENTS: 0.02,
+  MAX_ALLOWED_BOOK_SPREAD: 0.2,
+  MIN_SPREAD_BPS: 80,
+  MAX_SPREAD_BPS: 550,
+
+  // 比率限制
+  MAX_RATIO: 999,
+  DEFAULT_TOLERANCE: 0.05,
+
+  // 订单大小
+  MIN_ORDER_SIZE: 10,
+  DEFAULT_ORDER_SIZE: 25,
+
+  // 滑点
+  DEFAULT_SLIPPAGE_BPS: 250,
+  DEFAULT_HEDGE_SLIPPAGE_BPS: 250,
+
+  // 风险控制
+  DEFAULT_MAX_POSITION: 100,
+  DEFAULT_MAX_DAILY_LOSS: 200,
+
+} as const;
 
 interface QuotePrices {
   bidPrice: number;
@@ -35,6 +108,26 @@ interface QuotePrices {
 interface OrderSizeResult {
   shares: number;
   usdt: number;
+}
+
+type OrderLevel = OrderbookEntry;
+
+// MEDIUM FIX #2: 结构化日志系统
+enum LogLevel {
+  ERROR = 'ERROR',
+  WARN = 'WARN',
+  INFO = 'INFO',
+  DEBUG = 'DEBUG',
+}
+
+interface LogContext {
+  tokenId?: string;
+  orderId?: string;
+  shares?: number;
+  price?: number;
+  side?: 'BUY' | 'SELL';
+  market?: string;
+  [key: string]: unknown;
 }
 
 export class MarketMaker {
@@ -75,6 +168,8 @@ export class MarketMaker {
   private prevAskDeltaBps: Map<string, number> = new Map();
   private lastBookSpread: Map<string, number> = new Map();
   private lastBookSpreadAt: Map<string, number> = new Map();
+  private lastBookSpreadDeltaBps: Map<string, number> = new Map();
+  private protectiveUntil: Map<string, number> = new Map();
   private volatilityEma: Map<string, number> = new Map();
   private depthEma: Map<string, number> = new Map();
   private totalDepthEma: Map<string, number> = new Map();
@@ -89,10 +184,13 @@ export class MarketMaker {
   private actionLockUntil: Map<string, number> = new Map();
   private cooldownUntil: Map<string, number> = new Map();
   private pauseUntil: Map<string, number> = new Map();
-  private lastNetShares: Map<string, number> = new Map();
+  // CRITICAL FIX #2: 使用统一的 PositionSnapshot 接口
+  private lastNetShares: Map<string, PositionSnapshot> = new Map();
   private lastHedgeAt: Map<string, number> = new Map();
   private lastIcebergAt: Map<string, number> = new Map();
   private lastFillAt: Map<string, number> = new Map();
+  // 存储 token_id -> market 映射（支持 YES/NO 的不同 token_id）
+  private marketByToken: Map<string, Market> = new Map();
   private lastProfile: Map<string, 'CALM' | 'NORMAL' | 'VOLATILE'> = new Map();
   private lastProfileAt: Map<string, number> = new Map();
   private icebergPenalty: Map<string, { value: number; ts: number }> = new Map();
@@ -103,9 +201,6 @@ export class MarketMaker {
   private recheckCooldownUntil: Map<string, number> = new Map();
   private fillPressure: Map<string, { score: number; ts: number }> = new Map();
   private cancelBoost: Map<string, { value: number; ts: number }> = new Map();
-  // YES/NO token 配对缓存 (key: tokenId, value: 配对的 tokenId)
-  private pairedTokenCache: Map<string, string> = new Map();
-  private pairedTokenCacheAt: number = 0;
   private nearTouchPenalty: Map<string, { value: number; ts: number }> = new Map();
   private fillPenalty: Map<string, { value: number; ts: number }> = new Map();
   private layerPanicUntil: Map<string, number> = new Map();
@@ -142,6 +237,7 @@ export class MarketMaker {
   private orderManager?: MakerOrderManager;
   private orderManagerFactory?: () => Promise<MakerOrderManager>;
   private tradingHalted = false;
+  private tradingHaltAt = 0;  // 记录交易暂停的时间戳
   private sessionPnL = 0;
   private warnedNoExecution = false;
   private warnedNoOrderSync = false;
@@ -150,35 +246,92 @@ export class MarketMaker {
   private cancelBudget: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private cancelBurst: Map<string, { count: number; windowStart: number; cooldownUntil: number }> = new Map();
   private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
+  private nearTouchBurst: Map<string, { count: number; windowStart: number }> = new Map();
+  private fillBurst: Map<string, { count: number; windowStart: number }> = new Map();
+  // 积分优化相关字段
+  private pointsScores: Map<string, PointsMarketScore> = new Map();
+  private pointsLastReportAt = 0;
+  private pointsReportInterval = 5 * 60 * 1000; // 5分钟报告一次
+  private pointsOrderbookCache: Map<string, Orderbook> = new Map();
   private predictBuyInsufficientUntil: Map<string, number> = new Map();
-  private unifiedStrategy?: UnifiedStrategy;
+
+  // ===== Phase 1: 增强模块字段 =====
+  // 为每个市场维护独立的估算器
+  private perMarketVolatility: Map<string, VolatilityEstimator> = new Map();
+  private perMarketOrderFlow: Map<string, OrderFlowEstimator> = new Map();
+  private perMarketReversion: Map<string, MeanReversionPredictor> = new Map();
+  private perMarketInventoryState: Map<string, InventoryState> = new Map();
+
+  // 全局估算器（共享）
+  private volatilityEstimator: VolatilityEstimator;
+  private orderFlowEstimator: OrderFlowEstimator;
+  private inventoryClassifier: InventoryClassifier;
+  private reversionPredictor: MeanReversionPredictor;
+  private asModel: DynamicASModel;
+
+  // ===== 统一做市商策略（整合所有优点） =====
+  private unifiedMarketMakerStrategy: UnifiedMarketMakerStrategy;
+  private lastPlacedPrices: Map<string, {
+    yesBid: number;
+    yesAsk: number;
+    noBid: number;
+    noAsk: number;
+    timestamp: number;
+  }> = new Map();
+
+  // HIGH FIX #2: 成交检测初始化标志和互斥锁
+  private fillDetectionInitialized = false;
+  private fillDetectionInitPromise: Promise<void> | null = null;
+
+  // ===== 两阶段循环对冲策略 =====
+  private twoPhaseStrategy: TwoPhaseHedgeStrategy = twoPhaseHedgeStrategy;
+  private perMarketTwoPhaseState: Map<string, TwoPhaseState> = new Map();
 
   constructor(api: MakerApi, config: Config, orderManagerFactory?: () => Promise<MakerOrderManager>) {
     this.api = api;
     this.config = config;
     this.orderManagerFactory = orderManagerFactory;
+
+    // ===== Phase 1: 初始化增强模块 =====
+    this.volatilityEstimator = new VolatilityEstimator();
+    this.orderFlowEstimator = new OrderFlowEstimator();
+    this.inventoryClassifier = new InventoryClassifier({
+      safeThreshold: config.mmInventorySafeThreshold ?? 0.3,
+      warningThreshold: config.mmInventoryWarningThreshold ?? 0.5,
+      dangerThreshold: config.mmInventoryDangerThreshold ?? 0.7,
+      enableAsymSpread: true
+    });
+    this.reversionPredictor = new MeanReversionPredictor();
+    this.asModel = new DynamicASModel({
+      gamma: config.mmASGamma ?? 0.1,
+      lambda: config.mmASLambda ?? 1.0,
+      kappa: config.mmASKappa ?? 1.5,
+      alpha: config.mmASAlpha ?? 0.5,
+      beta: config.mmASBeta ?? 0.3,
+      delta: config.mmASDelta ?? 0.2
+    });
+
+    // ===== 初始化统一做市商策略（整合所有优点） =====
+    this.unifiedMarketMakerStrategy = new UnifiedMarketMakerStrategy({
+      enabled: config.unifiedMarketMakerEnabled ?? false,
+      tolerance: config.unifiedMarketMakerTolerance ?? 0.05,
+      minHedgeSize: config.unifiedMarketMakerMinSize ?? 10,
+      maxHedgeSize: config.unifiedMarketMakerMaxSize ?? 500,
+      buySpreadBps: config.unifiedMarketMakerBuySpreadBps ?? 150,
+      sellSpreadBps: config.unifiedMarketMakerSellSpreadBps ?? 150,
+      hedgeSlippageBps: config.unifiedMarketMakerHedgeSlippageBps ?? 250,
+      asyncHedging: config.unifiedMarketMakerAsyncHedging ?? true,
+      dualTrackMode: config.unifiedMarketMakerDualTrackMode ?? true,
+      dynamicOffsetMode: config.unifiedMarketMakerDynamicOffsetMode ?? true,
+      buyOffsetBps: config.unifiedMarketMakerBuyOffsetBps ?? 100,
+      sellOffsetBps: config.unifiedMarketMakerSellOffsetBps ?? 100,
+    });
+
     if (this.config.useValueSignal) {
       this.valueDetector = new ValueMismatchDetector(0, 0);
     }
     if (this.config.hedgeMode === 'CROSS' || this.config.crossPlatformEnabled) {
       this.crossAggregator = new CrossPlatformAggregator(this.config);
-    }
-    // Initialize Unified Strategy if enabled
-    if (this.config.unifiedStrategyEnabled) {
-      this.unifiedStrategy = new UnifiedStrategy({
-        enabled: true,
-        tolerance: this.config.unifiedStrategyTolerance ?? 0.05,
-        minSize: this.config.unifiedStrategyMinSize ?? 10,
-        maxSize: this.config.unifiedStrategyMaxSize ?? 500,
-        buyOffsetBps: this.config.unifiedStrategyBuyOffsetBps ?? 100,
-        sellOffsetBps: this.config.unifiedStrategySellOffsetBps ?? 100,
-        hedgeSlippageBps: this.config.unifiedStrategyHedgeSlippageBps ?? 250,
-        maxUnhedgedShares: this.config.unifiedStrategyMaxUnhedgedShares ?? 100,
-        asyncHedging: this.config.unifiedStrategyAsyncHedging ?? true,
-        dualTrackMode: this.config.unifiedStrategyDualTrackMode ?? true,
-        dynamicOffsetMode: this.config.unifiedStrategyDynamicOffsetMode ?? true,
-      });
-      console.log('✅ Unified Strategy initialized (二档追踪 + 异步对冲 + 双轨并行)');
     }
   }
 
@@ -197,7 +350,7 @@ export class MarketMaker {
     return Math.max(0, until - Date.now());
   }
 
-  private getUnifiedSpreadSafetyThreshold(): number {
+  private getPredictSpreadSafetyThreshold(): number {
     return this.config.mmVenue === 'predict'
       ? (this.config.predictSafeMaxSpread ?? 0.06)
       : MarketMaker.MAX_ALLOWED_BOOK_SPREAD;
@@ -219,7 +372,7 @@ export class MarketMaker {
     };
   }
 
-  private isUnifiedSpreadUnsafe(orderbook: Orderbook | null | undefined): boolean {
+  private isUnsafeBook(orderbook: Orderbook | null | undefined): boolean {
     if (!orderbook) {
       return true;
     }
@@ -228,7 +381,7 @@ export class MarketMaker {
     if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk) || bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) {
       return true;
     }
-    if (bestAsk - bestBid > this.getUnifiedSpreadSafetyThreshold()) {
+    if (bestAsk - bestBid > this.getPredictSpreadSafetyThreshold()) {
       return true;
     }
     if (this.config.mmVenue === 'predict') {
@@ -319,10 +472,28 @@ export class MarketMaker {
       return;
     }
     await this.cancelOrdersForMarket(tokenId);
-    this.unifiedStrategy?.updatePendingOrders(tokenId, 0, 0, 0, 0);
     const pauseMs = this.getPredictSafetyConfig().unsafeBookPauseMs;
     this.pauseUntil.set(tokenId, Date.now() + pauseMs);
     console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(pauseMs / 60000)} 分钟: ${tokenId}`);
+  }
+
+  private async triggerPredictFillCircuitBreaker(tokenId: string, reason: string): Promise<void> {
+    if (this.config.mmVenue !== 'predict') {
+      return;
+    }
+    await this.cancelOrdersForMarket(tokenId);
+    const pauseMs = this.getPredictSafetyConfig().fillPauseMs;
+    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(pauseMs / 60000)} 分钟: ${tokenId}`);
+  }
+
+  private async handlePredictUnsafePair(yesTokenId?: string, noTokenId?: string, reason = '盘口不安全'): Promise<void> {
+    if (yesTokenId) {
+      await this.triggerPredictUnsafeBookPause(yesTokenId, reason);
+    }
+    if (noTokenId && noTokenId !== yesTokenId) {
+      await this.triggerPredictUnsafeBookPause(noTokenId, reason);
+    }
   }
 
   private shouldTripPredictLossFuse(position: Position | undefined): boolean {
@@ -349,22 +520,11 @@ export class MarketMaker {
       return;
     }
     await this.cancelOrdersForMarket(tokenId);
-    this.unifiedStrategy?.updatePendingOrders(tokenId, 0, 0, 0, 0);
     const pauseMs = this.getPredictSafetyConfig().positionLossPauseMs;
     this.pauseUntil.set(tokenId, Date.now() + pauseMs);
     console.warn(
       `🛑 [PredictSafety] 单市场亏损熔断: token=${tokenId} pnl=${Number(position?.pnl || 0).toFixed(2)} value=${Number(position?.total_value || 0).toFixed(2)}`
     );
-  }
-
-  private async triggerPredictFillCircuitBreaker(tokenId: string, reason: string): Promise<void> {
-    if (this.config.mmVenue !== 'predict') {
-      return;
-    }
-    await this.cancelOrdersForMarket(tokenId);
-    const pauseMs = this.getPredictSafetyConfig().fillPauseMs;
-    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
-    console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(pauseMs / 60000)} 分钟: ${tokenId}`);
   }
 
   async initialize(): Promise<void> {
@@ -386,7 +546,7 @@ export class MarketMaker {
     }
 
     if (
-      this.config.mmVenue !== 'probable' &&
+      this.config.mmVenue === 'predict' &&
       this.config.predictAutoSetApprovals !== false &&
       typeof (this.orderManager as any)?.ensureTradingReady === 'function'
     ) {
@@ -395,12 +555,8 @@ export class MarketMaker {
       console.log('✅ Predict approvals ready');
     }
 
-    if (this.config.hedgeMode === 'CROSS' && this.crossAggregator && this.config.mmVenue !== 'probable') {
-      this.crossExecutionRouter = new CrossPlatformExecutionRouter(
-        this.config,
-        this.api as any,
-        this.orderManager as OrderManager
-      );
+    if (this.config.hedgeMode === 'CROSS' && this.crossAggregator) {
+      this.crossExecutionRouter = new CrossPlatformExecutionRouter(this.config, this.api as any, this.orderManager);
     }
   }
 
@@ -466,10 +622,36 @@ export class MarketMaker {
 
       this.sessionPnL = Array.from(this.positions.values()).reduce((sum, p) => sum + p.pnl, 0);
 
+      // ===== Phase 1: 更新库存预测器 =====
+      for (const [tokenId, position] of this.positions) {
+        const netShares = position.yes_amount - position.no_amount;
+        const maxPosition = this.getEffectiveMaxPosition();
+        const predictor = this.getOrCreateReversionPredictor(tokenId);
+        predictor.recordInventory(tokenId, netShares, maxPosition);
+
+        // 更新库存状态分类
+        const inventoryState = this.inventoryClassifier.classify(tokenId, netShares, maxPosition);
+        this.perMarketInventoryState.set(tokenId, inventoryState);
+      }
+
+      // 日损失自动恢复机制（默认24小时自动恢复）
+      const autoResetMs = 24 * 60 * 60 * 1000; // 24小时
+      if (this.tradingHalted && this.tradingHaltAt > 0) {
+        const elapsed = Date.now() - this.tradingHaltAt;
+        if (elapsed > autoResetMs) {
+          console.log(`♻️  Auto-resuming trading after ${(elapsed / 1000 / 60).toFixed(0)} minutes`);
+          this.tradingHalted = false;
+          this.tradingHaltAt = 0;
+          this.sessionPnL = 0;
+          this.recordMmEvent('TRADING_RESUMED', `Auto-reset after ${(elapsed / 1000 / 60).toFixed(0)} min`);
+        }
+      }
+
       const maxDailyLoss = this.getEffectiveMaxDailyLoss();
       if (this.sessionPnL <= -Math.abs(maxDailyLoss)) {
         if (!this.tradingHalted) {
           console.log(`🛑 Trading halted: session PnL ${this.sessionPnL.toFixed(2)} <= -${Math.abs(maxDailyLoss)}`);
+          this.tradingHaltAt = Date.now(); // 记录暂停时间
         }
         this.tradingHalted = true;
       }
@@ -492,6 +674,37 @@ export class MarketMaker {
     }
     this.wsHealthScore = this.clamp(score, 0, 100);
     this.wsHealthUpdatedAt = Date.now();
+  }
+
+  /**
+   * WebSocket 健康自动恢复
+   * 在长时间没有更新后，逐渐恢复健康分数
+   */
+  private autoRecoverWsHealth(): void {
+    const now = Date.now();
+    const elapsed = now - this.wsHealthUpdatedAt;
+    const recoverMs = 30000; // 默认30秒
+
+    // 如果超过恢复时间且健康分数低于100，逐渐恢复
+    if (elapsed > recoverMs && this.wsHealthScore < 100) {
+      const recoveryRate = 1; // 每次恢复1分
+      const oldScore = this.wsHealthScore;
+      this.wsHealthScore = Math.min(100, this.wsHealthScore + recoveryRate);
+      this.wsHealthUpdatedAt = now;
+
+      if (this.wsHealthScore > oldScore) {
+        this.recordMmEvent('WS_HEALTH_RECOVERING',
+          `score=${this.wsHealthScore} old=${oldScore}`,
+          'global');
+      }
+    }
+  }
+
+  /**
+   * 公共方法：在每个循环中调用，维护 WebSocket 健康状态
+   */
+  maintainWsHealth(): void {
+    this.autoRecoverWsHealth();
   }
 
   private getWsHealthSnapshot(): {
@@ -630,6 +843,16 @@ export class MarketMaker {
     const boost = this.getCancelBoost(tokenId);
     const noFill = this.getNoFillPenalty(tokenId);
     let threshold = (base + (noFill.cancelBps || 0) / 10000) / mult / boost;
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneCancelWeight ?? 0);
+      if (autoWeight > 0) {
+        const autoMult = this.getAutoTuneMultiplier(tokenId);
+        if (autoMult !== 1) {
+          const factor = 1 + (autoMult - 1) * autoWeight;
+          threshold = threshold / Math.max(0.2, factor);
+        }
+      }
+    }
     const wsCancelMult = this.getWsHealthCancelMult();
     if (wsCancelMult > 0 && wsCancelMult !== 1) {
       threshold = threshold / wsCancelMult;
@@ -771,6 +994,12 @@ export class MarketMaker {
       const safeMin = Math.max(0, this.config.mmSafeModeMinIntervalMs ?? 0);
       if (safeMin > minInterval) {
         minInterval = safeMin;
+      }
+    }
+    if (this.isProtectiveActive(tokenId)) {
+      const protectiveMin = Math.max(0, this.getProtectiveConfig().minIntervalMs);
+      if (protectiveMin > minInterval) {
+        minInterval = protectiveMin;
       }
     }
     const lastAt = this.lastActionAt.get(tokenId) || 0;
@@ -974,6 +1203,12 @@ export class MarketMaker {
       return null;
     }
 
+    // HIGH FIX #3: 添加数组边界检查
+    if (!orderbook.bids || orderbook.bids.length === 0 ||
+        !orderbook.asks || orderbook.asks.length === 0) {
+      return null;
+    }
+
     const topBidShares = this.parseShares(orderbook.bids[0]);
     const topAskShares = this.parseShares(orderbook.asks[0]);
 
@@ -1040,7 +1275,8 @@ export class MarketMaker {
 
   private checkSpreadJump(tokenId: string, orderbook: Orderbook): boolean {
     const thresholdBps = Math.max(0, this.config.mmSpreadJumpBps ?? 0);
-    if (!thresholdBps) {
+    const protectiveThreshold = Math.max(0, this.config.mmProtectiveSpreadJumpBps ?? 0);
+    if (!thresholdBps && !protectiveThreshold) {
       return false;
     }
     const bestBid = orderbook.best_bid;
@@ -1056,10 +1292,112 @@ export class MarketMaker {
     this.lastBookSpreadAt.set(tokenId, now);
     const windowMs = Math.max(0, this.config.mmSpreadJumpWindowMs ?? 0);
     if (!last || (windowMs > 0 && now - lastAt > windowMs)) {
+      this.lastBookSpreadDeltaBps.set(tokenId, 0);
       return false;
     }
     const deltaBps = Math.abs(spread - last) * 10000;
-    return deltaBps >= thresholdBps;
+    this.lastBookSpreadDeltaBps.set(tokenId, deltaBps);
+    return thresholdBps > 0 && deltaBps >= thresholdBps;
+  }
+
+  private checkDepthSpeedSpike(tokenId: string): boolean {
+    const thresholdBps = Math.max(0, this.config.mmDepthSpeedPauseBps ?? 0);
+    if (!thresholdBps) {
+      return false;
+    }
+    const depthSpeed = this.lastDepthSpeedBps.get(tokenId) ?? 0;
+    if (!Number.isFinite(depthSpeed) || depthSpeed < thresholdBps) {
+      return false;
+    }
+    const pauseMs = Math.max(0, this.config.mmDepthSpeedPauseMs ?? 0);
+    if (pauseMs > 0) {
+      this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    } else {
+      this.pauseForVolatility(tokenId);
+    }
+    return true;
+  }
+
+  private isProtectiveActive(tokenId: string): boolean {
+    const until = this.protectiveUntil.get(tokenId) || 0;
+    if (!until) {
+      return false;
+    }
+    if (until > Date.now()) {
+      return true;
+    }
+    this.protectiveUntil.delete(tokenId);
+    return false;
+  }
+
+  private getProtectiveConfig(): {
+    holdMs: number;
+    minIntervalMs: number;
+    layerCountCap: number;
+    onlyFar: boolean;
+    forceSingle: boolean;
+    sizeScale: number;
+    touchBufferAddBps: number;
+    singleSideAuto: boolean;
+    singleSideMode: 'NORMAL' | 'REMOTE';
+    singleSideOffsetBps: number;
+  } {
+    const templateEnabled = this.config.mmProtectiveTemplateEnabled === true;
+    const holdMs = Math.max(0, this.config.mmProtectiveHoldMs ?? 0) || (templateEnabled ? 9000 : 0);
+    const minIntervalMs =
+      Math.max(0, this.config.mmProtectiveMinIntervalMs ?? 0) || (templateEnabled ? 4500 : 0);
+    const layerCountCap =
+      Math.max(0, Math.floor(this.config.mmProtectiveLayerCountCap ?? 0)) || (templateEnabled ? 1 : 0);
+    const onlyFar = this.config.mmProtectiveOnlyFar === true || templateEnabled;
+    const forceSingle = this.config.mmProtectiveForceSingle === true || templateEnabled;
+    const sizeScale = this.config.mmProtectiveSizeScale ?? 0;
+    const resolvedSizeScale = sizeScale > 0 ? sizeScale : templateEnabled ? 0.7 : 0;
+    const touchBufferAdd = this.config.mmProtectiveTouchBufferAddBps ?? 0;
+    const resolvedTouchBuffer = touchBufferAdd > 0 ? touchBufferAdd : templateEnabled ? 6 : 0;
+    const singleSideAuto = this.config.mmProtectiveSingleSideAuto === true || templateEnabled;
+    const singleSideMode = (templateEnabled
+      ? 'REMOTE'
+      : (this.config.mmProtectiveSingleSideMode || 'NORMAL').toUpperCase()) as 'NORMAL' | 'REMOTE';
+    const singleSideOffset = this.config.mmProtectiveSingleSideOffsetBps ?? 0;
+    const resolvedOffset = singleSideOffset > 0 ? singleSideOffset : templateEnabled ? 8 : 0;
+    return {
+      holdMs,
+      minIntervalMs,
+      layerCountCap,
+      onlyFar,
+      forceSingle,
+      sizeScale: resolvedSizeScale,
+      touchBufferAddBps: resolvedTouchBuffer,
+      singleSideAuto,
+      singleSideMode,
+      singleSideOffsetBps: resolvedOffset,
+    };
+  }
+
+  private activateProtectiveMode(tokenId: string): boolean {
+    const holdMs = this.getProtectiveConfig().holdMs;
+    if (!holdMs) {
+      return false;
+    }
+    const now = Date.now();
+    const until = now + holdMs;
+    const current = this.protectiveUntil.get(tokenId) || 0;
+    this.protectiveUntil.set(tokenId, Math.max(current, until));
+    return current <= now;
+  }
+
+  private checkProtectiveMode(tokenId: string): boolean {
+    const depthSpeedThreshold = Math.max(0, this.config.mmProtectiveDepthSpeedBps ?? 0);
+    const spreadJumpThreshold = Math.max(0, this.config.mmProtectiveSpreadJumpBps ?? 0);
+    if (!depthSpeedThreshold || !spreadJumpThreshold) {
+      return false;
+    }
+    const depthSpeed = this.lastDepthSpeedBps.get(tokenId) ?? 0;
+    const spreadJump = this.lastBookSpreadDeltaBps.get(tokenId) ?? 0;
+    if (depthSpeed >= depthSpeedThreshold && spreadJump >= spreadJumpThreshold) {
+      return this.activateProtectiveMode(tokenId);
+    }
+    return false;
   }
 
   private evaluateOrderRisk(
@@ -1196,6 +1534,39 @@ export class MarketMaker {
       }
     }
 
+    const fastCancelBps = Math.max(0, this.config.mmFastCancelBps ?? 0);
+    const fastWindow = Math.max(0, this.config.mmFastCancelWindowMs ?? 0);
+    if (fastCancelBps > 0) {
+      const windowMs = fastWindow > 0 ? fastWindow : aggressiveWindow;
+      if (elapsed > 0 && elapsed <= windowMs) {
+        const fastDepthThreshold = Math.max(0, this.config.mmFastCancelDepthSpeedBps ?? 0);
+        const fastSpreadThreshold = Math.max(0, this.config.mmFastCancelSpreadJumpBps ?? 0);
+        let fastGuardOk = true;
+        if (fastDepthThreshold > 0 || fastSpreadThreshold > 0) {
+          fastGuardOk = false;
+          const depthSpeed = this.lastDepthSpeedBps.get(order.token_id) ?? 0;
+          const spreadJump = this.lastBookSpreadDeltaBps.get(order.token_id) ?? 0;
+          if (fastDepthThreshold > 0 && depthSpeed >= fastDepthThreshold) {
+            fastGuardOk = true;
+          }
+          if (fastSpreadThreshold > 0 && spreadJump >= fastSpreadThreshold) {
+            fastGuardOk = true;
+          }
+        }
+        if (order.side === 'BUY') {
+          const delta = this.lastAskDeltaBps.get(order.token_id) ?? 0;
+          if (fastGuardOk && delta < 0 && Math.abs(delta) >= fastCancelBps) {
+            return { cancel: true, panic: true, reason: 'fast-move' };
+          }
+        } else {
+          const delta = this.lastBidDeltaBps.get(order.token_id) ?? 0;
+          if (fastGuardOk && delta > 0 && delta >= fastCancelBps) {
+            return { cancel: true, panic: true, reason: 'fast-move' };
+          }
+        }
+      }
+    }
+
     const accelBps = Math.max(0, this.config.mmPriceAccelBps ?? 0);
     const accelWindow = Math.max(0, this.config.mmPriceAccelWindowMs ?? 0);
     if (accelBps > 0 && accelWindow > 0 && elapsed > 0 && elapsed <= accelWindow) {
@@ -1221,7 +1592,7 @@ export class MarketMaker {
         return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
       }
       if (vwapThresholdBps > 0 && vwapTargetShares > 0) {
-        const vwap = estimateSell(
+        const vwap = this.estimateSell(
           orderbook.bids,
           vwapTargetShares,
           vwapFeeBps,
@@ -1296,7 +1667,7 @@ export class MarketMaker {
         return { cancel: true, panic: true, reason: 'restore-no-near-touch' };
       }
       if (vwapThresholdBps > 0 && vwapTargetShares > 0) {
-        const vwap = estimateBuy(
+        const vwap = this.estimateBuy(
           orderbook.asks,
           vwapTargetShares,
           vwapFeeBps,
@@ -1367,6 +1738,111 @@ export class MarketMaker {
     }
 
     return { cancel: false, panic: false, reason: '' };
+  }
+
+  private precheckNewOrderVwapRisk(
+    orderbook: Orderbook,
+    side: 'BUY' | 'SELL',
+    price: number,
+    shares: number
+  ): { skip: boolean; distanceBps?: number; vwap?: number } {
+    const thresholdBps = Math.max(0, this.config.mmOrderRiskVwapBps ?? 0);
+    if (!thresholdBps) {
+      return { skip: false };
+    }
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(shares) || shares <= 0) {
+      return { skip: false };
+    }
+    const vwapLevels = Math.max(0, this.config.mmOrderRiskVwapLevels ?? 0);
+    const vwapFeeBps = Math.max(0, this.config.mmOrderRiskVwapFeeBps ?? 0);
+    const vwapSlippageBps = Math.max(0, this.config.mmOrderRiskVwapSlippageBps ?? 0);
+    const baseShares = Math.max(0, this.config.mmOrderRiskVwapShares ?? 0);
+    const mult = Math.max(0, this.config.mmOrderRiskVwapMult ?? 0);
+    let targetShares = baseShares;
+    if (mult > 0) {
+      targetShares = Math.max(targetShares, shares * mult);
+    }
+    if (!targetShares) {
+      targetShares = shares;
+    }
+    if (targetShares <= 0) {
+      return { skip: false };
+    }
+    if (side === 'BUY') {
+      const vwap = this.estimateSell(
+        orderbook.bids,
+        targetShares,
+        vwapFeeBps,
+        undefined,
+        undefined,
+        vwapSlippageBps,
+        vwapLevels
+      );
+      if (vwap && Number.isFinite(vwap.avgAllIn) && vwap.avgAllIn > 0 && vwap.avgAllIn <= price) {
+        const distanceBps = ((price - vwap.avgAllIn) / price) * 10000;
+        if (distanceBps <= thresholdBps) {
+          return { skip: true, distanceBps, vwap: vwap.avgAllIn };
+        }
+      }
+    } else {
+      const vwap = this.estimateBuy(
+        orderbook.asks,
+        targetShares,
+        vwapFeeBps,
+        undefined,
+        undefined,
+        vwapSlippageBps,
+        vwapLevels
+      );
+      if (vwap && Number.isFinite(vwap.avgAllIn) && vwap.avgAllIn > 0 && vwap.avgAllIn >= price) {
+        const distanceBps = ((vwap.avgAllIn - price) / price) * 10000;
+        if (distanceBps <= thresholdBps) {
+          return { skip: true, distanceBps, vwap: vwap.avgAllIn };
+        }
+      }
+    }
+    return { skip: false };
+  }
+
+  private shouldSkipLayerDueToGuard(
+    metrics: {
+      topDepth: number;
+      topDepthUsd: number;
+      depthSpeedBps: number;
+      bidDepthSpeedBps: number;
+      askDepthSpeedBps: number;
+    },
+    side: 'BUY' | 'SELL',
+    price: number,
+    orderbook: Orderbook
+  ): { skip: boolean; reason?: string; distanceBps?: number } {
+    const guardBps = Math.max(0, this.config.mmLayerGuardNearBps ?? 0);
+    if (!guardBps) {
+      return { skip: false };
+    }
+    const best = side === 'BUY' ? orderbook.best_bid : orderbook.best_ask;
+    if (!best || best <= 0 || !Number.isFinite(price) || price <= 0) {
+      return { skip: false };
+    }
+    const distanceBps =
+      side === 'BUY' ? ((best - price) / best) * 10000 : ((price - best) / best) * 10000;
+    if (!Number.isFinite(distanceBps) || distanceBps < 0) {
+      return { skip: false };
+    }
+    if (distanceBps > guardBps) {
+      return { skip: false };
+    }
+    const minShares = Math.max(0, this.config.mmLayerGuardMinDepthShares ?? 0);
+    const minUsd = Math.max(0, this.config.mmLayerGuardMinDepthUsd ?? 0);
+    if ((minShares > 0 && metrics.topDepth < minShares) || (minUsd > 0 && metrics.topDepthUsd < minUsd)) {
+      return { skip: true, reason: 'guard-depth', distanceBps };
+    }
+    const speedBps = Math.max(0, this.config.mmLayerGuardDepthSpeedBps ?? 0);
+    const sideSpeed = side === 'BUY' ? metrics.bidDepthSpeedBps : metrics.askDepthSpeedBps;
+    if (speedBps > 0 && sideSpeed >= speedBps) {
+      return { skip: true, reason: 'guard-speed', distanceBps };
+    }
+    return { skip: false };
   }
 
   private clamp(value: number, min: number, max: number): number {
@@ -1491,6 +1967,40 @@ export class MarketMaker {
     this.riskThrottleState.set(tokenId, entry);
   }
 
+  private recordNearTouch(tokenId: string): number {
+    const windowMs = Math.max(1000, this.config.mmNearTouchBurstWindowMs ?? 30000);
+    const limit = Math.max(1, this.config.mmNearTouchBurstLimit ?? 0);
+    if (limit <= 0) {
+      return 0;
+    }
+    const now = Date.now();
+    const entry = this.nearTouchBurst.get(tokenId) || { count: 0, windowStart: now };
+    if (now - entry.windowStart > windowMs) {
+      entry.count = 0;
+      entry.windowStart = now;
+    }
+    entry.count += 1;
+    this.nearTouchBurst.set(tokenId, entry);
+    return entry.count;
+  }
+
+  private recordFillBurst(tokenId: string): number {
+    const windowMs = Math.max(1000, this.config.mmFillBurstWindowMs ?? 30000);
+    const limit = Math.max(1, this.config.mmFillBurstLimit ?? 0);
+    if (limit <= 0) {
+      return 0;
+    }
+    const now = Date.now();
+    const entry = this.fillBurst.get(tokenId) || { count: 0, windowStart: now };
+    if (now - entry.windowStart > windowMs) {
+      entry.count = 0;
+      entry.windowStart = now;
+    }
+    entry.count += 1;
+    this.fillBurst.set(tokenId, entry);
+    return entry.count;
+  }
+
   private getRiskThrottleFactor(tokenId: string): number {
     if (!this.config.mmRiskThrottleEnabled) {
       return 1;
@@ -1580,6 +2090,40 @@ export class MarketMaker {
       return Math.max(1, equity * pct);
     }
     return this.config.maxDailyLoss ?? 200;
+  }
+
+  private normalizeLiquidityActivation(rule?: LiquidityActivation): LiquidityActivation | undefined {
+    if (!rule) {
+      return undefined;
+    }
+    const maxSpread =
+      rule.max_spread ??
+      (rule.max_spread_cents && rule.max_spread_cents > 0 ? rule.max_spread_cents / 100 : undefined);
+    return {
+      ...rule,
+      max_spread: Number.isFinite(maxSpread as number) ? (maxSpread as number) : rule.max_spread,
+    };
+  }
+
+  private getEffectiveLiquidityActivation(market: Market): LiquidityActivation | undefined {
+    const existing = this.normalizeLiquidityActivation(market.liquidity_activation);
+    if (existing) {
+      return existing;
+    }
+    if (!this.config.mmPointsAssumeActive) {
+      return undefined;
+    }
+    const minShares = Math.max(0, this.config.mmPointsMinShares ?? 0);
+    const maxSpreadCents = Math.max(0, this.config.mmPointsMaxSpreadCents ?? 0);
+    const maxSpreadRaw = Math.max(0, this.config.mmPointsMaxSpread ?? 0);
+    const maxSpread = maxSpreadCents > 0 ? maxSpreadCents / 100 : maxSpreadRaw > 0 ? maxSpreadRaw : undefined;
+    return {
+      active: true,
+      min_shares: minShares > 0 ? minShares : undefined,
+      max_spread_cents: maxSpreadCents > 0 ? maxSpreadCents : undefined,
+      max_spread: maxSpread,
+      description: 'fallback-points',
+    };
   }
 
   private getTopDepth(orderbook: Orderbook): { shares: number; usd: number } {
@@ -1760,7 +2304,23 @@ export class MarketMaker {
   }
 
   private updateWsEmergencyRecoveryState(): void {
-    const active = this.wsEmergencyRecoveryUntil > Date.now();
+    const now = Date.now();
+    const active = this.wsEmergencyRecoveryUntil > now;
+
+    // 超时保护：如果恢复状态超过5分钟，强制退出
+    const recoveryMaxMs = 300000; // 默认5分钟
+    if (this.wsEmergencyRecoveryActive && this.wsEmergencyGlobalLast > 0) {
+      const elapsed = now - this.wsEmergencyGlobalLast;
+      if (elapsed > recoveryMaxMs) {
+        console.warn(`⚠️  Forcing exit from emergency recovery after ${elapsed}ms`);
+        this.wsEmergencyRecoveryUntil = 0;
+        this.wsEmergencyRecoveryActive = false;
+        this.wsEmergencyRecoveryStage = -1;
+        this.recordMmEvent('WS_EMERGENCY_RECOVERY_FORCE_EXIT', `Forced exit after ${elapsed}ms`);
+        return;
+      }
+    }
+
     if (this.wsEmergencyRecoveryActive && !active) {
       this.recordMmEvent('WS_EMERGENCY_RECOVERY_END', 'Emergency recovery window ended');
       this.wsEmergencyRecoveryStage = -1;
@@ -2597,6 +3157,7 @@ export class MarketMaker {
       askDepthSpeedBps: metrics.askDepthSpeedBps,
       topDepth: metrics.topDepth,
       topDepthUsd: metrics.topDepthUsd,
+      protectiveActive: this.isProtectiveActive(market.token_id),
       imbalance,
       pressure: prices.pressure,
       inventoryBias: prices.inventoryBias,
@@ -2662,6 +3223,13 @@ export class MarketMaker {
       cancelBurstCount: burstEntry?.count ?? 0,
       cancelBurstCooldownMs: burstCooldownMs,
       wsHealthAt: wsHealth.updatedAt,
+      // 积分统计
+      marketId: market.token_id || '',
+      minShares: market.liquidity_activation?.min_shares || 0,
+      maxSpread: market.liquidity_activation?.max_spread || 0,
+      pointsActive: pointsManager.isPointsActive(market),
+      eligibleOrders: pointsManager.getMarketStats(market.token_id || '')?.eligibleOrders || 0,
+      totalOrders: pointsManager.getMarketStats(market.token_id || '')?.totalOrders || 0,
       updatedAt: Date.now(),
     };
     this.mmMetrics.set(market.token_id, entry);
@@ -2724,9 +3292,18 @@ export class MarketMaker {
     for (let i = 0; i < safeCount; i += 1) {
       const scaled = i === 0 ? baseShares : baseShares * Math.pow(decay, i);
       let size = Math.max(1, Math.floor(scaled * floor));
+
+      // 修复：第一层优先满足 min_shares，后续层可以为 0
       if (minShares > 0 && size < minShares && !allowBelowMin) {
-        size = 0;
+        if (i === 0) {
+          // 第一层：尽量满足 min_shares 以获得积分
+          size = minShares;
+        } else {
+          // 后续层：可以为 0
+          size = 0;
+        }
       }
+
       sizes.push(size);
     }
     return sizes;
@@ -2844,10 +3421,13 @@ export class MarketMaker {
   }
 
   private shouldForceSingleLayer(tokenId: string): boolean {
-    if (this.config.mmLayerRetreatForceSingle !== true) {
-      return false;
+    if (this.config.mmLayerRetreatForceSingle === true && this.isLayerRetreatActive(tokenId)) {
+      return true;
     }
-    return this.isLayerRetreatActive(tokenId);
+    if (this.isProtectiveActive(tokenId) && this.getProtectiveConfig().forceSingle) {
+      return true;
+    }
+    return false;
   }
 
   private getEffectiveLayerCount(
@@ -2931,6 +3511,12 @@ export class MarketMaker {
     });
     if (safeModeActive) {
       const cap = Math.max(0, Math.floor(this.config.mmSafeModeLayerCountCap ?? 0));
+      if (cap > 0) {
+        effective = Math.min(effective, cap);
+      }
+    }
+    if (this.isProtectiveActive(tokenId)) {
+      const cap = Math.max(0, Math.floor(this.getProtectiveConfig().layerCountCap));
       if (cap > 0) {
         effective = Math.min(effective, cap);
       }
@@ -3154,6 +3740,7 @@ export class MarketMaker {
   calculatePrices(market: Market, orderbook: Orderbook): QuotePrices | null {
     const bestBid = orderbook.best_bid;
     const bestAsk = orderbook.best_ask;
+    const liquidityRules = this.getEffectiveLiquidityActivation(market);
 
     if (bestBid === undefined || bestAsk === undefined) {
       return null;
@@ -3294,8 +3881,67 @@ export class MarketMaker {
       adaptiveSpread *= 0.95;
     }
 
-    if (market.liquidity_activation?.max_spread) {
-      adaptiveSpread = Math.min(adaptiveSpread, market.liquidity_activation.max_spread * 0.95);
+    // ===== Phase 1: 集成 AS 模型计算最优价差 =====
+    let asEnhancedSpread = adaptiveSpread;
+    if (this.config.mmEnhancedSpreadEnabled !== false) {
+      // 更新增强指标
+      this.updateAdvancedMetrics(market.token_id, orderbook);
+
+      // 获取实时数据
+      const volEstimator = this.getOrCreateVolatilityEstimator(market.token_id);
+      const enhancedVol = volEstimator.getVolatility();
+
+      const flowEstimator = this.getOrCreateOrderFlowEstimator(market.token_id);
+      const orderFlow = flowEstimator.getFlowIntensity(1);
+      const flowMetrics = flowEstimator.getMetrics(1);
+
+      // 库存状态
+      const inventoryBias = this.calculateInventoryBias(market.token_id);
+      const inventoryState = this.inventoryClassifier.classify(
+        market.token_id,
+        Math.round(inventoryBias * this.getEffectiveMaxPosition()),
+        this.getEffectiveMaxPosition()
+      );
+
+      // 更新缓存
+      this.perMarketInventoryState.set(market.token_id, inventoryState);
+
+      // 使用 AS 模型计算最优价差
+      const asMarketState = {
+        midPrice: microPrice,
+        inventory: inventoryBias,
+        volatility: enhancedVol > 0 ? enhancedVol : volEma,
+        orderFlow: orderFlow,
+        depth: depthMetrics.totalDepth,
+        flowDirection: flowMetrics.direction
+      };
+
+      const asOptimalSpread = this.asModel.calculateOptimalSpread(asMarketState);
+
+      // 获取库存策略
+      const strategy = this.inventoryClassifier.getStrategy(
+        inventoryState,
+        Math.round(inventoryBias * this.getEffectiveMaxPosition()),
+        this.getEffectiveMaxPosition()
+      );
+
+      // 应用策略倍数
+      const strategyAdjustedSpread = asOptimalSpread * strategy.spreadMultiplier;
+
+      // 混合现有价差和 AS 价差（可配置权重）
+      const asWeight = this.config.mmASModelWeight ?? 0.5; // 默认50%权重
+      asEnhancedSpread = adaptiveSpread * (1 - asWeight) + strategyAdjustedSpread * asWeight;
+
+      // 如果库存状态不允许挂单，返回null
+      if (!strategy.allowOrders) {
+        console.log(`⚠️  Inventory state ${inventoryState} for ${market.token_id}, orders not allowed`);
+        // 不返回null，而是扩大价差到极值
+        asEnhancedSpread = Math.max(asEnhancedSpread, maxSpread);
+      }
+    }
+
+    if (liquidityRules?.max_spread) {
+      asEnhancedSpread = Math.min(asEnhancedSpread, liquidityRules.max_spread * 0.95);
     }
 
     const safeModeActive = this.isSafeModeActive(market.token_id, {
@@ -3305,14 +3951,14 @@ export class MarketMaker {
     });
     if (safeModeActive) {
       const spreadMult = Math.max(1, this.config.mmSafeModeSpreadMult ?? 1);
-      adaptiveSpread *= spreadMult;
+      asEnhancedSpread *= spreadMult;
       const spreadAdd = Math.max(0, this.config.mmSafeModeSpreadAdd ?? 0);
       if (spreadAdd > 0) {
-        adaptiveSpread += spreadAdd;
+        asEnhancedSpread += spreadAdd;
       }
       const cancelBufferAdd = Math.max(0, this.config.mmSafeModeCancelBufferAddBps ?? 0);
       if (cancelBufferAdd > 0) {
-        adaptiveSpread += cancelBufferAdd / 10000;
+        asEnhancedSpread += cancelBufferAdd / 10000;
       }
     } else {
       const holdMs = Math.max(0, this.config.mmSafeModeExitHoldMs ?? 0);
@@ -3334,14 +3980,14 @@ export class MarketMaker {
 
     const wsSpreadMult = this.getWsHealthSpreadMult();
     if (wsSpreadMult > 0 && wsSpreadMult !== 1) {
-      adaptiveSpread *= wsSpreadMult;
+      asEnhancedSpread *= wsSpreadMult;
       minSpread *= wsSpreadMult;
       if (maxSpread > 0) {
         maxSpread *= wsSpreadMult;
       }
     }
 
-    adaptiveSpread = this.clamp(adaptiveSpread, minSpread, maxSpread);
+    asEnhancedSpread = this.clamp(asEnhancedSpread, minSpread, maxSpread);
 
     const inventoryBias = this.calculateInventoryBias(market.token_id);
     let inventorySkewFactor = this.config.inventorySkewFactor ?? 0.15;
@@ -3385,7 +4031,7 @@ export class MarketMaker {
       1 +
       Math.abs(inventoryBias) * inventorySpreadWeight +
       Math.abs(imbalance) * imbalanceSpreadWeight;
-    const half = (adaptiveSpread * spreadBoost) / 2;
+    const half = (asEnhancedSpread * spreadBoost) / 2;
     const invWeight = this.config.mmAsymSpreadInventoryWeight ?? 0.4;
     const imbWeight = this.config.mmAsymSpreadImbalanceWeight ?? 0.35;
     const minFactor = this.config.mmAsymSpreadMinFactor ?? 0.6;
@@ -3395,8 +4041,8 @@ export class MarketMaker {
     const bidFactor = this.clamp(1 + inventoryBias * invWeight - depthImbalance * imbWeight, minFactor, maxFactor);
     const askFactor = this.clamp(1 - inventoryBias * invWeight + depthImbalance * imbWeight, minFactor, maxFactor);
     let quoteOffset = Math.max(0, this.config.mmQuoteOffsetBps ?? 0) / 10000;
-    if (market.liquidity_activation?.max_spread) {
-      const maxAllowed = market.liquidity_activation.max_spread * 0.95;
+    if (liquidityRules?.max_spread) {
+      const maxAllowed = liquidityRules.max_spread * 0.95;
       const remaining = Math.max(0, maxAllowed - adaptiveSpread);
       quoteOffset = Math.min(quoteOffset, remaining / 2);
     }
@@ -3419,6 +4065,24 @@ export class MarketMaker {
 
     // Keep maker-friendly but never cross top of book
     let touchBufferBps = Math.max(0, this.config.mmTouchBufferBps ?? 0) + (noFillPenalty.touchBps || 0);
+    const volTouchWeight = Math.max(0, this.config.mmTouchBufferVolWeight ?? 0);
+    if (volTouchWeight > 0 && volEma > 0) {
+      let add = volEma * 10000 * volTouchWeight;
+      const maxAdd = Math.max(0, this.config.mmTouchBufferVolMaxBps ?? 0);
+      if (maxAdd > 0) {
+        add = Math.min(add, maxAdd);
+      }
+      touchBufferBps += add;
+    }
+    const depthSpeedWeight = Math.max(0, this.config.mmTouchBufferDepthSpeedWeight ?? 0);
+    if (depthSpeedWeight > 0 && depthMetrics.depthSpeedBps > 0) {
+      let add = depthMetrics.depthSpeedBps * depthSpeedWeight;
+      const maxAdd = Math.max(0, this.config.mmTouchBufferDepthSpeedMaxBps ?? 0);
+      if (maxAdd > 0) {
+        add = Math.min(add, maxAdd);
+      }
+      touchBufferBps += add;
+    }
     if (this.isLayerRestoreActive(market.token_id)) {
       touchBufferBps += Math.max(0, this.config.mmLayerRestoreTouchBufferBps ?? 0);
     }
@@ -3440,7 +4104,28 @@ export class MarketMaker {
     if (wsTouchAdd > 0) {
       touchBufferBps += wsTouchAdd;
     }
-    if (touchBufferBps > 0) {
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneTouchBufferWeight ?? 0);
+      if (autoWeight > 0) {
+        const mult = this.getAutoTuneMultiplier(market.token_id);
+        if (mult !== 1) {
+          touchBufferBps *= 1 + (mult - 1) * autoWeight;
+        }
+      }
+    }
+    // 🎯 第二档挂单策略：基于订单簿第一档的固定金额偏移
+    // 如果启用了 MM_QUOTE_SECOND_LAYER，使用固定偏移而不是百分比偏移
+    const fixedCents = Math.max(0, this.config.mmTouchBufferFixedCents ?? 0);
+    if (fixedCents > 0 && this.config.mmQuoteSecondLayer) {
+      // 固定金额偏移：直接在 bestBid/bestAsk 基础上减/加固定金额
+      // 例如：bestBid=99.1, fixedCents=0.1 → 我们的买价=99.0
+      const fixedOffset = fixedCents / 100; // 转换为美元（如果价格以美元计价）
+      const maxBid = bestBid - fixedOffset;
+      const minAsk = bestAsk + fixedOffset;
+      bid = Math.min(bid, maxBid);
+      ask = Math.max(ask, minAsk);
+    } else if (touchBufferBps > 0) {
+      // 百分比偏移（原有逻辑）
       const buffer = touchBufferBps / 10000;
       const maxBid = bestBid * (1 - buffer);
       const minAsk = bestAsk * (1 + buffer);
@@ -3462,7 +4147,7 @@ export class MarketMaker {
       bidPrice: bid,
       askPrice: ask,
       midPrice: microPrice,
-      spread: adaptiveSpread,
+      spread: asEnhancedSpread,
       pressure,
       inventoryBias,
       valueBias,
@@ -3485,6 +4170,7 @@ export class MarketMaker {
       return { shares: 0, usdt: 0 };
     }
 
+    const liquidityRules = this.getEffectiveLiquidityActivation(market);
     const positionValue = this.positions.get(market.token_id)?.total_value || 0;
     const effectiveMaxPosition = this.getEffectiveMaxPosition();
     const remainingRiskBudget = Math.max(0, effectiveMaxPosition - positionValue);
@@ -3549,23 +4235,54 @@ export class MarketMaker {
       sizeFactor *= 1 + inventoryBias * sizeInvWeight;
       sizeFactor *= 1 - imbalance * sizeImbWeight;
     }
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneSizeWeight ?? 0);
+      if (autoWeight > 0) {
+        const mult = this.getAutoTuneMultiplier(market.token_id);
+        if (mult !== 1) {
+          sizeFactor *= 1 / Math.max(0.1, 1 + (mult - 1) * autoWeight);
+        }
+      }
+    }
+    const volWeight = Math.max(0, this.config.mmSizeVolWeight ?? 0);
+    if (volWeight > 0) {
+      const vol = this.volatilityEma.get(market.token_id) ?? 0;
+      if (vol > 0) {
+        sizeFactor *= 1 / (1 + vol * volWeight);
+      }
+    }
+    const depthSpeedWeight = Math.max(0, this.config.mmSizeDepthSpeedWeight ?? 0);
+    if (depthSpeedWeight > 0) {
+      const depthSpeed = this.lastDepthSpeedBps.get(market.token_id) ?? 0;
+      if (depthSpeed > 0) {
+        const scaled = 1 + (depthSpeed / 10000) * depthSpeedWeight;
+        sizeFactor *= 1 / Math.max(0.2, scaled);
+      }
+    }
     sizeFactor = this.clamp(sizeFactor, sizeMin, sizeMax);
     const penalty = this.getSizePenalty(market.token_id);
     const noFill = this.getNoFillPenalty(market.token_id);
     shares = Math.floor(shares * sizeFactor * penalty * (noFill.sizeFactor || 1));
 
-    const minShares = market.liquidity_activation?.min_shares || 0;
+    const minShares = liquidityRules?.min_shares || 0;
     if (minShares > 0 && shares < minShares) {
       const minOrderValue = minShares * price;
       const hardCap = this.config.maxSingleOrderValue ?? Number.POSITIVE_INFINITY;
       if (minOrderValue <= hardCap && minOrderValue <= remainingRiskBudget) {
-        if (!depthCap || minShares <= depthCap) {
-          shares = minShares;
-        }
+        // 优先确保满足 min_shares 以获得积分，即使超过 depthCap
+        shares = minShares;
+        this.recordMmEvent('MIN_SHARES_ENFORCED',
+          `min=${minShares} depthCap=${depthCap || 'none'} original=${shares * sizeFactor * penalty * (noFill.sizeFactor || 1)}`,
+          market.token_id);
+      } else {
+        // 无法满足 min_shares 要求，记录警告
+        this.recordMmEvent('MIN_SHARES_UNMET',
+          `min=${minShares} shares=${shares} value=${minOrderValue} cap=${hardCap} budget=${remainingRiskBudget}`,
+          market.token_id);
       }
     }
 
-    if (market.liquidity_activation?.active && this.config.mmPointsMinOnly && minShares > 0) {
+    if (liquidityRules?.active && this.config.mmPointsMinOnly && minShares > 0) {
       const multiplier = Math.max(1, this.config.mmPointsMinMultiplier ?? 1);
       const cap = Math.max(minShares, Math.floor(minShares * multiplier));
       shares = Math.min(shares, cap);
@@ -3613,15 +4330,19 @@ export class MarketMaker {
   }
 
   checkLiquidityPointsEligibility(market: Market, orderbook: Orderbook): boolean {
-    if (!market.liquidity_activation?.active) {
-      return false;
+    const rules = this.getEffectiveLiquidityActivation(market);
+    // 修复：无积分规则时允许交易
+    if (!rules?.active) {
+      return true;
     }
 
-    if (market.liquidity_activation.max_spread_cents && orderbook.spread) {
-      const maxSpread = market.liquidity_activation.max_spread_cents / 100;
-      if (orderbook.spread > maxSpread) {
-        return false;
-      }
+    // 检查 max_spread（支持 cents 和 decimal 两种格式）
+    const maxSpread = rules.max_spread ?? (rules.max_spread_cents ? rules.max_spread_cents / 100 : undefined);
+    if (maxSpread && orderbook.spread && orderbook.spread > maxSpread) {
+      this.recordMmEvent('POINTS_SPREAD_EXCEEDED',
+        `spread=${orderbook.spread} max=${maxSpread}`,
+        market.token_id);
+      return false;
     }
 
     return true;
@@ -3658,6 +4379,16 @@ export class MarketMaker {
     const mult = this.getVolatilityMultiplier(order.token_id, this.config.mmRepriceVolMultiplier ?? 1.5);
     const noFill = this.getNoFillPenalty(order.token_id);
     let threshold = (base + (noFill.repriceBps || 0) / 10000) / mult;
+    if (this.config.mmAutoTuneEnabled) {
+      const autoWeight = Math.max(0, this.config.mmAutoTuneRepriceWeight ?? 0);
+      if (autoWeight > 0) {
+        const autoMult = this.getAutoTuneMultiplier(order.token_id);
+        if (autoMult !== 1) {
+          const factor = 1 + (autoMult - 1) * autoWeight;
+          threshold = threshold / Math.max(0.2, factor);
+        }
+      }
+    }
     const wsRepriceMult = this.getWsHealthRepriceMult();
     if (wsRepriceMult > 0 && wsRepriceMult !== 1) {
       threshold = threshold / wsRepriceMult;
@@ -3757,6 +4488,47 @@ export class MarketMaker {
       return;
     }
 
+    // 更新 marketByToken 映射（支持 YES/NO 的不同 token_id）
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+    this.marketByToken.set(market.token_id, market);
+    if (yesTokenId) {
+      this.marketByToken.set(yesTokenId, { ...market, token_id: yesTokenId });
+    }
+    if (noTokenId) {
+      this.marketByToken.set(noTokenId, { ...market, token_id: noTokenId });
+    }
+
+    const livePosition = this.positions.get(market.token_id);
+    if (this.shouldTripPredictLossFuse(livePosition)) {
+      await this.triggerPredictLossFuse(market.token_id, livePosition);
+      return;
+    }
+
+    // ===== 统一做市商策略（整合所有优点） =====
+    if (this.unifiedMarketMakerStrategy.isEnabled()) {
+      // CRITICAL FIX #1: 使用聚合的持仓（YES + NO token_id）
+      const position = this.getAggregatedPosition(market);
+      const yesPrice = orderbook.best_bid || 0;
+      const noPrice = 1 - yesPrice;
+
+      const analysis = this.unifiedMarketMakerStrategy.analyze(market, position, yesPrice, noPrice);
+
+      console.log(`🚀 统一做市商策略: ${analysis.state}`);
+      console.log(`   挂 Buy 单: ${analysis.shouldPlaceBuyOrders ? '✅' : '❌'}`);
+      console.log(`   挂 Sell 单: ${analysis.shouldPlaceSellOrders ? '✅' : '❌'}`);
+
+      // 执行统一策略的挂单逻辑
+      await this.executeUnifiedStrategy(market, orderbook, position, analysis);
+
+      // 监控是否成为第一档（如果成为则自动撤单重挂）
+      await this.monitorTierOneStatus(market, orderbook);
+
+      return;
+    }
+
+    // 如果未启用统一策略，继续原有的做市商逻辑
+    // ...
+
     if (this.tradingHalted) {
       console.log('🛑 Trading halted by risk controls.');
       return;
@@ -3771,143 +4543,14 @@ export class MarketMaker {
     }
 
     const tokenId = market.token_id;
-    const livePosition = this.positions.get(tokenId);
-    if (this.shouldTripPredictLossFuse(livePosition)) {
-      await this.triggerPredictLossFuse(tokenId, livePosition);
-      return;
-    }
     this.updateBestPrices(tokenId, orderbook);
+
+    // 缓存订单簿用于积分优化
+    this.pointsOrderbookCache.set(tokenId, orderbook);
+
     if (!this.lastFillAt.has(tokenId)) {
       this.lastFillAt.set(tokenId, Date.now());
     }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // UNIFIED STRATEGY: 二档追踪 + 异步对冲 + 双轨并行
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (this.unifiedStrategy?.isEnabled()) {
-      const position = this.positions.get(tokenId) ?? {
-        token_id: tokenId,
-        question: market.question,
-        yes_amount: 0,
-        no_amount: 0,
-        total_value: 0,
-        avg_entry_price: 0,
-        current_price: orderbook.mid_price ?? ((orderbook.best_bid ?? 0) + (orderbook.best_ask ?? 1)) / 2,
-        pnl: 0,
-      };
-
-      // 检查是否已有该市场的挂单
-      const hasOpenOrders = Array.from(this.openOrders.values()).some(
-        (order) => order.token_id === tokenId
-      );
-
-      // 获取双轨订单建议
-      if (this.isUnifiedSpreadUnsafe(orderbook)) {
-        console.warn(
-          `🛑 [UnifiedStrategy] 跳过高价差市场 ${tokenId}: bid=${(orderbook.best_bid ?? 0).toFixed(4)} ask=${(orderbook.best_ask ?? 0).toFixed(4)}`
-        );
-        await this.triggerPredictUnsafeBookPause(tokenId, '盘口不安全');
-        return;
-      }
-      const orders = this.unifiedStrategy.getDualTrackOrders(tokenId, orderbook, position);
-
-      if (orders.blockMarket) {
-        console.warn(`🛑 [UnifiedStrategy] 极端盘口失衡，暂停市场 ${tokenId}: ${orders.guardReason || 'quote guard'}`);
-        await this.triggerPredictUnsafeBookPause(tokenId, orders.guardReason || '极端盘口失衡');
-        return;
-      }
-      if (orders.guardReason && (!orders.buyOrder || !orders.sellOrder)) {
-        console.log(`🧯 [UnifiedStrategy] 单边保护生效 ${tokenId}: ${orders.guardReason}`);
-      }
-
-      // 检查是否需要重新挂单
-      if (orders.repriceDecision?.needsReprice) {
-        console.log(`🔄 [UnifiedStrategy] Reprice needed for ${tokenId}: ${orders.repriceDecision.reason}`);
-        // 取消旧订单
-        await this.cancelOrdersForMarket(tokenId);
-        this.unifiedStrategy.recordReprice(tokenId);
-      }
-
-      // 只有在没有挂单或需要重新挂单时才下单
-      if (!hasOpenOrders || orders.repriceDecision?.needsReprice) {
-        let submittedBuyShares = 0;
-        let submittedBuyPrice = 0;
-        let submittedSellShares = 0;
-        let submittedSellPrice = 0;
-
-        // 执行双轨订单 - 实际下单
-        if (orders.buyOrder) {
-          const buyBlockRemainingMs = this.getPredictBuyBlockRemainingMs(tokenId);
-          console.log(`📈 [UnifiedStrategy] Track A (Buy): ${orders.buyOrder.shares} shares @ $${orders.buyOrder.price.toFixed(4)}`);
-          // 实际下单
-          if (this.config.enableTrading && buyBlockRemainingMs <= 0) {
-            try {
-              await this.placeLimitOrder(market, 'BUY', orders.buyOrder.price, orders.buyOrder.shares);
-              this.predictBuyInsufficientUntil.delete(tokenId);
-              submittedBuyShares = orders.buyOrder.shares;
-              submittedBuyPrice = orders.buyOrder.price;
-              console.log(`✅ [UnifiedStrategy] Buy order placed: ${orders.buyOrder.shares} @ $${orders.buyOrder.price.toFixed(4)}`);
-            } catch (err) {
-              const message = this.getErrorMessage(err);
-              if (this.isPredictBuyInsufficientError(message) && this.config.mmVenue !== 'probable') {
-                const cooldownMs = Math.max(1000, this.config.predictBuyInsufficientCooldownMs ?? 60000);
-                this.predictBuyInsufficientUntil.set(tokenId, Date.now() + cooldownMs);
-                console.error(
-                  `❌ [UnifiedStrategy] BUY 余额/抵押不足，暂停 ${Math.round(cooldownMs / 1000)} 秒后重试: ${message}`
-                );
-              } else {
-                console.error(`❌ [UnifiedStrategy] Failed to place buy order: ${message}`);
-              }
-            }
-          } else if (this.config.enableTrading && buyBlockRemainingMs > 0) {
-            console.log(
-              `⏸️ [UnifiedStrategy] BUY 因余额/抵押不足冷却中，剩余 ${Math.ceil(buyBlockRemainingMs / 1000)} 秒`
-            );
-          } else if (!this.config.enableTrading) {
-            submittedBuyShares = orders.buyOrder.shares;
-            submittedBuyPrice = orders.buyOrder.price;
-          }
-        }
-
-        if (orders.sellOrder) {
-          console.log(`📉 [UnifiedStrategy] Track B (Sell): ${orders.sellOrder.shares} shares @ $${orders.sellOrder.price.toFixed(4)}`);
-          // 实际下单
-          if (this.config.enableTrading) {
-            try {
-              await this.placeLimitOrder(market, 'SELL', orders.sellOrder.price, orders.sellOrder.shares);
-              submittedSellShares = orders.sellOrder.shares;
-              submittedSellPrice = orders.sellOrder.price;
-              console.log(`✅ [UnifiedStrategy] Sell order placed: ${orders.sellOrder.shares} @ $${orders.sellOrder.price.toFixed(4)}`);
-            } catch (err) {
-              console.error(`❌ [UnifiedStrategy] Failed to place sell order: ${this.getErrorMessage(err)}`);
-            }
-          } else {
-            submittedSellShares = orders.sellOrder.shares;
-            submittedSellPrice = orders.sellOrder.price;
-          }
-        }
-
-        this.unifiedStrategy.updatePendingOrders(
-          tokenId,
-          submittedBuyShares,
-          submittedBuyPrice,
-          submittedSellShares,
-          submittedSellPrice
-        );
-      } else {
-        // 已有挂单，跳过下单，只打印状态
-        console.log(`⏸️ [UnifiedStrategy] 已有挂单，等待成交: ${tokenId}`);
-      }
-
-      // 打印策略状态摘要
-      this.unifiedStrategy.printSummary(tokenId);
-
-      // 如果策略处理了这个市场，跳过默认逻辑
-      if (orders.buyOrder || orders.sellOrder) {
-        return;
-      }
-    }
-    // ═══════════════════════════════════════════════════════════════════════════
 
     const now = Date.now();
     if (this.wsEmergencyGlobalUntil > now) {
@@ -4032,15 +4675,10 @@ export class MarketMaker {
       return;
     }
 
+    const spreadJump = this.checkSpreadJump(tokenId, orderbook);
+
     if (this.checkVolatility(tokenId, orderbook)) {
       console.log(`⚠️ Volatility spike detected for ${tokenId}, pausing quoting...`);
-      await this.cancelOrdersForMarket(tokenId);
-      this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
-      return;
-    }
-
-    if (this.checkSpreadJump(tokenId, orderbook)) {
-      console.log(`⚠️ Spread jump detected for ${tokenId}, pausing quoting...`);
       await this.cancelOrdersForMarket(tokenId);
       this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
       return;
@@ -4056,6 +4694,33 @@ export class MarketMaker {
 
     let prices = this.calculatePrices(market, orderbook);
     if (!prices) {
+      if (spreadJump) {
+        console.log(`⚠️ Spread jump detected for ${tokenId}, pausing quoting...`);
+        await this.cancelOrdersForMarket(tokenId);
+        this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
+      }
+      return;
+    }
+
+    if (this.checkDepthSpeedSpike(tokenId)) {
+      console.log(`⚠️ Depth speed spike for ${tokenId}, pausing quoting...`);
+      await this.cancelOrdersForMarket(tokenId);
+      this.markCooldown(tokenId, this.config.cooldownAfterCancelMs ?? 4000);
+      return;
+    }
+
+    if (this.checkProtectiveMode(tokenId)) {
+      console.log(`🛡️ Protective mode triggered for ${tokenId}, retreating quotes...`);
+      await this.cancelOrdersForMarket(tokenId);
+      this.markAction(tokenId);
+      this.recordMmEvent('PROTECTIVE_MODE', 'depth+spread spike', tokenId);
+      return;
+    }
+
+    if (spreadJump && !this.isProtectiveActive(tokenId)) {
+      console.log(`⚠️ Spread jump detected for ${tokenId}, pausing quoting...`);
+      await this.cancelOrdersForMarket(tokenId);
+      this.markCooldown(tokenId, this.config.pauseAfterVolatilityMs ?? 8000);
       return;
     }
 
@@ -4109,14 +4774,42 @@ export class MarketMaker {
     const panicSingleSide = this.isLayerPanicActive(tokenId)
       ? (this.config.mmPanicSingleSide || 'NONE').toUpperCase()
       : 'NONE';
+    const protectiveActive = this.isProtectiveActive(tokenId);
+    let protectiveSingleSide =
+      panicSingleSide === 'NONE' && protectiveActive
+        ? (this.config.mmProtectiveSingleSide || 'NONE').toUpperCase()
+        : 'NONE';
+    if (protectiveActive && this.getProtectiveConfig().singleSideAuto) {
+      const inventoryBias = this.calculateInventoryBias(tokenId);
+      const imbalance = this.calculateOrderbookImbalance(orderbook);
+      const threshold = Math.max(0, this.config.mmProtectiveSingleSideImbalanceThreshold ?? 0.15);
+      const signal = inventoryBias - imbalance;
+      if (Math.abs(signal) >= threshold) {
+        protectiveSingleSide = signal > 0 ? 'SELL' : 'BUY';
+      }
+    }
     const safeSingleSide =
-      panicSingleSide === 'NONE' && safeModeActive
+      panicSingleSide === 'NONE' && !protectiveActive && safeModeActive
         ? (this.config.mmSafeModeSingleSide || 'NONE').toUpperCase()
         : 'NONE';
-    const effectiveSingleSide = panicSingleSide !== 'NONE' ? panicSingleSide : safeSingleSide;
+    const effectiveSingleSide =
+      panicSingleSide !== 'NONE' ? panicSingleSide : protectiveSingleSide !== 'NONE' ? protectiveSingleSide : safeSingleSide;
     const panicSingleSideOffsetBps = Math.max(0, this.config.mmPanicSingleSideOffsetBps ?? 0);
+    const protectiveSingleSideOffsetBps = Math.max(0, this.getProtectiveConfig().singleSideOffsetBps);
     const safeSingleSideOffsetBps = Math.max(0, this.config.mmSafeModeSingleSideOffsetBps ?? 0);
-    const singleSideOffsetBps = panicSingleSide !== 'NONE' ? panicSingleSideOffsetBps : safeSingleSideOffsetBps;
+    const singleSideOffsetBps =
+      panicSingleSide !== 'NONE'
+        ? panicSingleSideOffsetBps
+        : protectiveSingleSide !== 'NONE'
+          ? protectiveSingleSideOffsetBps
+          : safeSingleSideOffsetBps;
+    if (protectiveSingleSide === 'NONE' && protectiveActive) {
+      const add = Math.max(0, this.getProtectiveConfig().touchBufferAddBps);
+      if (add > 0) {
+        bidPriceBase = Math.max(0.01, bidPriceBase * (1 - add / 10000));
+        askPriceBase = Math.min(0.99, askPriceBase * (1 + add / 10000));
+      }
+    }
     if (singleSideOffsetBps > 0 && effectiveSingleSide !== 'NONE') {
       const offset = singleSideOffsetBps / 10000;
       if (effectiveSingleSide === 'BUY') {
@@ -4189,21 +4882,32 @@ export class MarketMaker {
           }
         }
       }
-      if (risk.cancel || shouldReprice) {
-        if (!this.allowCancel(tokenId, risk.panic)) {
-          this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
-          continue;
-        }
-        if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
-          const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
-            this.addRiskThrottle('__global__', penalty * 0.5);
+        if (risk.cancel || shouldReprice) {
+          if (!this.allowCancel(tokenId, risk.panic)) {
+            this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
+            continue;
           }
-        } else if (risk.reason === 'refresh' || shouldReprice) {
-          const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
+          if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
+            const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
+              this.addRiskThrottle('__global__', penalty * 0.5);
+            }
+            const count = this.recordNearTouch(tokenId);
+            const limit = Math.max(1, this.config.mmNearTouchBurstLimit ?? 0);
+            if (limit > 0 && count >= limit) {
+              const hold = Math.max(0, this.config.mmNearTouchBurstHoldMs ?? 0);
+              if (hold > 0) {
+                this.applyLayerRetreatFor(tokenId, hold);
+              }
+              if (this.config.mmNearTouchBurstSafeMode) {
+                this.safeModeExitUntil.set(tokenId, Date.now() + Math.max(0, this.config.mmNearTouchBurstSafeModeMs ?? hold));
+              }
+            }
+          } else if (risk.reason === 'refresh' || shouldReprice) {
+            const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
             this.addRiskThrottle('__global__', penalty * 0.4);
           }
         }
@@ -4310,21 +5014,32 @@ export class MarketMaker {
           }
         }
       }
-      if (risk.cancel || shouldReprice) {
-        if (!this.allowCancel(tokenId, risk.panic)) {
-          this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
-          continue;
-        }
-        if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
-          const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
-            this.addRiskThrottle('__global__', penalty * 0.5);
+        if (risk.cancel || shouldReprice) {
+          if (!this.allowCancel(tokenId, risk.panic)) {
+            this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
+            continue;
           }
-        } else if (risk.reason === 'refresh' || shouldReprice) {
-          const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
-          if (penalty > 0) {
-            this.addRiskThrottle(tokenId, penalty);
+          if (risk.reason.startsWith('near-touch') || risk.reason === 'anti-fill') {
+            const penalty = Math.max(0, this.config.mmRiskThrottleNearTouchPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
+              this.addRiskThrottle('__global__', penalty * 0.5);
+            }
+            const count = this.recordNearTouch(tokenId);
+            const limit = Math.max(1, this.config.mmNearTouchBurstLimit ?? 0);
+            if (limit > 0 && count >= limit) {
+              const hold = Math.max(0, this.config.mmNearTouchBurstHoldMs ?? 0);
+              if (hold > 0) {
+                this.applyLayerRetreatFor(tokenId, hold);
+              }
+              if (this.config.mmNearTouchBurstSafeMode) {
+                this.safeModeExitUntil.set(tokenId, Date.now() + Math.max(0, this.config.mmNearTouchBurstSafeModeMs ?? hold));
+              }
+            }
+          } else if (risk.reason === 'refresh' || shouldReprice) {
+            const penalty = Math.max(0, this.config.mmRiskThrottleCancelPenalty ?? 0);
+            if (penalty > 0) {
+              this.addRiskThrottle(tokenId, penalty);
             this.addRiskThrottle('__global__', penalty * 0.4);
           }
         }
@@ -4466,8 +5181,43 @@ export class MarketMaker {
         `bias=${prices.inventoryBias.toFixed(2)} imb=${imbalance.toFixed(2)}${depthInfo}${valueInfo} ${qualifiesForPoints ? '✨' : ''} profile=${profile}`
     );
 
-    const suppressBuy = prices.inventoryBias > 0.85;
-    const suppressSell = prices.inventoryBias < -0.85;
+    // ===== Phase 1: 使用 InventoryClassifier 的单边挂单策略 =====
+    let suppressBuy = false;
+    let suppressSell = false;
+
+    if (this.config.mmEnhancedSpreadEnabled !== false) {
+      const inventoryBias = this.calculateInventoryBias(market.token_id);
+      const inventoryState = this.perMarketInventoryState.get(market.token_id);
+      if (inventoryState) {
+        const strategy = this.inventoryClassifier.getStrategy(
+          inventoryState,
+          Math.round(inventoryBias * this.getEffectiveMaxPosition()),
+          this.getEffectiveMaxPosition()
+        );
+
+        // 使用策略中的单边挂单配置
+        if (strategy.singleSide === 'BUY') {
+          suppressSell = true;  // 只允许买单，不挂卖单
+          console.log(`   📊 Single-side mode: BUY only (inventory bias: ${(inventoryBias * 100).toFixed(1)}%)`);
+        } else if (strategy.singleSide === 'SELL') {
+          suppressBuy = true;   // 只允许卖单，不挂买单
+          console.log(`   📊 Single-side mode: SELL only (inventory bias: ${(inventoryBias * 100).toFixed(1)}%)`);
+        }
+
+        // 如果不允许挂单，抑制双边
+        if (!strategy.allowOrders) {
+          suppressBuy = true;
+          suppressSell = true;
+          console.log(`   🛑 Orders suspended: ${inventoryState} state`);
+        }
+      }
+    }
+
+    // 兜底逻辑：如果没有启用 Phase 1，使用原来的硬编码阈值
+    if (!suppressBuy && !suppressSell) {
+      suppressBuy = prices.inventoryBias > 0.85;
+      suppressSell = prices.inventoryBias < -0.85;
+    }
 
     let placed = false;
     const allowBelowMin = this.config.mmLayerAllowBelowMinShares === true;
@@ -4498,7 +5248,8 @@ export class MarketMaker {
     if (retreatFloor > 0 && metrics.depthSpeedBps >= (this.config.mmLayerDepthSpeedRetreatBps ?? 0)) {
       sizeFloor = Math.min(sizeFloor, retreatFloor);
     }
-    const minShares = market.liquidity_activation?.min_shares || 0;
+    const liquidityRules = this.getEffectiveLiquidityActivation(market);
+    const minShares = liquidityRules?.min_shares || 0;
     let targetBidShares = Math.max(1, Math.floor(bidOrderSize.shares * profileScale));
     let targetAskShares = Math.max(1, Math.floor(askOrderSize.shares * profileScale));
     if (riskThrottle < 1) {
@@ -4519,6 +5270,13 @@ export class MarketMaker {
     }
     if (safeModeActive) {
       const scale = this.config.mmSafeModeSizeScale ?? 0;
+      if (scale > 0 && scale < 1) {
+        targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
+        targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
+      }
+    }
+    if (this.isProtectiveActive(tokenId)) {
+      const scale = this.getProtectiveConfig().sizeScale;
       if (scale > 0 && scale < 1) {
         targetBidShares = Math.max(1, Math.floor(targetBidShares * scale));
         targetAskShares = Math.max(1, Math.floor(targetAskShares * scale));
@@ -4563,6 +5321,7 @@ export class MarketMaker {
     } else if (wsSingle.side === 'SELL') {
       targetBidShares = 0;
     }
+    const protectiveOnlyFar = this.isProtectiveActive(tokenId) && this.getProtectiveConfig().onlyFar;
     const restoreCap =
       this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreMaxShares
         ? Math.max(1, this.config.mmLayerRestoreMaxShares)
@@ -4581,6 +5340,8 @@ export class MarketMaker {
     const panicOnlyFar = this.config.mmLayerPanicOnlyFar === true && this.isLayerPanicActive(tokenId);
     const panicSingleSideMode = (this.config.mmPanicSingleSideMode || 'NORMAL').toUpperCase();
     const panicRemoteOnly = panicSingleSide !== 'NONE' && panicSingleSideMode === 'REMOTE';
+    const protectiveSingleSideMode = this.getProtectiveConfig().singleSideMode;
+    const protectiveRemoteOnly = protectiveSingleSide !== 'NONE' && protectiveSingleSideMode === 'REMOTE';
     const safeSingleSideMode = (this.config.mmSafeModeSingleSideMode || 'NORMAL').toUpperCase();
     const safeRemoteOnly = safeSingleSide !== 'NONE' && safeSingleSideMode === 'REMOTE';
     const riskOnlyFarLayers = riskOnlyFarActive ? Math.max(0, this.config.mmRiskThrottleOnlyFarLayers ?? 0) : 0;
@@ -4602,7 +5363,9 @@ export class MarketMaker {
       restoreOnlyFar ||
       panicOnlyFar ||
       panicRemoteOnly ||
+      protectiveRemoteOnly ||
       safeRemoteOnly ||
+      protectiveOnlyFar ||
       safeModeOnlyFar ||
       wsRemoteOnly ||
       riskOnlyFar ||
@@ -4656,7 +5419,19 @@ export class MarketMaker {
           continue;
         }
         const shares = this.applyIceberg(size, recoveryIcebergRatio);
-        await this.placeLimitOrder(market, 'BUY', bidTargets[i], shares);
+        const guard = this.shouldSkipLayerDueToGuard(metrics, 'BUY', bidTargets[i], orderbook);
+        if (guard.skip) {
+          const msg = `BUY near=${guard.distanceBps?.toFixed(1) ?? 'n/a'}bps ${guard.reason || 'guard'}`;
+          this.recordMmEvent('SKIP_GUARD', msg, tokenId);
+          continue;
+        }
+        const vwapRisk = this.precheckNewOrderVwapRisk(orderbook, 'BUY', bidTargets[i], shares);
+        if (vwapRisk.skip) {
+          const msg = `BUY vwap=${vwapRisk.vwap?.toFixed(4) ?? 'n/a'} dist=${vwapRisk.distanceBps?.toFixed(1) ?? 'n/a'}bps`;
+          this.recordMmEvent('SKIP_VWAP', msg, tokenId);
+          continue;
+        }
+        await this.placeLimitOrder(market, 'BUY', bidTargets[i], shares, prices.spread);
         placed = true;
         if (forceSingle) {
           break;
@@ -4678,7 +5453,19 @@ export class MarketMaker {
           continue;
         }
         const shares = this.applyIceberg(size, recoveryIcebergRatio);
-        await this.placeLimitOrder(market, 'SELL', askTargets[i], shares);
+        const guard = this.shouldSkipLayerDueToGuard(metrics, 'SELL', askTargets[i], orderbook);
+        if (guard.skip) {
+          const msg = `SELL near=${guard.distanceBps?.toFixed(1) ?? 'n/a'}bps ${guard.reason || 'guard'}`;
+          this.recordMmEvent('SKIP_GUARD', msg, tokenId);
+          continue;
+        }
+        const vwapRisk = this.precheckNewOrderVwapRisk(orderbook, 'SELL', askTargets[i], shares);
+        if (vwapRisk.skip) {
+          const msg = `SELL vwap=${vwapRisk.vwap?.toFixed(4) ?? 'n/a'} dist=${vwapRisk.distanceBps?.toFixed(1) ?? 'n/a'}bps`;
+          this.recordMmEvent('SKIP_VWAP', msg, tokenId);
+          continue;
+        }
+        await this.placeLimitOrder(market, 'SELL', askTargets[i], shares, prices.spread);
         placed = true;
         if (forceSingle) {
           break;
@@ -4699,16 +5486,26 @@ export class MarketMaker {
     market: Market,
     side: 'BUY' | 'SELL',
     price: number,
-    shares: number
-  ): Promise<void> {
+    shares: number,
+    currentSpread?: number
+  ): Promise<boolean> {
     if (!this.orderManager) {
-      return;
+      return false;
     }
 
     try {
+      if (side === 'BUY' && this.config.mmVenue === 'predict') {
+        const blockRemainingMs = this.getPredictBuyBlockRemainingMs(market.token_id);
+        if (blockRemainingMs > 0) {
+          console.log(
+            `⏸️ BUY for ${market.token_id.slice(0, 8)} skipped: insufficient collateral cooldown ${Math.ceil(blockRemainingMs / 1000)}s`
+          );
+          return false;
+        }
+      }
       if (
         side === 'BUY' &&
-        this.config.mmVenue !== 'probable' &&
+        this.config.mmVenue === 'predict' &&
         typeof (this.orderManager as any)?.ensureBuyCollateralReady === 'function'
       ) {
         await (this.orderManager as any).ensureBuyCollateralReady(
@@ -4719,7 +5516,77 @@ export class MarketMaker {
         );
       }
 
-      const payload = await this.orderManager.buildLimitOrderPayload({ market, side, price, shares });
+      // 应用积分优化调整（使用 V2 优化器）
+      let adjustedPrice = price;
+      let adjustedShares = shares;
+      let pointsOptimized = false;
+      let optimizationInfo: string[] = [];
+
+      // 检查是否需要积分优化
+      const hasPointsRules = pointsManager.isPointsActive(market);
+      const enablePointsOptimization = this.config.mmPointsOptimization !== false; // 默认启用
+      const enableV2Optimizer = this.config.mmPointsV2Optimizer !== false; // 默认启用 V2
+
+      if (hasPointsRules && enablePointsOptimization && currentSpread !== undefined) {
+        const orderbook = this.pointsOrderbookCache.get(market.token_id);
+        if (orderbook) {
+          if (enableV2Optimizer) {
+            // 使用 V2 优化器（极致优化）
+            const optimized: OptimizedOrderParams = pointsOptimizerEngineV2.optimizeOrder(
+              market,
+              price,
+              currentSpread,
+              side,
+              orderbook,
+              shares
+            );
+
+            adjustedPrice = optimized.price;
+            adjustedShares = optimized.shares;
+            pointsOptimized = optimized.overallScore >= 70;
+            optimizationInfo = optimized.reasons;
+
+            // 记录详细优化信息
+            if (optimized.overallScore >= 80) {
+              console.log(`🚀 Elite optimization for ${market.token_id.slice(0, 8)}: score=${optimized.overallScore.toFixed(0)} points=${optimized.expectedPoints.toFixed(0)}`);
+            } else if (optimized.reasons.length > 0) {
+              console.log(`🎯 V2 optimization for ${market.token_id.slice(0, 8)}: ${optimized.reasons.slice(0, 2).join(', ')}`);
+            }
+          } else {
+            // 使用 V1 优化器（兼容模式）
+            const adjustment = pointsOptimizerEngine.adjustOrderForPoints(
+              market,
+              currentSpread,
+              shares,
+              orderbook
+            );
+
+            adjustedShares = adjustment.adjustedSize;
+            optimizationInfo = adjustment.warnings;
+            pointsOptimized = adjustment.pointsEligible;
+
+            // 调整价格以保持价差在允许范围内
+            if (side === 'BUY' && adjustment.adjustedSpread !== currentSpread) {
+              const spreadDelta = adjustment.adjustedSpread - currentSpread;
+              adjustedPrice = Math.max(0.0001, price - spreadDelta / 2);
+            } else if (side === 'SELL' && adjustment.adjustedSpread !== currentSpread) {
+              const spreadDelta = adjustment.adjustedSpread - currentSpread;
+              adjustedPrice = Math.min(0.9999, price + spreadDelta / 2);
+            }
+
+            if (optimizationInfo.length > 0) {
+              console.log(`🎯 Points optimization for ${market.token_id.slice(0, 8)}: ${optimizationInfo.join(', ')}`);
+            }
+          }
+        }
+      }
+
+      const payload = await this.orderManager.buildLimitOrderPayload({
+        market,
+        side,
+        price: adjustedPrice,
+        shares: adjustedShares
+      });
       const response = await this.api.createOrder(payload);
       const orderHash =
         response?.order?.hash ||
@@ -4735,21 +5602,48 @@ export class MarketMaker {
         signer: this.orderManager.getSignerAddress(),
         order_type: 'LIMIT',
         side,
-        price: price.toString(),
-        shares: shares.toString(),
+        price: adjustedPrice.toString(),
+        shares: adjustedShares.toString(),
         is_neg_risk: market.is_neg_risk,
         is_yield_bearing: market.is_yield_bearing,
         status: 'OPEN',
         timestamp: Date.now(),
       });
 
+      // 记录积分统计到集成系统
+      if (currentSpread !== undefined) {
+        const check = pointsManager.checkOrderEligibility(market, adjustedShares, currentSpread);
+        const orderbook = this.pointsOrderbookCache.get(market.token_id);
+
+        // 使用集成系统记录
+        pointsSystemIntegration.recordOrder(market, adjustedShares, currentSpread, check.isEligible, orderbook);
+
+        // 记录积分优化事件
+        if (pointsOptimized || hasPointsRules) {
+          const optInfo = optimizationInfo.length > 0 ? optimizationInfo.join('; ') : 'standard';
+          this.recordMmEvent('POINTS_ORDER',
+            `side=${side} price=${adjustedPrice.toFixed(4)} shares=${adjustedShares} eligible=${check.isEligible} optimized=${pointsOptimized} info=${optInfo}`,
+            market.token_id);
+        }
+      }
+
       this.recordAutoTuneEvent(market.token_id, 'PLACED');
-      console.log(`✅ ${side} order submitted at ${price.toFixed(4)} (${shares} shares)`);
+      const optTag = pointsOptimized ? ' [Points optimized]' : '';
+      console.log(`✅ ${side} order submitted at ${adjustedPrice.toFixed(4)} (${adjustedShares} shares)${optTag}`);
+      if (side === 'BUY') {
+        this.predictBuyInsufficientUntil.delete(market.token_id);
+      }
+      return true;
     } catch (error) {
-      const message =
-        (error as any)?.response?.data?.message ||
-        (error as Error)?.message ||
-        String(error);
+      const message = this.getErrorMessage(error);
+      if (side === 'BUY' && this.config.mmVenue === 'predict' && this.isPredictBuyInsufficientError(message)) {
+        const cooldownMs = Math.max(1000, this.config.predictBuyInsufficientCooldownMs ?? 60000);
+        this.predictBuyInsufficientUntil.set(market.token_id, Date.now() + cooldownMs);
+        console.error(
+          `Error placing ${side} order: ${message}. BUY paused for ${Math.round(cooldownMs / 1000)}s`
+        );
+        return false;
+      }
       console.error(`Error placing ${side} order: ${message}`);
       throw (error instanceof Error ? error : new Error(message));
     }
@@ -4764,31 +5658,6 @@ export class MarketMaker {
     if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceRefresh) {
       this.markAction(tokenId);
     }
-  }
-
-  async shutdown(makerAddress?: string): Promise<void> {
-    if (makerAddress && this.api.getOrders) {
-      try {
-        const orders = await this.api.getOrders(makerAddress);
-        this.openOrders.clear();
-        for (const order of orders) {
-          if (order.status === 'OPEN') {
-            this.openOrders.set(order.order_hash, order);
-          }
-        }
-      } catch (error) {
-        console.error('Error refreshing open orders during shutdown:', error);
-      }
-    }
-
-    const openCount = Array.from(this.openOrders.values()).filter((o) => o.status === 'OPEN').length;
-    if (openCount <= 0) {
-      console.log('🧹 No open orders to cancel on shutdown');
-      return;
-    }
-
-    console.log(`🧹 Canceling ${openCount} open orders before shutdown...`);
-    await this.cancelAllOpenOrders();
   }
 
   private async cancelAllOpenOrders(): Promise<void> {
@@ -4878,18 +5747,156 @@ export class MarketMaker {
   }
 
   private async detectAndHedgeFills(): Promise<void> {
+    // HIGH FIX #2: 等待初始化完成（防止并发竞态条件）
+    if (this.fillDetectionInitPromise) {
+      await this.fillDetectionInitPromise;
+    }
+
+    // HIGH FIX #2: 首次调用时初始化所有基线
+    if (!this.fillDetectionInitialized) {
+      this.fillDetectionInitPromise = (async () => {
+        console.log('🔄 初始化成交检测基线...');
+        const markets = Array.from(this.marketByToken.values());
+        const processedConditionIds = new Set<string>();
+
+        for (const market of markets) {
+          if (!market.condition_id || processedConditionIds.has(market.condition_id)) {
+            continue;
+          }
+
+          processedConditionIds.add(market.condition_id);
+
+          // 获取聚合的持仓
+          const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+          if (!yesTokenId || !noTokenId) {
+            continue;
+          }
+
+          const yesPosition = this.positions.get(yesTokenId) || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+          const noPosition = this.positions.get(noTokenId) || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+
+          const currentYes = yesPosition.yes_amount + noPosition.yes_amount;
+          const currentNo = yesPosition.no_amount + noPosition.no_amount;
+
+          this.lastNetShares.set(market.condition_id, {
+            net: currentYes - currentNo,
+            yesAmount: currentYes,
+            noAmount: currentNo,
+            timestamp: Date.now()
+          });
+        }
+
+        this.fillDetectionInitialized = true;
+        console.log(`✅ 成交检测基线初始化完成，处理了 ${processedConditionIds.size} 个市场`);
+      })();
+
+      try {
+        await this.fillDetectionInitPromise;
+      } finally {
+        this.fillDetectionInitPromise = null;
+      }
+
+      return; // 初始化完成后直接返回，等待下次调用
+    }
+
+    // ===== 统一做市商策略：订单成交处理 =====
+    if (this.unifiedMarketMakerStrategy.isEnabled()) {
+      // 修复：遍历所有市场并聚合 YES/NO 的 position
+      const processedMarkets = new Set<string>();
+
+      for (const [tokenId, position] of this.positions.entries()) {
+        // 从 token_id 找到对应的市场对象
+        let market: Market | undefined;
+        for (const [mTokenId, m] of this.marketByToken) {
+          if (mTokenId === tokenId) {
+            market = m;
+            break;
+          }
+        }
+
+        if (!market || !market.condition_id || processedMarkets.has(market.condition_id)) {
+          continue;
+        }
+
+        processedMarkets.add(market.condition_id);
+
+        // 获取 YES 和 NO 的 token_id
+        const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+        if (!yesTokenId || !noTokenId) {
+          continue;
+        }
+
+        // 聚合 YES 和 NO 的 position
+        const yesPosition = this.positions.get(yesTokenId) || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+        const noPosition = this.positions.get(noTokenId) || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+
+        const currentYes = yesPosition.yes_amount + noPosition.yes_amount;
+        const currentNo = yesPosition.no_amount + noPosition.no_amount;
+
+        // CRITICAL FIX #2: 添加 timestamp 字段
+        if (!this.lastNetShares.has(market.condition_id)) {
+          this.lastNetShares.set(market.condition_id, {
+            net: currentYes - currentNo,
+            yesAmount: currentYes,
+            noAmount: currentNo,
+            timestamp: Date.now()
+          });
+          continue; // 跳过第一次迭代，只建立基线
+        }
+
+        const prevData = this.lastNetShares.get(market.condition_id);
+        const prevYes = prevData?.yesAmount ?? 0;
+        const prevNo = prevData?.noAmount ?? 0;
+
+        // MEDIUM FIX #1: 使用 EPSILON 进行浮点数比较
+        const EPSILON = MARKET_MAKER_CONSTANTS.EPSILON;
+
+        // 检查 YES 变化
+        if (Math.abs(currentYes - prevYes) > EPSILON) {
+          const deltaYes = currentYes - prevYes;
+          const side = deltaYes > 0 ? 'BUY' : 'SELL';
+          const filledShares = Math.abs(deltaYes);
+          await this.handleUnifiedOrderFill(market, side, 'YES', filledShares);
+        }
+
+        // 检查 NO 变化
+        if (Math.abs(currentNo - prevNo) > EPSILON) {
+          const deltaNo = currentNo - prevNo;
+          const side = deltaNo > 0 ? 'BUY' : 'SELL';
+          const filledShares = Math.abs(deltaNo);
+          await this.handleUnifiedOrderFill(market, side, 'NO', filledShares);
+        }
+
+        // 保存当前状态（使用 condition_id 作为 key）
+        this.lastNetShares.set(market.condition_id, {
+          net: currentYes - currentNo,
+          yesAmount: currentYes,
+          noAmount: currentNo,
+          timestamp: Date.now()
+        });
+      }
+      return;
+    }
+
+    // ===== 原有的对冲逻辑（如果未启用统一策略）=====
     const triggerShares = this.config.hedgeTriggerShares ?? 50;
     if (this.lastNetShares.size === 0) {
       for (const [tokenId, position] of this.positions.entries()) {
         const net = position.yes_amount - position.no_amount;
-        this.lastNetShares.set(tokenId, net);
+        this.lastNetShares.set(tokenId, {
+          net,
+          yesAmount: position.yes_amount,
+          noAmount: position.no_amount,
+          timestamp: Date.now()
+        });
       }
       return;
     }
 
     for (const [tokenId, position] of this.positions.entries()) {
       const net = position.yes_amount - position.no_amount;
-      const prev = this.lastNetShares.get(tokenId) ?? 0;
+      const prevSnapshot = this.lastNetShares.get(tokenId);
+      const prev = prevSnapshot?.net ?? 0;
       const delta = net - prev;
       const absDelta = Math.abs(delta);
       const restoreActive = this.isLayerRestoreActive(tokenId);
@@ -4901,6 +5908,17 @@ export class MarketMaker {
         this.recordAutoTuneEvent(tokenId, 'FILLED');
         if (this.config.mmVenue === 'predict') {
           await this.triggerPredictFillCircuitBreaker(tokenId, '检测到成交');
+        }
+        const fillCount = this.recordFillBurst(tokenId);
+        const fillLimit = Math.max(1, this.config.mmFillBurstLimit ?? 0);
+        if (fillLimit > 0 && fillCount >= fillLimit) {
+          const hold = Math.max(0, this.config.mmFillBurstHoldMs ?? 0);
+          if (hold > 0) {
+            this.applyLayerRetreatFor(tokenId, hold);
+          }
+          if (this.config.mmFillBurstSafeMode) {
+            this.safeModeExitUntil.set(tokenId, Date.now() + Math.max(0, this.config.mmFillBurstSafeModeMs ?? hold));
+          }
         }
         const penalty = Math.max(0, this.config.mmRiskThrottleFillPenalty ?? 0);
         if (penalty > 0) {
@@ -4930,7 +5948,14 @@ export class MarketMaker {
           this.applyIcebergPenalty(tokenId);
           const wsDisableHedge = this.config.mmWsHealthDisableHedge && this.getWsHealthRatio() > 0;
           if (!disableHedge && !wsDisableHedge) {
-            await this.handleFillHedge(tokenId, delta, position.question);
+            // CRITICAL FIX #3: 添加错误处理
+            try {
+              await this.handleFillHedge(tokenId, delta, position.question);
+              this.lastHedgeAt.set(tokenId, Date.now());
+            } catch (error) {
+              console.error(`❌ Hedge execution failed for ${tokenId}:`, error);
+              this.recordMmEvent('HEDGE_FAILED', `shares=${absDelta}`, tokenId);
+            }
           }
         } else if (absDelta >= partialThreshold && this.config.mmPartialFillHedge) {
         const maxShares = this.config.mmPartialFillHedgeMaxShares ?? 20;
@@ -4938,11 +5963,24 @@ export class MarketMaker {
         if (hedgeShares > 0) {
           const wsDisableHedge = this.config.mmWsHealthDisableHedge && this.getWsHealthRatio() > 0;
           if (!disableHedge && !disablePartial && !wsDisableHedge) {
-            await this.flattenOnPredict(tokenId, delta, hedgeShares, this.config.mmPartialFillHedgeSlippageBps);
+            // CRITICAL FIX #3: 添加错误处理
+            try {
+              await this.flattenOnPredict(tokenId, delta, hedgeShares, this.config.mmPartialFillHedgeSlippageBps);
+              this.lastHedgeAt.set(tokenId, Date.now());
+            } catch (error) {
+              console.error(`❌ Partial hedge execution failed for ${tokenId}:`, error);
+              this.recordMmEvent('PARTIAL_HEDGE_FAILED', `shares=${hedgeShares}`, tokenId);
+            }
           }
         }
       }
-      this.lastNetShares.set(tokenId, net);
+      // CRITICAL FIX #2: 使用 PositionSnapshot 对象
+      this.lastNetShares.set(tokenId, {
+        net,
+        yesAmount: position.yes_amount,
+        noAmount: position.no_amount,
+        timestamp: Date.now()
+      });
     }
   }
 
@@ -4951,63 +5989,6 @@ export class MarketMaker {
       return;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // UNIFIED STRATEGY: 异步对冲 (Async Hedging)
-    // 当二档挂单被吃时，立即对冲，不取消剩余订单
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (this.unifiedStrategy?.isEnabled()) {
-      const filledShares = Math.abs(delta);
-      // delta > 0 表示 YES 增加（买了 YES），需要对冲买 NO
-      // delta < 0 表示 NO 增加（买了 NO），需要对冲买 YES
-      const fillSide: 'YES' | 'NO' = delta > 0 ? 'YES' : 'NO';
-
-      // 获取成交价格（从订单簿或使用估算）
-      const orderbook = await this.api.getOrderbook(tokenId);
-      const fillPrice = fillSide === 'YES'
-        ? (orderbook.best_bid ?? 0.5)  // YES 成交价约等于买一价
-        : (1 - (orderbook.best_ask ?? 0.5));  // NO 成交价 = 1 - YES 卖一价
-
-      // 调用策略获取对冲指令
-      const hedgeInstruction = this.unifiedStrategy.onBuyFill(tokenId, filledShares, fillPrice, fillSide);
-
-      if (hedgeInstruction.shouldHedge && hedgeInstruction.urgency === 'HIGH') {
-        console.log(`🚀 [UnifiedStrategy] 异步对冲触发: ${hedgeInstruction.shares} ${hedgeInstruction.side} @ $${hedgeInstruction.price.toFixed(4)}`);
-
-        // 执行即时对冲（市价单）
-        try {
-          // 查找配对的 token (YES -> NO 或 NO -> YES)
-          const hedgeTokenId = await this.findPairedToken(tokenId, hedgeInstruction.side);
-
-          if (!hedgeTokenId) {
-            console.warn(`⚠️ [UnifiedStrategy] 无法找到配对的 ${hedgeInstruction.side} token，使用原有对冲逻辑`);
-          } else {
-            // 使用配对 token 执行对冲
-            const hedgeMarket = await this.api.getMarket(hedgeTokenId);
-            const hedgeOrderbook = await this.api.getOrderbook(hedgeTokenId);
-
-            const payload = await this.orderManager.buildMarketOrderPayload({
-              market: hedgeMarket,
-              side: 'BUY',  // 对冲总是买入
-              shares: hedgeInstruction.shares,
-              orderbook: hedgeOrderbook,
-              slippageBps: String(this.config.unifiedStrategyHedgeSlippageBps ?? 250),
-            });
-            await this.api.createOrder(payload);
-            console.log(`✅ [UnifiedStrategy] 对冲成交: ${hedgeInstruction.shares} ${hedgeInstruction.side} (token: ${hedgeTokenId.slice(0, 8)}...)`);
-
-            // 更新策略状态：记录对冲完成
-            this.unifiedStrategy.onHedgeFill(tokenId, hedgeInstruction.shares, hedgeInstruction.price);
-            this.lastHedgeAt.set(tokenId, Date.now());
-            return;  // 对冲完成，不继续原有逻辑
-          }
-        } catch (error) {
-          console.error(`❌ [UnifiedStrategy] 对冲失败:`, error);
-          // 失败后继续原有对冲逻辑
-        }
-      }
-    }
-
-    // 原有对冲逻辑（作为备用）
     const lastHedge = this.lastHedgeAt.get(tokenId) || 0;
     if (Date.now() - lastHedge < (this.config.minOrderIntervalMs ?? 3000)) {
       return;
@@ -5034,71 +6015,6 @@ export class MarketMaker {
     this.lastHedgeAt.set(tokenId, Date.now());
   }
 
-  /**
-   * 查找配对的 YES/NO token
-   * @param tokenId 当前 token ID
-   * @param targetSide 目标方向 ('YES' 或 'NO')
-   * @returns 配对的 token ID，如果找不到返回 null
-   */
-  private async findPairedToken(tokenId: string, targetSide: 'YES' | 'NO'): Promise<string | null> {
-    // 检查缓存（缓存有效期 5 分钟）
-    const cacheKey = `${tokenId}:${targetSide}`;
-    const now = Date.now();
-    if (now - this.pairedTokenCacheAt < 5 * 60 * 1000) {
-      const cached = this.pairedTokenCache.get(cacheKey);
-      if (cached) {
-        return cached;
-      }
-    }
-
-    try {
-      // 获取当前市场信息
-      const currentMarket = await this.api.getMarket(tokenId);
-      const conditionId = currentMarket.condition_id || currentMarket.event_id;
-
-      if (!conditionId) {
-        console.warn(`⚠️ [findPairedToken] 市场 ${tokenId} 没有 condition_id`);
-        return null;
-      }
-
-      // 获取所有市场并查找配对
-      const allMarkets = await this.api.getMarkets();
-      const pairedMarket = allMarkets.find(m =>
-        (m.condition_id === conditionId || m.event_id === conditionId) &&
-        m.token_id !== tokenId &&
-        m.outcome?.toUpperCase() === targetSide
-      );
-
-      if (pairedMarket) {
-        // 更新缓存
-        this.pairedTokenCache.set(cacheKey, pairedMarket.token_id);
-        this.pairedTokenCacheAt = now;
-        console.log(`🔗 [findPairedToken] 找到配对: ${tokenId.slice(0, 8)}... -> ${pairedMarket.token_id.slice(0, 8)}... (${targetSide})`);
-        return pairedMarket.token_id;
-      }
-
-      // 如果没找到精确匹配，尝试通过 question 匹配
-      const questionMatch = allMarkets.find(m =>
-        m.question === currentMarket.question &&
-        m.token_id !== tokenId &&
-        m.outcome?.toUpperCase() === targetSide
-      );
-
-      if (questionMatch) {
-        this.pairedTokenCache.set(cacheKey, questionMatch.token_id);
-        this.pairedTokenCacheAt = now;
-        console.log(`🔗 [findPairedToken] 通过 question 找到配对: ${questionMatch.token_id.slice(0, 8)}... (${targetSide})`);
-        return questionMatch.token_id;
-      }
-
-      console.warn(`⚠️ [findPairedToken] 无法找到 ${targetSide} 配对 token for ${tokenId.slice(0, 8)}...`);
-      return null;
-    } catch (error) {
-      console.error(`❌ [findPairedToken] 查找配对失败:`, error);
-      return null;
-    }
-  }
-
   private async buildCrossHedgeLeg(
     tokenId: string,
     question: string,
@@ -5111,6 +6027,50 @@ export class MarketMaker {
 
     const platformMap = await this.crossAggregator.getPlatformMarkets([], new Map());
     const mappingStore = this.crossAggregator.getMappingStore();
+    const outcome = delta > 0 ? 'NO' : 'YES';
+    const simWeight = Number.isFinite(this.config.crossHedgeSimilarityWeight)
+      ? this.config.crossHedgeSimilarityWeight!
+      : 0.7;
+    const depthWeight = Number.isFinite(this.config.crossHedgeDepthWeight)
+      ? this.config.crossHedgeDepthWeight!
+      : 0.3;
+    const minDepthUsd = Math.max(0, this.config.crossHedgeMinDepthUsd ?? 0);
+
+    const pickBest = (candidates: PlatformMarket[]): PlatformMarket | null => {
+      const minSimilarity = this.config.crossPlatformMinSimilarity ?? 0.78;
+      let best: PlatformMarket | null = null;
+      let bestScore = 0;
+      for (const candidate of candidates) {
+        const similarity = similarityScore(question, candidate.question);
+        if (similarity < minSimilarity) continue;
+        const token = outcome === 'YES' ? candidate.yesTokenId : candidate.noTokenId;
+        const price = outcome === 'YES' ? candidate.yesAsk : candidate.noAsk;
+        if (!token || !price || price <= 0) continue;
+        const levels = outcome === 'YES' ? candidate.yesAsks : candidate.noAsks;
+        const topSize = outcome === 'YES' ? candidate.yesAskSize : candidate.noAskSize;
+        let depthShares = 0;
+        if (levels && levels.length > 0) {
+          for (const level of levels) {
+            const shares = Number(level.shares);
+            if (Number.isFinite(shares) && shares > 0) {
+              depthShares += shares;
+            }
+          }
+        } else if (Number.isFinite(topSize) && topSize! > 0) {
+          depthShares = topSize!;
+        }
+        const depthUsd = depthShares * price;
+        if (minDepthUsd > 0 && depthUsd < minDepthUsd) continue;
+        const depthScore = Math.log10(depthUsd + 1);
+        const score = similarity * simWeight + depthScore * depthWeight;
+        if (!best || score > bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+      return best;
+    };
+
     if (mappingStore && this.config.crossPlatformUseMapping !== false) {
       try {
         const marketMeta = await this.api.getMarket(tokenId);
@@ -5126,19 +6086,20 @@ export class MarketMaker {
         };
         const mapped = mappingStore.resolveMatches(predictMarket, platformMap);
         if (mapped.length > 0) {
-          const match = mapped[0];
-          const outcome = delta > 0 ? 'NO' : 'YES';
-          const token = outcome === 'YES' ? match.yesTokenId : match.noTokenId;
-          const price = outcome === 'YES' ? match.yesAsk : match.noAsk;
-          if (token && price) {
-            return {
-              platform: match.platform,
-              tokenId: token,
-              side: 'BUY',
-              price,
-              shares,
-              outcome,
-            };
+          const match = pickBest(mapped);
+          if (match) {
+            const token = outcome === 'YES' ? match.yesTokenId : match.noTokenId;
+            const price = outcome === 'YES' ? match.yesAsk : match.noAsk;
+            if (token && price) {
+              return {
+                platform: match.platform,
+                tokenId: token,
+                side: 'BUY',
+                price,
+                shares,
+                outcome,
+              };
+            }
           }
         }
       } catch (error) {
@@ -5155,22 +6116,20 @@ export class MarketMaker {
       return null;
     }
 
-    const minSimilarity = this.config.crossPlatformMinSimilarity ?? 0.78;
-    const { match } = findBestMatch(question, candidates, minSimilarity);
-    if (!match) {
+    const best = pickBest(candidates);
+    if (!best) {
       return null;
     }
 
-    const outcome = delta > 0 ? 'NO' : 'YES';
-    const matchTokenId = outcome === 'YES' ? match.yesTokenId : match.noTokenId;
-    const price = outcome === 'YES' ? match.yesAsk : match.noAsk;
+    const matchTokenId = outcome === 'YES' ? best.yesTokenId : best.noTokenId;
+    const price = outcome === 'YES' ? best.yesAsk : best.noAsk;
 
     if (!matchTokenId || !price) {
       return null;
     }
 
     return {
-      platform: match.platform,
+      platform: best.platform,
       tokenId: matchTokenId,
       side: 'BUY',
       price,
@@ -5203,6 +6162,91 @@ export class MarketMaker {
     console.log(`🛡️ Flattened position on Predict (${side} ${shares})`);
   }
 
+  /**
+   * 更新市场积分评分
+   */
+  private updatePointsScores(markets: Market[]): void {
+    const now = Date.now();
+    const shouldUpdate = this.pointsScores.size === 0 || (now - this.pointsLastReportAt) > 60000; // 1分钟更新一次
+
+    if (!shouldUpdate) return;
+
+    for (const market of markets) {
+      const orderbook = this.pointsOrderbookCache.get(market.token_id);
+      if (!orderbook) continue;
+
+      const spread = orderbook.spread ?? orderbook.mid_price ? 0.02 : 0.01;
+      const score = pointsOptimizerEngine.evaluateMarket(market, spread, orderbook);
+      this.pointsScores.set(market.token_id, score);
+    }
+
+    this.pointsLastReportAt = now;
+  }
+
+  /**
+   * 获取高积分优先级市场
+   */
+  getTopPointsMarkets(allMarkets: Market[], topN: number = 20): Market[] {
+    if (!this.config.mmPointsPrioritize) {
+      return allMarkets;
+    }
+
+    this.updatePointsScores(allMarkets);
+
+    const scored = allMarkets
+      .map(market => ({
+        market,
+        score: this.pointsScores.get(market.token_id)
+      }))
+      .filter(item => item.score && item.score.priority > 0)
+      .sort((a, b) => (b.score?.priority || 0) - (a.score?.priority || 0));
+
+    const topMarkets = scored.slice(0, topN).map(item => item.market);
+    const remaining = allMarkets.filter(m => !topMarkets.includes(m));
+
+    return [...topMarkets, ...remaining];
+  }
+
+  /**
+   * 报告积分效率
+   */
+  private reportPointsEfficiency(): void {
+    const now = Date.now();
+    if (now - this.pointsLastReportAt < this.pointsReportInterval) {
+      return;
+    }
+
+    const stats = pointsManager.getStats();
+    if (stats.totalMarkets === 0) {
+      return;
+    }
+
+    console.log('\n🎯 Points Efficiency Report:');
+    console.log('─'.repeat(60));
+    console.log(`Total Markets: ${stats.totalMarkets}`);
+    console.log(`Points Active: ${stats.pointsActiveMarkets}`);
+    console.log(`Eligibility Rate: ${stats.efficiency}%`);
+
+    const topMarkets = stats.markets
+      .filter(m => m.isActive)
+      .sort((a, b) => b.eligibleOrders - a.eligibleOrders)
+      .slice(0, 10);
+
+    if (topMarkets.length > 0) {
+      console.log('\nTop Points Markets:');
+      for (const m of topMarkets) {
+        const rate = m.totalOrders > 0 ? Math.round((m.eligibleOrders / m.totalOrders) * 100) : 0;
+        console.log(`  [${m.marketId.slice(0, 8)}] ${rate}% eligible (${m.eligibleOrders}/${m.totalOrders}) min_shares=${m.minShares}`);
+      }
+    }
+
+    console.log('─'.repeat(60) + '\n');
+    this.pointsLastReportAt = now;
+
+    // 清理过期数据
+    pointsManager.clearExpired(24 * 60 * 60 * 1000); // 24小时
+  }
+
   printStatus(): void {
     console.log('\n📊 Market Maker Status:');
     console.log('─'.repeat(80));
@@ -5210,6 +6254,12 @@ export class MarketMaker {
     console.log(`Open Orders: ${this.openOrders.size}`);
     console.log(`Positions: ${this.positions.size}`);
     console.log(`Session PnL: ${this.sessionPnL.toFixed(2)}`);
+
+    // 积分效率报告
+    const pointsStats = pointsManager.getStats();
+    if (pointsStats.totalMarkets > 0) {
+      console.log(`Points Efficiency: ${pointsStats.efficiency}% (${pointsStats.pointsActiveMarkets}/${pointsStats.totalMarkets} markets)`);
+    }
 
     if (this.positions.size > 0) {
       console.log('\nPositions:');
@@ -5221,5 +6271,1112 @@ export class MarketMaker {
     }
 
     console.log('─'.repeat(80) + '\n');
+
+    // 定期详细积分报告
+    this.reportPointsEfficiency();
+  }
+
+  // ===== Phase 1: 增强模块辅助方法 =====
+
+  /**
+   * 获取或创建波动率估算器
+   */
+  private getOrCreateVolatilityEstimator(tokenId: string): VolatilityEstimator {
+    if (!this.perMarketVolatility.has(tokenId)) {
+      this.perMarketVolatility.set(tokenId, new VolatilityEstimator());
+    }
+    return this.perMarketVolatility.get(tokenId)!;
+  }
+
+  /**
+   * 获取或创建订单流估算器
+   */
+  private getOrCreateOrderFlowEstimator(tokenId: string): OrderFlowEstimator {
+    if (!this.perMarketOrderFlow.has(tokenId)) {
+      this.perMarketOrderFlow.set(tokenId, new OrderFlowEstimator());
+    }
+    return this.perMarketOrderFlow.get(tokenId)!;
+  }
+
+  /**
+   * 获取或创建均值回归预测器
+   */
+  private getOrCreateReversionPredictor(tokenId: string): MeanReversionPredictor {
+    if (!this.perMarketReversion.has(tokenId)) {
+      this.perMarketReversion.set(tokenId, new MeanReversionPredictor());
+    }
+    return this.perMarketReversion.get(tokenId)!;
+  }
+
+  /**
+   * 更新波动率和订单流数据
+   */
+  private updateAdvancedMetrics(tokenId: string, orderbook: Orderbook): void {
+    // 更新波动率
+    if (orderbook.mid_price && orderbook.mid_price > 0) {
+      const volEstimator = this.getOrCreateVolatilityEstimator(tokenId);
+      volEstimator.updatePrice(orderbook.mid_price, Date.now());
+    }
+
+    // 库存数据在 handleFill 中更新
+  }
+
+  /**
+   * 记录订单流事件
+   */
+  private recordOrderFlow(tokenId: string, side: 'BUY' | 'SELL', amount: number, price: number): void {
+    const flowEstimator = this.getOrCreateOrderFlowEstimator(tokenId);
+    flowEstimator.recordOrder(side, amount, price, Date.now());
+  }
+
+  // ===== 两阶段循环对冲策略（V5）辅助方法 =====
+
+  /**
+   * 第一阶段：挂 Buy 单（建立对冲库存）
+   */
+  private async executeTwoPhaseBuySide(market: Market, orderbook: Orderbook, position: Position): Promise<void> {
+    // CRITICAL FIX #3: 使用 YES/NO 各自的 token_id
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+    if (!yesTokenId || !noTokenId) {
+      console.warn('⚠️  Cannot get YES/NO token_ids, skipping Phase 1');
+      return;
+    }
+
+    // 分别获取 YES 和 NO 的订单簿
+    const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
+    const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
+
+    if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
+      console.warn('🛑 Phase 1 skipped: unsafe YES/NO spread');
+      await this.handlePredictUnsafePair(yesTokenId, noTokenId);
+      return;
+    }
+
+    const yesPrice = yesOrderbook.best_bid || 0;
+    const noPrice = noOrderbook.best_bid || (1 - yesPrice);
+
+    // 获取两阶段策略建议的挂单价格
+    const prices = this.twoPhaseStrategy.suggestOrderPrices(yesPrice, noPrice, TwoPhaseState.EMPTY);
+
+    if (!prices.yesBid || !prices.noBid) {
+      console.log('⚠️  Could not calculate buy prices');
+      return;
+    }
+
+    console.log(`💡 Phase 1 BUY prices: YES=$${prices.yesBid.toFixed(4)} NO=$${prices.noBid.toFixed(4)}`);
+
+    // 取消所有现有订单（使用原始 market.token_id）
+    await this.cancelOrdersForMarket(market.token_id);
+
+    // 计算订单大小
+    const orderSize = Math.max(10, Math.floor(this.config.orderSize || 25));
+
+    // CRITICAL FIX #3: 使用各自的市场对象挂单
+    const yesMarket = { ...market, token_id: yesTokenId };
+    const noMarket = { ...market, token_id: noTokenId };
+
+    // 挂 YES Buy 单
+    if (prices.yesBid > 0) {
+      await this.placeLimitOrder(yesMarket, 'BUY', prices.yesBid, orderSize, 0.02);
+    }
+
+    // 挂 NO Buy 单
+    if (prices.noBid > 0) {
+      await this.placeLimitOrder(noMarket, 'BUY', prices.noBid, orderSize, 0.02);
+    }
+
+    console.log(`✅ Phase 1: Placed BUY orders (establishing hedge)`);
+  }
+
+  /**
+   * 第二阶段：挂 Sell 单（赚取积分并平仓）
+   */
+  private async executeTwoPhaseSellSide(market: Market, orderbook: Orderbook, position: Position): Promise<void> {
+    // CRITICAL FIX #3: 使用 YES/NO 各自的 token_id
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+    if (!yesTokenId || !noTokenId) {
+      console.warn('⚠️  Cannot get YES/NO token_ids, skipping Phase 2');
+      return;
+    }
+
+    // 分别获取 YES 和 NO 的订单簿
+    const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
+    const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
+
+    if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
+      console.warn('🛑 Phase 2 skipped: unsafe YES/NO spread');
+      await this.handlePredictUnsafePair(yesTokenId, noTokenId);
+      return;
+    }
+
+    const yesPrice = yesOrderbook.best_bid || 0;
+    const noPrice = noOrderbook.best_bid || (1 - yesPrice);
+
+    // 获取两阶段策略建议的挂单价格
+    const prices = this.twoPhaseStrategy.suggestOrderPrices(yesPrice, noPrice, TwoPhaseState.HEDGED);
+
+    if (!prices.yesAsk || !prices.noAsk) {
+      console.log('⚠️  Could not calculate sell prices');
+      return;
+    }
+
+    console.log(`💡 Phase 2 SELL prices: YES=$${prices.yesAsk.toFixed(4)} NO=$${prices.noAsk.toFixed(4)}`);
+
+    // 取消所有现有订单（使用原始 market.token_id）
+    await this.cancelOrdersForMarket(market.token_id);
+
+    // 计算订单大小（基于当前持仓）
+    const orderSize = Math.max(10, Math.min(
+      Math.floor(position.yes_amount || 10),
+      Math.floor(position.no_amount || 10)
+    ));
+
+    // CRITICAL FIX #3: 使用各自的市场对象挂单
+    const yesMarket = { ...market, token_id: yesTokenId };
+    const noMarket = { ...market, token_id: noTokenId };
+
+    // 挂 YES Sell 单
+    if (prices.yesAsk > 0 && position.yes_amount > 0) {
+      await this.placeLimitOrder(yesMarket, 'SELL', prices.yesAsk, orderSize, 0.02);
+    }
+
+    // 挂 NO Sell 单
+    if (prices.noAsk > 0 && position.no_amount > 0) {
+      await this.placeLimitOrder(noMarket, 'SELL', prices.noAsk, orderSize, 0.02);
+    }
+
+    console.log(`✅ Phase 2: Placed SELL orders (earning points)`);
+  }
+
+  /**
+   * 处理两阶段策略的订单成交
+   */
+  async handleTwoPhaseOrderFill(
+    market: Market,
+    side: 'BUY' | 'SELL',
+    token: 'YES' | 'NO',
+    filledShares: number
+  ): Promise<void> {
+    const currentState = this.perMarketTwoPhaseState.get(market.token_id) || TwoPhaseState.EMPTY;
+
+    // CRITICAL FIX #2a: 使用聚合的持仓（YES + NO token_id）
+    const position = this.getAggregatedPosition(market);
+
+    console.log(`📝 Two-phase order fill: ${token} ${side} ${filledShares} shares (Phase: ${currentState})`);
+
+    const action = this.twoPhaseStrategy.handleOrderFill(
+      side,
+      token,
+      filledShares,
+      position.yes_amount,
+      position.no_amount,
+      currentState
+    );
+
+    if (!action.needsAction || action.type === 'NONE') {
+      return;
+    }
+
+    console.log(`🎯 Two-phase action: ${action.type} ${action.shares} shares - ${action.reason}`);
+
+    // 获取 YES/NO token_id 用于对冲操作
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    // HIGH FIX #7: 添加 targetTokenId 空值检查
+    if (action.type === 'BUY_YES' && !yesTokenId) {
+      console.error('❌ Cannot execute BUY_YES: yesTokenId is undefined');
+      return;
+    }
+    if (action.type === 'BUY_NO' && !noTokenId) {
+      console.error('❌ Cannot execute BUY_NO: noTokenId is undefined');
+      return;
+    }
+    if (action.type === 'SELL_YES' && !yesTokenId) {
+      console.error('❌ Cannot execute SELL_YES: yesTokenId is undefined');
+      return;
+    }
+    if (action.type === 'SELL_NO' && !noTokenId) {
+      console.error('❌ Cannot execute SELL_NO: noTokenId is undefined');
+      return;
+    }
+
+    // 执行对冲或平仓操作
+    switch (action.type) {
+      case 'BUY_YES':
+        // Phase 1: NO Buy 单被成交 → 立即买入 YES 建立对冲
+        // CRITICAL FIX #2b: 传递 targetTokenId (YES)
+        await this.executeMarketBuy(market, 'YES', action.shares, yesTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.HEDGED);
+        console.log(`✅ Phase 1: Established 1:1 hedge (YES + NO)`);
+        break;
+
+      case 'BUY_NO':
+        // Phase 1: YES Buy 单被成交 → 立即买入 NO 建立对冲
+        // CRITICAL FIX #2b: 传递 targetTokenId (NO)
+        await this.executeMarketBuy(market, 'NO', action.shares, noTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.HEDGED);
+        console.log(`✅ Phase 1: Established 1:1 hedge (YES + NO)`);
+        break;
+
+      case 'SELL_YES':
+        // Phase 2: NO Sell 单被成交 → 立即卖出 YES 平仓
+        // CRITICAL FIX #2b: 传递 targetTokenId (YES)
+        await this.executeMarketSell(market, 'YES', action.shares, yesTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.EMPTY);
+        console.log(`✅ Phase 2: Flattened position, back to 0`);
+        break;
+
+      case 'SELL_NO':
+        // Phase 2: YES Sell 单被成交 → 立即卖出 NO 平仓
+        // CRITICAL FIX #2b: 传递 targetTokenId (NO)
+        await this.executeMarketSell(market, 'NO', action.shares, noTokenId);
+        this.perMarketTwoPhaseState.set(market.token_id, TwoPhaseState.EMPTY);
+        console.log(`✅ Phase 2: Flattened position, back to 0`);
+        break;
+    }
+  }
+
+  /**
+   * MEDIUM FIX #5: 提取市价订单执行的公共逻辑
+   */
+  private async executeMarketOrder(
+    market: Market,
+    side: 'BUY' | 'SELL',
+    token: 'YES' | 'NO',
+    shares: number,
+    targetTokenId?: string
+  ): Promise<void> {
+    if (!this.orderManager) {
+      return;
+    }
+
+    try {
+      const actualTokenId = targetTokenId || market.token_id;
+      const actualMarket = targetTokenId ? { ...market, token_id: actualTokenId } : market;
+
+      const orderbook = await this.api.getOrderbook(actualTokenId);
+      const payload = await this.orderManager.buildMarketOrderPayload({
+        market: actualMarket,
+        side,
+        shares,
+        orderbook,
+        slippageBps: String(this.config.unifiedMarketMakerHedgeSlippageBps || MARKET_MAKER_CONSTANTS.DEFAULT_HEDGE_SLIPPAGE_BPS),
+      });
+      await this.api.createOrder(payload);
+      const emoji = side === 'BUY' ? '🛡️' : '🔄';
+      console.log(`${emoji} Market ${side}: ${shares} ${token} @ ${actualTokenId.slice(0, 16)}...`);
+    } catch (error) {
+      console.error(`Error executing market ${side.toLowerCase()}:`, error);
+      throw error; // 重新抛出以便上层处理
+    }
+  }
+
+  /**
+   * 执行市价买入（使用公共逻辑）
+   */
+  private async executeMarketBuy(market: Market, token: 'YES' | 'NO', shares: number, targetTokenId?: string): Promise<void> {
+    return this.executeMarketOrder(market, 'BUY', token, shares, targetTokenId);
+  }
+
+  /**
+   * 执行市价卖出（使用公共逻辑）
+   */
+  private async executeMarketSell(market: Market, token: 'YES' | 'NO', shares: number, targetTokenId?: string): Promise<void> {
+    return this.executeMarketOrder(market, 'SELL', token, shares, targetTokenId);
+  }
+
+  // ===== 统一做市商策略辅助方法 =====
+
+  /**
+   * 从市场对象的 outcomes 数组中获取 YES 和 NO 的 token_id
+   */
+  private getYesNoTokenIds(market: Market): { yesTokenId?: string; noTokenId?: string } {
+    if (!market.outcomes || market.outcomes.length === 0) {
+      console.warn(`⚠️  市场 ${market.token_id.slice(0, 8)}... 没有 outcomes 数据`);
+      return {};
+    }
+
+    // HIGH FIX #4: 检查多结果市场
+    if (market.outcomes.length > 2) {
+      console.warn(`⚠️  市场 ${market.token_id.slice(0, 8)}... 有 ${market.outcomes.length} 个结果（非二元市场）`);
+      console.warn(`   只会处理 indexSet 1 和 indexSet 2 的结果`);
+    }
+
+    let yesTokenId: string | undefined;
+    let noTokenId: string | undefined;
+
+    for (const outcome of market.outcomes) {
+      // MEDIUM FIX #12: 验证 outcome 数据完整性
+      if (!outcome.onChainId) {
+        console.warn(`⚠️  Outcome ${outcome.name} 缺少 onChainId`);
+        continue;
+      }
+
+      const name = outcome.name.toLowerCase();
+      const isYes = name === 'yes' || name === 'up' || name === 'true' || outcome.indexSet === 1;
+      const isNo = name === 'no' || name === 'down' || name === 'false' || outcome.indexSet === 2;
+
+      if (isYes) {
+        yesTokenId = outcome.onChainId;
+      } else if (isNo) {
+        noTokenId = outcome.onChainId;
+      }
+    }
+
+    return { yesTokenId, noTokenId };
+  }
+
+  /**
+   * 获取聚合的持仓（YES 和 NO token_id 的持仓合并）
+   * 用于统一做市商策略和两阶段策略
+   */
+  private getAggregatedPosition(market: Market): Position {
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    if (!yesTokenId || !noTokenId) {
+      // Fallback: 使用 market.token_id
+      return this.positions.get(market.token_id) || {
+        token_id: market.token_id,
+        question: market.question || '',
+        yes_amount: 0,
+        no_amount: 0,
+        total_value: 0,
+        avg_entry_price: 0,
+        current_price: 0,
+        pnl: 0,
+      };
+    }
+
+    // 聚合 YES 和 NO token 的持仓
+    const yesPosition = this.positions.get(yesTokenId) || {
+      yes_amount: 0,
+      no_amount: 0,
+      total_value: 0,
+      pnl: 0,
+    };
+    const noPosition = this.positions.get(noTokenId) || {
+      yes_amount: 0,
+      no_amount: 0,
+      total_value: 0,
+      pnl: 0,
+    };
+
+    return {
+      token_id: market.token_id,
+      question: market.question || '',
+      yes_amount: yesPosition.yes_amount + noPosition.yes_amount,
+      no_amount: yesPosition.no_amount + noPosition.no_amount,
+      total_value: yesPosition.total_value + noPosition.total_value,
+      avg_entry_price: 0,
+      current_price: 0,
+      pnl: (yesPosition.pnl || 0) + (noPosition.pnl || 0),
+    };
+  }
+
+  /**
+   * 查找同一市场的 YES 和 NO 市场对象（已废弃，使用 getYesNoTokenIds）
+   * @deprecated 使用 getYesNoTokenIds 直接从 outcomes 数组获取 token_id
+   */
+  private findYesNoMarkets(market: Market): { yes?: Market; no?: Market } {
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    const yesMarket = yesTokenId ? { ...market, token_id: yesTokenId } : undefined;
+    const noMarket = noTokenId ? { ...market, token_id: noTokenId } : undefined;
+
+    return { yes: yesMarket, no: noMarket };
+  }
+
+  /**
+   * 推断市场的 outcome (YES 或 NO)（已废弃，使用 outcomes 数组）
+   * @deprecated 使用 market.outcomes 数组直接获取
+   */
+  private inferOutcome(market: Market): 'YES' | 'NO' | null {
+    // 首先尝试从 outcomes 数组中获取
+    if (market.outcomes && market.outcomes.length > 0) {
+      const yesOutcome = market.outcomes.find(o =>
+        o.name.toLowerCase() === 'yes' ||
+        o.name.toLowerCase() === 'up' ||
+        o.name.toLowerCase() === 'true' ||
+        o.indexSet === 1
+      );
+      if (yesOutcome && yesOutcome.onChainId === market.token_id) {
+        return 'YES';
+      }
+
+      const noOutcome = market.outcomes.find(o =>
+        o.name.toLowerCase() === 'no' ||
+        o.name.toLowerCase() === 'down' ||
+        o.name.toLowerCase() === 'false' ||
+        o.indexSet === 2
+      );
+      if (noOutcome && noOutcome.onChainId === market.token_id) {
+        return 'NO';
+      }
+    }
+
+    // Fallback：使用旧的推断逻辑
+    const rawOutcome = String(market.outcome || '').toUpperCase();
+    if (rawOutcome.includes('YES')) {
+      return 'YES';
+    }
+    if (rawOutcome.includes('NO')) {
+      return 'NO';
+    }
+
+    const q = market.question.toLowerCase();
+    if (/\b(yes|true)\b/.test(q)) {
+      return 'YES';
+    }
+    if (/\b(no|false)\b/.test(q)) {
+      return 'NO';
+    }
+
+    return null;
+  }
+
+  /**
+   * 执行统一策略的挂单逻辑
+   */
+  private async executeUnifiedStrategy(
+    market: Market,
+    orderbook: Orderbook,
+    position: Position,
+    analysis: any
+  ): Promise<void> {
+    // 修复：获取 YES 和 NO 的 token_id
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    if (!yesTokenId || !noTokenId) {
+      console.warn(`⚠️  无法获取 YES/NO token_id，跳过统一策略`);
+      return;
+    }
+
+    console.log(`🔑 使用不同的 token_id:`);
+    console.log(`   YES: ${yesTokenId.slice(0, 16)}...`);
+    console.log(`   NO:  ${noTokenId.slice(0, 16)}...`);
+
+    // MEDIUM FIX #13: 使用 getAggregatedPosition 方法（移除重复逻辑）
+    const unifiedPosition = this.getAggregatedPosition(market);
+
+    console.log(`📊 聚合持仓: YES=${unifiedPosition.yes_amount}, NO=${unifiedPosition.no_amount}`);
+
+    // 修复 2: 分别获取 YES 和 NO 的订单簿
+    const yesOrderbook = yesTokenId ? await this.api.getOrderbook(yesTokenId) : orderbook;
+    const noOrderbook = noTokenId ? await this.api.getOrderbook(noTokenId) : orderbook;
+
+    if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
+      console.warn('🛑 统一策略跳过：YES/NO 盘口价差异常');
+      await this.handlePredictUnsafePair(yesTokenId, noTokenId);
+      return;
+    }
+
+    const yesPrice = yesOrderbook.best_bid || 0;
+    const noPrice = noOrderbook.best_bid || (1 - yesPrice);
+
+    console.log(`📊 实际价格: YES=$${yesPrice.toFixed(4)} NO=$${noPrice.toFixed(4)}`);
+
+    // 获取建议的挂单价格（动态偏移模式）
+    const prices = this.unifiedMarketMakerStrategy.suggestOrderPrices(
+      yesPrice,
+      noPrice,
+      yesOrderbook,
+      noOrderbook
+    );
+
+    console.log(`💡 挂单价格（统一策略 - ${prices.source === 'DYNAMIC_OFFSET' ? '动态偏移' : '固定价差'}）:`);
+    console.log(`   YES Buy: $${prices.yesBid.toFixed(4)} | YES Sell: $${prices.yesAsk.toFixed(4)}`);
+    console.log(`   NO Buy: $${prices.noBid.toFixed(4)} | NO Sell: $${prices.noAsk.toFixed(4)}`);
+
+    // 计算订单大小
+    const buyOrderSize = analysis.buyOrderSize;
+    const sellOrderSize = analysis.sellOrderSize;
+
+    // 构建带有正确 token_id 的 market 对象
+    const yesMarket = { ...market, token_id: yesTokenId };
+    const noMarket = { ...market, token_id: noTokenId };
+
+    // 取消所有现有订单（取消两个 token_id 的订单）
+    await this.cancelOrdersForMarket(yesTokenId);
+    await this.cancelOrdersForMarket(noTokenId);
+
+    let placedYesBid = false;
+    let placedNoBid = false;
+    let placedYesAsk = false;
+    let placedNoAsk = false;
+
+    // 挂 Buy 单（如果有）
+    if (analysis.shouldPlaceBuyOrders && buyOrderSize > 0) {
+      console.log(`📊 挂 Buy 单（赚取买入端积分）`);
+
+      // 使用 YES 市场对象挂 YES 订单
+      if (prices.yesBid > 0) {
+        placedYesBid = await this.placeLimitOrder(yesMarket, 'BUY', prices.yesBid, buyOrderSize, 0.02);
+      }
+
+      // 使用 NO 市场对象挂 NO 订单
+      if (prices.noBid > 0) {
+        placedNoBid = await this.placeLimitOrder(noMarket, 'BUY', prices.noBid, buyOrderSize, 0.02);
+      }
+    }
+
+    // 挂 Sell 单（如果有）
+    if (analysis.shouldPlaceSellOrders && sellOrderSize > 0) {
+      console.log(`📊 挂 Sell 单（赚取卖出端积分，${Math.min(unifiedPosition.yes_amount, unifiedPosition.no_amount)} 组已对冲）`);
+
+      // 使用 YES 市场对象挂 YES Sell 单
+      if (prices.yesAsk > 0 && unifiedPosition.yes_amount > 0) {
+        placedYesAsk = await this.placeLimitOrder(yesMarket, 'SELL', prices.yesAsk, sellOrderSize, 0.02);
+      }
+
+      // 使用 NO 市场对象挂 NO Sell 单
+      if (prices.noAsk > 0 && unifiedPosition.no_amount > 0) {
+        placedNoAsk = await this.placeLimitOrder(noMarket, 'SELL', prices.noAsk, sellOrderSize, 0.02);
+      }
+    }
+
+    console.log(`✅ 统一策略挂单完成（使用 YES 和 NO 各自的 token_id）`);
+
+    // 修复 4: 记录挂单价格到两个 key（用于监控是否成为第一档）
+    const priceData = {
+      yesBid: placedYesBid ? prices.yesBid : 0,
+      yesAsk: placedYesAsk ? prices.yesAsk : 0,
+      noBid: placedNoBid ? prices.noBid : 0,
+      noAsk: placedNoAsk ? prices.noAsk : 0,
+      timestamp: Date.now(),
+    };
+
+    this.lastPlacedPrices.set(yesTokenId, priceData);
+    this.lastPlacedPrices.set(noTokenId, priceData);
+  }
+
+  /**
+   * 监控订单是否成为第一档（动态偏移模式）
+   * 如果我们的订单成为第一档，立即撤单并重新挂单
+   */
+  private async monitorTierOneStatus(
+    market: Market,
+    orderbook: Orderbook
+  ): Promise<boolean> {
+    // 检查是否启用监控
+    if (!this.config.unifiedMarketMakerMonitorTierOne) {
+      return false;
+    }
+
+    // 检查是否使用统一策略
+    if (!this.unifiedMarketMakerStrategy.isEnabled()) {
+      return false;
+    }
+
+    // CRITICAL FIX #3: 使用 yesTokenId 查询价格（因为价格是用 yesTokenId 存储的）
+    const { yesTokenId } = this.getYesNoTokenIds(market);
+    if (!yesTokenId) {
+      return false;
+    }
+
+    const lastPrices = this.lastPlacedPrices.get(yesTokenId);
+
+    if (!lastPrices) {
+      return false;
+    }
+
+    // 检查时间戳（避免频繁检查，最多每2秒检查一次）
+    const timeSinceLastPlace = Date.now() - lastPrices.timestamp;
+    if (timeSinceLastPlace < 2000) {
+      return false;
+    }
+
+    let needsReprice = false;
+    const reasons: string[] = [];
+
+    // 获取订单簿第一档价格（YES 的价格）
+    const yesBestBid = orderbook.best_bid || 0;
+    const yesBestAsk = orderbook.best_ask || 0;
+
+    // 计算 NO 的第一档价格（YES + NO = 1）
+    // NO 的买价 = 1 - YES 的卖价
+    // NO 的卖价 = 1 - YES 的买价
+    const noBestBid = 1 - yesBestAsk;
+    const noBestAsk = 1 - yesBestBid;
+
+    // 检查 YES 订单是否成为第一档
+    if (lastPrices.yesBid > 0 && lastPrices.yesBid >= yesBestBid * 0.999) {
+      needsReprice = true;
+      reasons.push(`YES Buy $${lastPrices.yesBid.toFixed(4)} >= YES 第一档 $${yesBestBid.toFixed(4)}`);
+    }
+
+    if (lastPrices.yesAsk > 0 && lastPrices.yesAsk <= yesBestAsk * 1.001) {
+      needsReprice = true;
+      reasons.push(`YES Sell $${lastPrices.yesAsk.toFixed(4)} <= YES 第一档 $${yesBestAsk.toFixed(4)}`);
+    }
+
+    // 检查 NO 订单是否成为第一档
+    if (lastPrices.noBid > 0 && lastPrices.noBid >= noBestBid * 0.999) {
+      needsReprice = true;
+      reasons.push(`NO Buy $${lastPrices.noBid.toFixed(4)} >= NO 第一档 $${noBestBid.toFixed(4)}`);
+    }
+
+    if (lastPrices.noAsk > 0 && lastPrices.noAsk <= noBestAsk * 1.001) {
+      needsReprice = true;
+      reasons.push(`NO Sell $${lastPrices.noAsk.toFixed(4)} <= NO 第一档 $${noBestAsk.toFixed(4)}`);
+    }
+
+    if (needsReprice) {
+      console.log(`⚠️  检测到订单成为第一档，需要重新挂单：`);
+      for (const reason of reasons) {
+        console.log(`   - ${reason}`);
+      }
+
+      // 修复 3: 获取聚合的 position 并重新挂单
+      const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+      const yesPosition = this.positions.get(yesTokenId || '') || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+      const noPosition = this.positions.get(noTokenId || '') || { yes_amount: 0, no_amount: 0, total_value: 0, pnl: 0 };
+
+      const unifiedPosition: Position = {
+        token_id: market.token_id,
+        question: market.question || '',
+        yes_amount: yesPosition.yes_amount + noPosition.yes_amount,
+        no_amount: yesPosition.no_amount + noPosition.no_amount,
+        total_value: yesPosition.total_value + noPosition.total_value,
+        avg_entry_price: 0,
+        current_price: 0,
+        pnl: yesPosition.pnl + noPosition.pnl,
+      };
+
+      const bestBid = yesBestBid || 0;
+      const analysis = this.unifiedMarketMakerStrategy.analyze(market, unifiedPosition, bestBid, 1 - bestBid);
+
+      await this.executeUnifiedStrategy(market, orderbook, unifiedPosition, analysis);
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 处理统一策略的订单成交
+   */
+  async handleUnifiedOrderFill(
+    market: Market,
+    side: 'BUY' | 'SELL',
+    token: 'YES' | 'NO',
+    filledShares: number
+  ): Promise<void> {
+    // MEDIUM FIX #13: 使用 getAggregatedPosition 方法（移除重复逻辑）
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    if (!yesTokenId || !noTokenId) {
+      console.warn(`⚠️  无法获取 YES/NO token_id，跳过订单成交处理`);
+      return;
+    }
+
+    const unifiedPosition = this.getAggregatedPosition(market);
+
+    const action = this.unifiedMarketMakerStrategy.handleOrderFill(
+      market.token_id,
+      side,
+      token,
+      filledShares,
+      unifiedPosition.yes_amount,
+      unifiedPosition.no_amount
+    );
+
+    if (!action.needsAction || action.type === 'NONE') {
+      return;
+    }
+
+    console.log(`🎯 统一策略操作: ${action.type} ${action.shares} shares`);
+    console.log(`   原因: ${action.reason}`);
+    console.log(`   优先级: ${action.priority}`);
+
+    // 获取目标 token_id
+    const targetTokenId = token === 'YES' ? yesTokenId : noTokenId;
+
+    // 执行对冲操作，使用正确的 token_id
+    switch (action.type) {
+      case 'BUY_YES':
+        await this.executeMarketBuy(market, 'YES', action.shares, yesTokenId);
+        console.log(`✅ 异步对冲完成: 买入 ${action.shares} YES @ ${yesTokenId.slice(0, 16)}...`);
+        break;
+
+      case 'BUY_NO':
+        await this.executeMarketBuy(market, 'NO', action.shares, noTokenId);
+        console.log(`✅ 异步对冲完成: 买入 ${action.shares} NO @ ${noTokenId.slice(0, 16)}...`);
+        break;
+
+      case 'SELL_YES':
+        await this.executeMarketSell(market, 'YES', action.shares, yesTokenId);
+        console.log(`✅ 平仓完成: 卖出 ${action.shares} YES @ ${yesTokenId.slice(0, 16)}...`);
+        break;
+
+      case 'SELL_NO':
+        await this.executeMarketSell(market, 'NO', action.shares, noTokenId);
+        console.log(`✅ 平仓完成: 卖出 ${action.shares} NO @ ${noTokenId.slice(0, 16)}...`);
+        break;
+    }
+  }
+
+  /**
+   * 获取增强的库存状态
+   */
+  private getEnhancedInventoryState(tokenId: string): InventoryState {
+    return this.perMarketInventoryState.get(tokenId) ?? InventoryState.SAFE;
+  }
+
+  /**
+   * HIGH FIX #5: 清理过期的状态（防止内存泄漏）
+   * 当市场关闭或不再活跃时调用
+   */
+  private cleanupStaleState(tokenId: string): void {
+    // 清理所有相关的 Map 状态
+    const mapsToClean: Map<unknown, unknown>[] = [
+      this.lastPrices,
+      this.lastPriceAt,
+      this.lastBestBid,
+      this.lastBestAsk,
+      this.lastBestBidSize,
+      this.lastBestAskSize,
+      this.lastBookSpreadDeltaBps,
+      this.protectiveUntil,
+      this.volatilityEma,
+      this.depthEma,
+      this.totalDepthEma,
+      this.depthTrend,
+      this.lastDepth,
+      this.lastDepthSpeedBps,
+      this.lastBidDepthSpeedBps,
+      this.lastAskDepthSpeedBps,
+      this.lastImbalance,
+      this.lastActionAt,
+      this.actionBurst,
+      this.actionLockUntil,
+      this.cooldownUntil,
+      this.pauseUntil,
+      this.lastHedgeAt,
+      this.lastIcebergAt,
+      this.lastFillAt,
+      this.lastProfile,
+      this.lastProfileAt,
+      this.icebergPenalty,
+      this.nearTouchHoldUntil,
+      this.repriceHoldUntil,
+      this.cancelHoldUntil,
+      this.sizePenalty,
+      this.recheckCooldownUntil,
+      this.fillPressure,
+      this.cancelBoost,
+      this.nearTouchPenalty,
+      this.fillPenalty,
+      this.layerPanicUntil,
+      this.layerRetreatUntil,
+      this.layerRestoreAt,
+      this.layerRestoreStartAt,
+      this.layerRestoreExitPending,
+      this.layerRestoreExitRampStartAt,
+      this.layerRestoreExitRampUntil,
+      this.safeModeExitUntil,
+      this.mmMetrics,
+      this.pointsOrderbookCache,
+      this.perMarketVolatility,
+      this.perMarketOrderFlow,
+      this.perMarketReversion,
+      this.perMarketInventoryState,
+      this.lastPlacedPrices,
+      this.perMarketTwoPhaseState,
+      this.wsEmergencyLast,
+      this.riskThrottleState,
+      this.nearTouchBurst,
+      this.fillBurst,
+      this.cancelBurst,
+      this.marketByToken,
+    ];
+
+    for (const map of mapsToClean) {
+      map.delete(tokenId);
+    }
+
+    // 清理 lastNetShares (使用 condition_id 作为 key)
+    const market = this.marketByToken.get(tokenId);
+    if (market?.condition_id) {
+      this.lastNetShares.delete(market.condition_id);
+    }
+
+    console.log(`🧹 已清理市场 ${tokenId.slice(0, 16)}... 的所有状态`);
+  }
+
+  /**
+   * 批量清理多个市场的状态
+   */
+  cleanupStaleStateBatch(tokenIds: string[]): void {
+    for (const tokenId of tokenIds) {
+      this.cleanupStaleState(tokenId);
+    }
+  }
+
+  /**
+   * MEDIUM FIX #2: 结构化日志方法
+   */
+  private log(level: LogLevel, message: string, context?: LogContext): void {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+      timestamp,
+      level,
+      message,
+      ...context,
+    };
+
+    // 输出到控制台
+    if (level === LogLevel.ERROR) {
+      console.error(JSON.stringify(logEntry));
+    } else if (level === LogLevel.WARN) {
+      console.warn(JSON.stringify(logEntry));
+    } else {
+      console.log(JSON.stringify(logEntry));
+    }
+
+    // 存储到事件日志
+    this.mmEventLog.push({
+      ts: Date.now(),
+      type: level,
+      message,
+      ...context,
+    });
+  }
+
+  /**
+   * 便捷的日志方法
+   */
+  private logError(message: string, context?: LogContext): void {
+    this.log(LogLevel.ERROR, message, context);
+  }
+
+  private logWarn(message: string, context?: LogContext): void {
+    this.log(LogLevel.WARN, message, context);
+  }
+
+  private logInfo(message: string, context?: LogContext): void {
+    this.log(LogLevel.INFO, message, context);
+  }
+
+  private logDebug(message: string, context?: LogContext): void {
+    this.log(LogLevel.DEBUG, message, context);
+  }
+
+  /**
+   * MEDIUM FIX #8: VWAP 估算函数 - 从订单簿计算买入 VWAP（成本）
+   *
+   * @param levels - 订单簿层级（asks 或 bids）
+   * @param targetShares - 目标交易股数
+   * @param feeBps - 手续费（基点）
+   * @param _unused1 - 未使用的参数（保持兼容性）
+   * @param _unused2 - 未使用的参数（保持兼容性）
+   * @param slippageBps - 滑点（基点）
+   * @param maxLevels - 最大使用层级数
+   * @returns VWAP 计算结果
+   */
+  private estimateBuy(
+    levels: OrderLevel[],
+    targetShares: number,
+    feeBps: number = 0,
+    _unused1: unknown = undefined,
+    _unused2: unknown = undefined,
+    slippageBps: number = 0,
+    maxLevels: number = Infinity
+  ): { avgAllIn: number; totalShares: number } | null {
+    if (!levels || levels.length === 0 || targetShares <= 0) {
+      return null;
+    }
+
+    let totalShares = 0;
+    let totalCost = 0;
+    const feeMultiplier = 1 + feeBps / 10000;
+    const slippageMultiplier = 1 + slippageBps / 10000;
+
+    for (let i = 0; i < levels.length && i < maxLevels && totalShares < targetShares; i++) {
+      const level = levels[i];
+      const availableShares = Number(level.shares || 0);
+      const shares = Math.min(availableShares, targetShares - totalShares);
+
+      if (shares > 0) {
+        const price = Number(level.price || 0) * slippageMultiplier;
+        totalCost += shares * price * feeMultiplier;
+        totalShares += shares;
+      }
+    }
+
+    if (totalShares === 0) {
+      return null;
+    }
+
+    const avgAllIn = totalCost / totalShares;
+    return { avgAllIn, totalShares };
+  }
+
+  /**
+   * MEDIUM FIX #8: VWAP 估算函数 - 从订单簿计算卖出 VWAP（收入）
+   *
+   * @param levels - 订单簿层级（asks 或 bids）
+   * @param targetShares - 目标交易股数
+   * @param feeBps - 手续费（基点）
+   * @param _unused1 - 未使用的参数（保持兼容性）
+   * @param _unused2 - 未使用的参数（保持兼容性）
+   * @param slippageBps - 滑点（基点）
+   * @param maxLevels - 最大使用层级数
+   * @returns VWAP 计算结果
+   */
+  private estimateSell(
+    levels: OrderLevel[],
+    targetShares: number,
+    feeBps: number = 0,
+    _unused1: unknown = undefined,
+    _unused2: unknown = undefined,
+    slippageBps: number = 0,
+    maxLevels: number = Infinity
+  ): { avgAllIn: number; totalShares: number } | null {
+    if (!levels || levels.length === 0 || targetShares <= 0) {
+      return null;
+    }
+
+    let totalShares = 0;
+    let totalRevenue = 0;
+    const feeMultiplier = 1 - feeBps / 10000;
+    const slippageMultiplier = 1 - slippageBps / 10000;
+
+    for (let i = 0; i < levels.length && i < maxLevels && totalShares < targetShares; i++) {
+      const level = levels[i];
+      const availableShares = Number(level.shares || 0);
+      const shares = Math.min(availableShares, targetShares - totalShares);
+
+      if (shares > 0) {
+        const price = Number(level.price || 0) * slippageMultiplier;
+        totalRevenue += shares * price * feeMultiplier;
+        totalShares += shares;
+      }
+    }
+
+    if (totalShares === 0) {
+      return null;
+    }
+
+    const avgAllIn = totalRevenue / totalShares;
+    return { avgAllIn, totalShares };
+  }
+
+  /**
+   * MEDIUM FIX #6: API 响应验证辅助方法
+   */
+
+  /**
+   * 验证 Market 对象的基本完整性
+   */
+  private validateMarket(market: unknown): market is Market {
+    if (!market || typeof market !== 'object') {
+      this.logError('Invalid market: not an object', { rawMarket: market });
+      return false;
+    }
+
+    const m = market as Partial<Market>;
+    if (!m.token_id || typeof m.token_id !== 'string') {
+      this.logError('Invalid market: missing or invalid token_id', { rawMarket: market });
+      return false;
+    }
+
+    if (!m.question || typeof m.question !== 'string') {
+      this.logError('Invalid market: missing or invalid question', { token_id: m.token_id });
+      return false;
+    }
+
+    if (!m.outcomes || !Array.isArray(m.outcomes) || m.outcomes.length === 0) {
+      this.logError('Invalid market: missing or invalid outcomes', { token_id: m.token_id });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * 验证 Orderbook 对象的基本完整性
+   */
+  private validateOrderbook(orderbook: unknown, tokenId?: string): orderbook is Orderbook {
+    if (!orderbook || typeof orderbook !== 'object') {
+      this.logError('Invalid orderbook: not an object', { tokenId });
+      return false;
+    }
+
+    const ob = orderbook as Partial<Orderbook>;
+    if (!ob.bids || !Array.isArray(ob.bids)) {
+      this.logError('Invalid orderbook: missing or invalid bids', { tokenId });
+      return false;
+    }
+
+    if (!ob.asks || !Array.isArray(ob.asks)) {
+      this.logError('Invalid orderbook: missing or invalid asks', { tokenId });
+      return false;
+    }
+
+    const bestBid = ob.best_bid;
+    const bestAsk = ob.best_ask;
+    if ((bestBid !== undefined && typeof bestBid !== 'number') ||
+        (bestAsk !== undefined && typeof bestAsk !== 'number')) {
+      this.logError('Invalid orderbook: invalid best_bid or best_ask', { tokenId, bestBid, bestAsk });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * 验证 Position 对象的基本完整性
+   */
+  private validatePosition(position: unknown, tokenId?: string): position is Position {
+    if (!position || typeof position !== 'object') {
+      this.logError('Invalid position: not an object', { tokenId });
+      return false;
+    }
+
+    const p = position as Partial<Position>;
+    if (typeof p.yes_amount !== 'number' || p.yes_amount < 0) {
+      this.logError('Invalid position: invalid yes_amount', { tokenId, yes_amount: p.yes_amount });
+      return false;
+    }
+
+    if (typeof p.no_amount !== 'number' || p.no_amount < 0) {
+      this.logError('Invalid position: invalid no_amount', { tokenId, no_amount: p.no_amount });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * 安全的 API 调用包装器（带验证）
+   */
+  private async safeGetMarket(tokenId: string): Promise<Market | null> {
+    try {
+      const market = await this.api.getMarket(tokenId);
+      if (!this.validateMarket(market)) {
+        return null;
+      }
+      return market;
+    } catch (error) {
+      this.logError(`Failed to get market for ${tokenId}`, { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
+  }
+
+  /**
+   * 安全的订单簿获取（带验证）
+   */
+  private async safeGetOrderbook(tokenId: string): Promise<Orderbook | null> {
+    try {
+      const orderbook = await this.api.getOrderbook(tokenId);
+      if (!this.validateOrderbook(orderbook, tokenId)) {
+        return null;
+      }
+      return orderbook;
+    } catch (error) {
+      this.logError(`Failed to get orderbook for ${tokenId}`, { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
   }
 }

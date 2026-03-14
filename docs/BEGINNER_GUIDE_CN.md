@@ -1,4 +1,4 @@
-# 🚀 Predict.fun + Probable.markets 小白配置模板
+# 🚀 Predict.fun + Polymarket 小白配置模板
 
 > **小白友好设计** - 只需填写3个必填项，其余都是自动优化！
 
@@ -87,16 +87,15 @@ PREDICT_WS_ENABLED=true
 
 ---
 
-### 场景2：纯利润模式（Probable.markets利润最大化）
+### 场景2：纯利润模式（Polymarket利润最大化）
 
 ```bash
 # 专注于利润，没有积分限制
 
-PROBABLE_PRIVATE_KEY=你的私钥
 ENABLE_TRADING=false              # 先模拟测试！
 
 # 平台选择
-MM_VENUE=probable
+MM_VENUE=polymarket
 
 # 激进配置（0%手续费优势）
 ORDER_SIZE=100
@@ -110,7 +109,6 @@ MM_LAYER_STEP_BPS=20             # 层间距更窄
 MM_QUOTE_INTERVAL_MS=2000         # 更快更新
 
 # 实时数据
-PROBABLE_WS_ENABLED=true
 ```
 
 **预期收益**：高利润率，更多成交，但没有积分
@@ -126,7 +124,7 @@ PROBABLE_WS_ENABLED=true
 
 2. 资金分配：
    - 70%资金在Predict.fun获取积分
-   - 30%资金在Probable.markets获取利润
+   - 30%资金在Polymarket获取利润
 
 ---
 
@@ -199,11 +197,11 @@ PROBABLE_WS_ENABLED=true
 | 平台 | 手续费 | 影响 |
 |------|--------|------|
 | **Predict.fun** | 2% | 每笔交易扣除2% |
-| **Probable.markets** | 0% | 无手续费！ |
+| **Polymarket** | 0% | 无手续费！ |
 
 **策略建议**：
 - Predict.fun：用较宽价差（2%手续费需要补偿）
-- Probable.markets：用较窄价差（无手续费，可激进）
+- Polymarket：用较窄价差（无手续费，可激进）
 
 ---
 

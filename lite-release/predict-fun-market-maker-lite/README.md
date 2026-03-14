@@ -1,6 +1,6 @@
 # PredictFun Market Maker Lite
 
-简化版做市应用，集成统一做市策略，支持 [Predict.fun](https://predict.fun?ref=B0CE6) 和 [Probable](https://probable.markets/?ref=PNRBS9VL)。
+简化版做市应用，集成统一做市策略，支持 [Predict.fun](https://predict.fun?ref=B0CE6) 和 [Polymarket](https://polymarket.com)。
 
 ---
 
@@ -69,8 +69,8 @@ sudo apt-get install -f
 
 打开应用后：
 
-1. 先选择场馆：`Predict` 或 `Probable`
-2. 点击 `套用 Predict 模板` 或 `套用 Probable 模板`
+1. 先选择场馆：`Predict` 或 `Polymarket`
+2. 点击 `套用 Predict 模板` 或 `套用 Polymarket 模板`
 3. 点击 `重新读取`，确认模板已写入编辑区
 
 ### 3. 填写配置
@@ -85,10 +85,10 @@ PRIVATE_KEY=你的钱包私钥
 PREDICT_ACCOUNT_ADDRESS=你在 Predict 网站中看到的 deposit address（实盘必填）
 ```
 
-Probable 必填：
+Polymarket 必填：
 
 ```env
-PROBABLE_PRIVATE_KEY=你的Probable私钥
+POLYMARKET_PRIVATE_KEY=你的Polymarket私钥
 ```
 
 重要：
@@ -179,7 +179,7 @@ npm install
 ```bash
 npm run template:predict
 # 或
-npm run template:probable
+npm run template:polymarket
 ```
 
 这会生成或更新当前目录的 `.env`。
@@ -197,10 +197,10 @@ JWT_TOKEN=
 PREDICT_ACCOUNT_ADDRESS=你在 Predict 网站中看到的 deposit address
 ```
 
-Probable：
+Polymarket：
 
 ```env
-PROBABLE_PRIVATE_KEY=你的Probable私钥
+POLYMARKET_PRIVATE_KEY=你的Polymarket私钥
 ```
 
 ### 3. 获取 JWT（仅 Predict 实盘）
@@ -231,7 +231,7 @@ npm run market:recommend -- --venue predict --top 10 --scan 80 --env .env
 npm run market:apply -- --venue predict --top 10 --scan 80 --env .env
 ```
 
-Probable 仅把 `--venue predict` 改成 `--venue probable`。
+Polymarket 仅把 `--venue predict` 改成 `--venue polymarket`。
 
 ### 6. 启动做市
 
@@ -279,4 +279,4 @@ UNIFIED_STRATEGY_ENABLED=true
 ## 推荐链接
 
 - [Predict.fun](https://predict.fun?ref=B0CE6)
-- [Probable](https://probable.markets/?ref=PNRBS9VL)
+- [Polymarket](https://polymarket.com)

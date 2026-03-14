@@ -58,7 +58,7 @@ AUTO_CONFIRM=false                 # 自动确认订单
 ### 做市商配置
 ```bash
 # ==================== 做市商基础 ====================
-MM_VENUE=predict                   # 做市平台: predict | probable
+MM_VENUE=predict                   # 做市平台: predict | polymarket
 MM_REQUIRE_JWT=true                # 是否需要 JWT
 
 # 订单配置
@@ -86,7 +86,6 @@ CROSS_PLATFORM_ENABLED=false       # 跨平台套利（高级功能）
 PREDICT_WS_ENABLED=true            # ⭐ 推荐：使用 WebSocket
 POLYMARKET_WS_ENABLED=false
 OPINION_WS_ENABLED=false
-PROBABLE_WS_ENABLED=false
 ```
 
 ---

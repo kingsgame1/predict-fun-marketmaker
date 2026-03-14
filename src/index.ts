@@ -6,23 +6,28 @@
 import { Wallet } from 'ethers';
 import { loadConfig, printConfig } from './config.js';
 import { PredictAPI } from './api/client.js';
-import { ProbableAPI } from './api/probable-client.js';
+import { PolymarketAPI } from './api/polymarket-client.js';
 import { MarketSelector } from './market-selector.js';
 import { MarketMaker } from './market-maker.js';
 import { applyLiquidityRules } from './markets-config.js';
 import { PredictWebSocketFeed } from './external/predict-ws.js';
-import { ProbableWebSocketFeed } from './external/probable-ws.js';
-import { ProbableOrderManager } from './order-manager-probable.js';
+import { PolymarketWebSocketFeed } from './external/polymarket-ws.js';
+import { PolymarketOrderManager } from './order-manager-polymarket.js';
 import type { Market, Orderbook } from './types.js';
 
 function sortMarketsByLiquidityAndVolume(markets: Market[]): Market[] {
-  return [...markets].sort((a, b) => {
-    const liquidityDiff = Number(b.liquidity_24h || 0) - Number(a.liquidity_24h || 0);
-    if (liquidityDiff !== 0) return liquidityDiff;
-    const volumeDiff = Number(b.volume_24h || 0) - Number(a.volume_24h || 0);
-    if (volumeDiff !== 0) return volumeDiff;
-    return 0;
-  });
+  const scoreMarket = (market: Market): number => {
+    const liquidity = Math.log10(Number(market.liquidity_24h || 0) + 1) * 4;
+    const volume = Math.log10(Number(market.volume_24h || 0) + 1) * 2.5;
+    const rewardDaily = Number(market.polymarket_reward_daily_rate || 0);
+    const rewardMaxSpread = Number(market.polymarket_reward_max_spread || 0);
+    const rewardScore = market.polymarket_rewards_enabled
+      ? 6 + Math.log10(rewardDaily + 1) * 5 + Math.min(3, rewardMaxSpread * 60)
+      : 0;
+    return liquidity + volume + rewardScore;
+  };
+
+  return [...markets].sort((a, b) => scoreMarket(b) - scoreMarket(a));
 }
 
 async function populateOrderbooksWithConcurrency(
@@ -605,9 +610,9 @@ export class PredictMarketMakerBot {
   }
 }
 
-// Probable 功能已移除 - 依赖文件不存在
-export class ProbableMarketMakerBot {
-  private api: ProbableAPI;
+// Polymarket 做市
+export class PolymarketMarketMakerBot {
+  private api: PolymarketAPI;
   private marketSelector: MarketSelector;
   private marketMaker: MarketMaker;
   private config: any;
@@ -615,13 +620,13 @@ export class ProbableMarketMakerBot {
   private running = false;
   private selectedMarkets: Market[] = [];
   private marketByToken: Map<string, Market> = new Map();
-  private wsFeed?: ProbableWebSocketFeed;
+  private wsFeed?: PolymarketWebSocketFeed;
   private wsDirtyTokens: Set<string> = new Set();
   private wsDirtyUnsub?: () => void;
   private wsHealthScore = 100;
   private wsHealthTarget = 100;
   private wsHealthUpdatedAt = 0;
-  private warnedMissingJwt = false;
+  private warnedStatusSync = false;
 
   private getAccountAddressForQueries(): string {
     return this.wallet.address;
@@ -631,83 +636,89 @@ export class ProbableMarketMakerBot {
     this.config = loadConfig();
     printConfig(this.config);
 
-    this.wallet = new Wallet(this.config.probablePrivateKey || this.config.privateKey);
-    console.log(`🔐 Wallet: ${this.wallet.address}\n`);
+    this.wallet = new Wallet(this.config.polymarketPrivateKey || this.config.privateKey);
+    console.log('🔐 Wallet: ' + this.wallet.address + '\n');
 
-    this.api = new ProbableAPI({
-      marketApiUrl: this.config.probableMarketApiUrl || 'https://market-api.probable.markets',
-      orderbookApiUrl: this.config.probableOrderbookApiUrl || 'https://api.probable.markets/public/api/v1',
-      wsUrl: this.config.probableWsUrl || 'wss://ws.probable.markets/public/api/v1',
-      privateKey: this.config.probablePrivateKey || this.config.privateKey,
-      chainId: this.config.probableChainId || 56,
-      rpcUrl: this.config.probableRpcUrl,
-      maxMarkets: this.config.probableMaxMarkets || 30,
-      feeBps: this.config.probableFeeBps || 0,
+    this.api = new PolymarketAPI({
+      gammaUrl: this.config.polymarketGammaUrl || 'https://gamma-api.polymarket.com',
+      clobUrl: this.config.polymarketClobUrl || 'https://clob.polymarket.com',
+      privateKey: this.config.polymarketPrivateKey || this.config.privateKey,
+      chainId: this.config.polymarketChainId || 137,
+      maxMarkets: this.config.polymarketMaxMarkets || 60,
+      feeBps: this.config.polymarketFeeBps || 0,
+      apiKey: this.config.polymarketApiKey,
+      apiSecret: this.config.polymarketApiSecret,
+      apiPassphrase: this.config.polymarketApiPassphrase,
+      autoDeriveApiKey: this.config.polymarketAutoDeriveApiKey !== false,
     });
 
-    this.marketSelector = new MarketSelector(0, 0, 0.2, 0);
+    this.marketSelector = new MarketSelector(0, 0, 0.12, 0);
     this.marketMaker = new MarketMaker(this.api, this.config, async () => {
-      return new ProbableOrderManager({
-        orderbookApiUrl: this.config.probableOrderbookApiUrl || 'https://api.probable.markets/public/api/v1',
-        wsUrl: this.config.probableWsUrl || 'wss://ws.probable.markets/public/api/v1',
-        chainId: this.config.probableChainId || 56,
-        privateKey: this.config.probablePrivateKey || this.config.privateKey,
-        rpcUrl: this.config.probableRpcUrl,
+      return new PolymarketOrderManager({
+        clobUrl: this.config.polymarketClobUrl || 'https://clob.polymarket.com',
+        chainId: this.config.polymarketChainId || 137,
+        privateKey: this.config.polymarketPrivateKey || this.config.privateKey,
+        orderType: this.config.crossPlatformOrderType || 'GTC',
       });
     });
   }
 
   async initialize(): Promise<void> {
-    console.log('🚀 Initializing Probable Market Maker Bot...\n');
+    console.log('🚀 Initializing Polymarket Market Maker Bot...\n');
 
     const connected = await this.api.testConnection();
     if (!connected) {
-      throw new Error('Failed to connect to Probable API');
+      throw new Error('Failed to connect to Polymarket API');
     }
 
     await this.selectMarkets();
-
     await this.marketMaker.initialize();
     this.setupMarketWs();
 
-    if (this.config.jwtToken && this.config.mmRequireJwt !== false) {
-      await this.marketMaker.updateState(this.getAccountAddressForQueries());
-    } else if (!this.warnedMissingJwt) {
-      console.log('ℹ️  Probable 模式不需要 JWT，已跳过订单/仓位同步');
-      this.warnedMissingJwt = true;
+    if (!this.warnedStatusSync) {
+      console.log('ℹ️  Polymarket 模式使用链上订单，不依赖 Predict JWT，同步仅基于当前钱包地址');
+      this.warnedStatusSync = true;
     }
 
     console.log('✅ Initialization complete\n');
   }
 
   async selectMarkets(): Promise<void> {
-    console.log('🔍 Scanning markets (Probable)...\n');
+    console.log('🔍 Scanning markets (Polymarket)...\n');
 
     const allMarkets = await this.api.getMarkets();
-    console.log(`Found ${allMarkets.length} active tokens\n`);
+    console.log('Found ' + allMarkets.length + ' active outcome tokens\n');
 
-    const orderbooks = new Map<string, Orderbook>();
-    for (const market of allMarkets.slice(0, 50)) {
-      try {
-        const orderbook = await this.api.getOrderbook(market.token_id);
-        orderbooks.set(market.token_id, orderbook);
-        market.best_bid = orderbook.best_bid;
-        market.best_ask = orderbook.best_ask;
-        market.spread_pct = orderbook.spread_pct;
-        market.total_orders = (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
-      } catch (error) {
-        console.error(`Error fetching orderbook for ${market.token_id}:`, error);
+    const prioritized = new Map<string, Market>();
+    if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
+      for (const tokenId of this.config.marketTokenIds) {
+        const matched = allMarkets.find((market) => String(market.token_id) === String(tokenId));
+        if (matched) prioritized.set(matched.token_id, matched);
       }
     }
+    for (const market of sortMarketsByLiquidityAndVolume(allMarkets)) {
+      prioritized.set(market.token_id, market);
+    }
+
+    const candidates = Array.from(prioritized.values()).slice(0, Math.max(48, (this.config.marketTokenIds?.length || 0) * 12));
+    const orderbooks = await populateOrderbooksWithConcurrency(candidates, 4, async (tokenId) => this.api.getOrderbook(tokenId));
+    console.log('📘 Polymarket orderbooks fetched: ' + orderbooks.size + '/' + candidates.length);
 
     let scoredMarkets = this.marketSelector.selectMarkets(allMarkets, orderbooks);
+    if (scoredMarkets.length === 0 && orderbooks.size > 0) {
+      const relaxedSelector = new MarketSelector(0, 0, 0.12, 0);
+      const relaxed = relaxedSelector.selectMarkets(allMarkets, orderbooks);
+      if (relaxed.length > 0) {
+        console.log('ℹ️  Strict selector returned 0, fallback to relaxed selector (' + relaxed.length + ')');
+        scoredMarkets = relaxed;
+      }
+    }
 
     if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
       scoredMarkets = scoredMarkets.filter((s) => this.config.marketTokenIds.includes(s.market.token_id));
     }
 
     this.marketSelector.printAnalysis(scoredMarkets);
-
     const topCount = Math.max(5, Math.min(20, scoredMarkets.length));
     this.selectedMarkets = this.marketSelector.getTopMarkets(scoredMarkets, topCount);
     this.marketByToken.clear();
@@ -715,47 +726,42 @@ export class ProbableMarketMakerBot {
       this.marketByToken.set(market.token_id, market);
     }
 
-    console.log(`\n✅ Selected ${this.selectedMarkets.length} tokens for market making\n`);
+    console.log('\n✅ Selected ' + this.selectedMarkets.length + ' tokens for market making\n');
   }
 
   private setupMarketWs(): void {
-    if (!this.config.mmWsEnabled || !this.config.probableWsEnabled) {
+    if (!this.config.mmWsEnabled || !this.config.polymarketWsEnabled) {
       return;
     }
-    this.wsFeed = new ProbableWebSocketFeed({
-      baseUrl: this.config.probableOrderbookApiUrl || 'https://api.probable.markets/public/api/v1',
-      wsUrl: this.config.probableWsUrl || 'wss://ws.probable.markets/public/api/v1',
-      chainId: this.config.probableChainId || 56,
-      staleTimeoutMs: this.config.probableWsStaleMs || 0,
-      resetOnReconnect: this.config.probableWsResetOnReconnect !== false,
+    this.wsFeed = new PolymarketWebSocketFeed({
+      url: this.config.polymarketWsUrl || 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
+      customFeatureEnabled: this.config.polymarketWsCustomFeature === true,
+      initialDump: this.config.polymarketWsInitialDump !== false,
+      staleTimeoutMs: this.config.polymarketWsStaleMs || 0,
+      resetOnReconnect: this.config.polymarketWsResetOnReconnect !== false,
       reconnectMinMs: 1000,
       reconnectMaxMs: 15000,
     });
-    const tokenIds = this.selectedMarkets.map((m) => m.token_id);
-    this.wsFeed.subscribeTokens(tokenIds);
+    this.wsFeed.subscribeAssets(this.selectedMarkets.map((market) => market.token_id));
     this.wsDirtyUnsub = this.wsFeed.onOrderbook((tokenId) => {
       if (this.marketByToken.has(tokenId)) {
         this.wsDirtyTokens.add(tokenId);
       }
     });
     this.wsFeed.start();
-    console.log(`📡 Probable WS enabled (${this.config.probableWsUrl})`);
+    console.log('📡 Polymarket WS enabled (' + (this.config.polymarketWsUrl || 'wss://ws-subscriptions-clob.polymarket.com/ws/market') + ')');
   }
 
   private resolveMmWsMaxAgeMs(): number {
     const explicit = Number(this.config.mmWsMaxAgeMs || 0);
-    if (explicit > 0) {
-      return explicit;
-    }
-    const fallback = Number(this.config.probableWsStaleMs || 0);
-    if (fallback > 0) {
-      return fallback;
-    }
+    if (explicit > 0) return explicit;
+    const fallback = Number(this.config.polymarketWsStaleMs || 0);
+    if (fallback > 0) return fallback;
     return 5000;
   }
 
   private updateWsHealth(): void {
-    if (!this.config.mmWsEnabled || !this.config.probableWsEnabled || !this.wsFeed) {
+    if (!this.config.mmWsEnabled || !this.config.polymarketWsEnabled || !this.wsFeed) {
       this.wsHealthScore = 100;
       this.wsHealthTarget = 100;
       this.wsHealthUpdatedAt = Date.now();
@@ -796,21 +802,15 @@ export class ProbableMarketMakerBot {
 
   private async getOrderbookForMarket(market: Market): Promise<Orderbook | null> {
     const tokenId = market.token_id;
-    const useWs = this.config.mmWsEnabled && this.config.probableWsEnabled && this.wsFeed;
+    const useWs = this.config.mmWsEnabled && this.config.polymarketWsEnabled && this.wsFeed;
     if (useWs && this.wsFeed) {
       const maxAge = this.resolveMmWsMaxAgeMs();
       const wsBook = this.wsFeed.getOrderbook(tokenId, maxAge);
       if (wsBook?.bestBid && wsBook?.bestAsk) {
         return {
           token_id: tokenId,
-          bids: (wsBook.bids || []).map((level) => ({
-            price: String(level.price),
-            shares: String(level.shares),
-          })),
-          asks: (wsBook.asks || []).map((level) => ({
-            price: String(level.price),
-            shares: String(level.shares),
-          })),
+          bids: (wsBook.bids || []).map((level) => ({ price: String(level.price), shares: String(level.shares) })),
+          asks: (wsBook.asks || []).map((level) => ({ price: String(level.price), shares: String(level.shares) })),
           best_bid: wsBook.bestBid,
           best_ask: wsBook.bestAsk,
           spread: wsBook.bestAsk - wsBook.bestBid,
@@ -825,10 +825,9 @@ export class ProbableMarketMakerBot {
     }
 
     try {
-      const orderbook = await this.api.getOrderbook(tokenId);
-      return orderbook;
+      return await this.api.getOrderbook(tokenId);
     } catch (error) {
-      console.error(`Error fetching orderbook for ${tokenId}:`, error);
+      console.error('Error fetching orderbook for ' + tokenId + ':', error);
       return null;
     }
   }
@@ -856,16 +855,12 @@ export class ProbableMarketMakerBot {
 
   async run(): Promise<void> {
     this.running = true;
-    console.log('🎯 Starting Probable market making loop...\n');
+    console.log('🎯 Starting Polymarket market making loop...\n');
 
     while (this.running) {
       try {
         this.updateWsHealth();
-        // 维护 WebSocket 健康状态（自动恢复）
         this.marketMaker.maintainWsHealth();
-        if (this.config.jwtToken && this.config.mmRequireJwt !== false) {
-          await this.marketMaker.updateState(this.getAccountAddressForQueries());
-        }
 
         const marketsToProcess = this.drainDirtyMarkets();
         if (marketsToProcess.length === 0) {
@@ -876,12 +871,10 @@ export class ProbableMarketMakerBot {
         for (const market of marketsToProcess) {
           try {
             const orderbook = await this.getOrderbookForMarket(market);
-            if (!orderbook) {
-              continue;
-            }
+            if (!orderbook) continue;
             await this.marketMaker.placeMMOrders(market, orderbook);
           } catch (error) {
-            console.error(`Error processing market ${market.token_id}:`, error);
+            console.error('Error processing market ' + market.token_id + ':', error);
           }
         }
 
@@ -903,12 +896,8 @@ export class ProbableMarketMakerBot {
 
   stop(): void {
     this.running = false;
-    if (this.wsFeed) {
-      this.wsFeed.stop();
-    }
-    if (this.wsDirtyUnsub) {
-      this.wsDirtyUnsub();
-    }
+    if (this.wsFeed) this.wsFeed.stop();
+    if (this.wsDirtyUnsub) this.wsDirtyUnsub();
   }
 
   getSelectedMarketsCount(): number {
@@ -923,7 +912,10 @@ export class ProbableMarketMakerBot {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
-// END ProbableMarketMakerBot (已移除)
+// END PolymarketMarketMakerBot
+
+
+
 
 let activeBot: { stop: () => void } | null = null;
 
@@ -931,7 +923,7 @@ let activeBot: { stop: () => void } | null = null;
 async function main() {
   const config = loadConfig();
   const venue = String(config.mmVenue || 'predict').toLowerCase();
-  const bot = venue === 'probable' ? new ProbableMarketMakerBot() : new PredictMarketMakerBot();
+  const bot = venue === 'polymarket' ? new PolymarketMarketMakerBot() : new PredictMarketMakerBot();
   activeBot = bot;
 
   try {

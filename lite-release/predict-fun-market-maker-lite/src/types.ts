@@ -81,6 +81,10 @@ export interface Config {
   mmAutoTuneMaxMult?: number;
   mmAutoTuneMinEvents?: number;
   mmAutoTuneUpdateMs?: number;
+  mmAutoTuneTouchBufferWeight?: number;
+  mmAutoTuneSizeWeight?: number;
+  mmAutoTuneCancelWeight?: number;
+  mmAutoTuneRepriceWeight?: number;
   mmCooldownVolMultiplier?: number;
   mmImbalanceLevels?: number;
   mmImbalanceWeight?: number;
@@ -125,6 +129,16 @@ export interface Config {
   mmRiskThrottleOnlyFarThreshold?: number;
   mmRiskThrottleOnlyFarLayers?: number;
   mmRiskThrottleLayerCap?: number;
+  mmNearTouchBurstLimit?: number;
+  mmNearTouchBurstWindowMs?: number;
+  mmNearTouchBurstHoldMs?: number;
+  mmNearTouchBurstSafeMode?: boolean;
+  mmNearTouchBurstSafeModeMs?: number;
+  mmFillBurstLimit?: number;
+  mmFillBurstWindowMs?: number;
+  mmFillBurstHoldMs?: number;
+  mmFillBurstSafeMode?: boolean;
+  mmFillBurstSafeModeMs?: number;
   mmMetricsPath?: string;
   mmMetricsFlushMs?: number;
   mmWsEnabled?: boolean;
@@ -207,8 +221,9 @@ export interface Config {
   mmWsHealthEmergencyRecoveryOffsetVolWeight?: number;
   mmWsHealthEmergencyRecoveryTemplateResetEnabled?: boolean;
   mmWsHealthEmergencyRecoverySingleSideLossWeight?: number;
-  mmVenue?: 'predict' | 'probable';
+  mmVenue?: 'predict' | 'polymarket';
   mmRequireJwt?: boolean;
+  mmAsymSpreadWeight?: number;
   inventorySkewFactor?: number;
   cancelThreshold: number;
   repriceThreshold?: number;
@@ -225,6 +240,48 @@ export interface Config {
   mmAsymSpreadMaxFactor?: number;
   mmQuoteOffsetBps?: number;
   mmTouchBufferBps?: number;
+  mmTouchBufferVolWeight?: number;
+  mmTouchBufferVolMaxBps?: number;
+  mmTouchBufferDepthSpeedWeight?: number;
+  mmTouchBufferDepthSpeedMaxBps?: number;
+  mmTouchBufferFixedCents?: number;
+  mmQuoteSecondLayer?: boolean;
+
+  // ===== Phase 1: 增强模块配置 =====
+  // 启用增强价差计算 (AS模型)
+  mmEnhancedSpreadEnabled?: boolean;
+
+  // AS模型权重 (0-1, 默认0.5表示50%权重)
+  mmASModelWeight?: number;
+
+  // AS模型参数
+  mmASGamma?: number;      // 风险厌恶系数 (默认0.1)
+  mmASLambda?: number;     // 订单到达速率 (默认1.0)
+  mmASKappa?: number;      // 价格弹性 (默认1.5)
+  mmASAlpha?: number;      // 库存影响 (默认0.5)
+  mmASBeta?: number;       // 波动率影响 (默认0.3)
+  mmASDelta?: number;      // 订单流影响 (默认0.2)
+
+  // 库存分类阈值
+  mmInventorySafeThreshold?: number;     // 安全阈值 (默认0.3)
+  mmInventoryWarningThreshold?: number;  // 警告阈值 (默认0.5)
+  mmInventoryDangerThreshold?: number;   // 危险阈值 (默认0.7)
+
+  // ===== 统一做市商策略配置（整合所有优点） =====
+  unifiedMarketMakerEnabled?: boolean;         // 启用统一做市商策略
+  unifiedMarketMakerTolerance?: number;        // 对冲偏差容忍度 (0.05 = 5%)
+  unifiedMarketMakerMinSize?: number;          // 最小对冲数量
+  unifiedMarketMakerMaxSize?: number;          // 最大对冲数量
+  unifiedMarketMakerBuySpreadBps?: number;      // Buy 单价差（基点，150 = 1.5%）- 备用
+  unifiedMarketMakerSellSpreadBps?: number;     // Sell 单价差（基点，150 = 1.5%）- 备用
+  unifiedMarketMakerHedgeSlippageBps?: number;  // 对冲滑点（基点，250 = 2.5%）
+  unifiedMarketMakerAsyncHedging?: boolean;     // 启用异步对冲（不撤单）
+  unifiedMarketMakerDualTrackMode?: boolean;   // 启用双轨并行模式
+  unifiedMarketMakerDynamicOffsetMode?: boolean; // 启用动态偏移模式（第二档挂单）
+  unifiedMarketMakerBuyOffsetBps?: number;     // Buy 单偏移量（基点，100 = 1%）
+  unifiedMarketMakerSellOffsetBps?: number;    // Sell 单偏移量（基点，100 = 1%）
+  unifiedMarketMakerMonitorTierOne?: boolean;  // 监控是否成为第一档（自动撤单重挂）
+
   mmFillRiskSpreadBps?: number;
   mmNearTouchPenaltyBps?: number;
   mmNearTouchPenaltyMaxBps?: number;
@@ -368,6 +425,31 @@ export interface Config {
   mmLayerRestoreOnlyFar?: boolean;
   mmLayerRestoreTouchBufferBps?: number;
   mmLayerRestoreNoNearTouch?: boolean;
+  mmLayerGuardNearBps?: number;
+  mmLayerGuardMinDepthShares?: number;
+  mmLayerGuardMinDepthUsd?: number;
+  mmLayerGuardDepthSpeedBps?: number;
+  mmFastCancelBps?: number;
+  mmFastCancelWindowMs?: number;
+  mmFastCancelDepthSpeedBps?: number;
+  mmFastCancelSpreadJumpBps?: number;
+  mmDepthSpeedPauseBps?: number;
+  mmDepthSpeedPauseMs?: number;
+  mmProtectiveDepthSpeedBps?: number;
+  mmProtectiveSpreadJumpBps?: number;
+  mmProtectiveTemplateEnabled?: boolean;
+  mmProtectiveHoldMs?: number;
+  mmProtectiveMinIntervalMs?: number;
+  mmProtectiveLayerCountCap?: number;
+  mmProtectiveOnlyFar?: boolean;
+  mmProtectiveForceSingle?: boolean;
+  mmProtectiveSingleSide?: 'BUY' | 'SELL' | 'NONE';
+  mmProtectiveSingleSideMode?: 'NORMAL' | 'REMOTE';
+  mmProtectiveSingleSideOffsetBps?: number;
+  mmProtectiveSingleSideAuto?: boolean;
+  mmProtectiveSingleSideImbalanceThreshold?: number;
+  mmProtectiveSizeScale?: number;
+  mmProtectiveTouchBufferAddBps?: number;
   mmLayerRestoreNearTouchBps?: number;
   mmLayerRestoreForceRefresh?: boolean;
   mmLayerRestoreForceCleanup?: boolean;
@@ -392,6 +474,8 @@ export interface Config {
   mmSizeImbalanceWeight?: number;
   mmSizeMinFactor?: number;
   mmSizeMaxFactor?: number;
+  mmSizeVolWeight?: number;
+  mmSizeDepthSpeedWeight?: number;
   mmSoftCancelBps?: number;
   mmHardCancelBps?: number;
   mmSoftCancelCooldownMs?: number;
@@ -424,6 +508,13 @@ export interface Config {
   mmOnlyPointsMarkets?: boolean;
   mmPointsMinOnly?: boolean;
   mmPointsMinMultiplier?: number;
+  mmPointsPrioritize?: boolean; // 是否优先做积分市场
+  mmPointsOptimization?: boolean; // 是否启用积分优化
+  mmPointsV2Optimizer?: boolean; // 是否启用 V2 优化器（极致优化）
+  mmPointsAssumeActive?: boolean;
+  mmPointsMinShares?: number;
+  mmPointsMaxSpreadCents?: number;
+  mmPointsMaxSpread?: number;
   antiFillBps?: number;
   nearTouchBps?: number;
   cooldownAfterCancelMs?: number;
@@ -445,6 +536,7 @@ export interface Config {
   crossPlatformMaxShares?: number;
   crossPlatformDepthLevels?: number;
   crossPlatformMaxVwapLevels?: number;
+  crossPlatformMaxVwapDeviationBps?: number;
   crossPlatformWsRealtime?: boolean;
   crossPlatformWsRealtimeIntervalMs?: number;
   crossPlatformWsRealtimeMaxBatch?: number;
@@ -462,8 +554,27 @@ export interface Config {
   crossPlatformPreSubmitLegVwapSpreadBps?: number;
   crossPlatformPreSubmitTotalCostBps?: number;
   crossPlatformPreSubmitLegCostSpreadBps?: number;
+  crossPlatformPreSubmitRecheckMs?: number;
+  crossPlatformPreSubmitGlobal?: boolean;
+  crossPlatformShadowMinProfitUsd?: number;
+  crossPlatformShadowMinProfitBps?: number;
+  crossPlatformShadowImpactBps?: number;
+  crossPlatformShadowImpactPerLevelBps?: number;
+  crossHedgeSimilarityWeight?: number;
+  crossHedgeDepthWeight?: number;
+  crossHedgeMinDepthUsd?: number;
+
+  // ==================== 完美对冲策略配置 ====================
+  perfectHedgeEnabled?: boolean;              // 启用完美对冲策略
+  perfectHedgeTolerance?: number;             // 对冲偏差容忍度（0.05 = 5%）
+  perfectHedgeMinSize?: number;               // 最小对冲数量（股）
+  perfectHedgeMaxSize?: number;               // 最大对冲数量（股）
+  perfectHedgeAutoBalance?: boolean;          // 自动平衡 YES/NO 比例
+  perfectHedgeBalanceSlippageBps?: number;    // 平衡滑点（基点）
+
   crossPlatformAdaptiveSize?: boolean;
   crossPlatformMinDepthShares?: number;
+  crossPlatformMinDepthUsd?: number;
   crossPlatformMinNotionalUsd?: number;
   crossPlatformMinProfitUsd?: number;
   crossPlatformMinProfitBps?: number;
@@ -492,6 +603,14 @@ export interface Config {
   crossPlatformFailurePauseMs?: number;
   crossPlatformFailurePauseMaxMs?: number;
   crossPlatformFailurePauseBackoff?: number;
+  crossPlatformFailureRateWindowMs?: number;
+  crossPlatformFailureRateMinAttempts?: number;
+  crossPlatformFailureRateThreshold?: number;
+  crossPlatformFailureRateTightenMax?: number;
+  crossPlatformFailureRateStabilitySamplesAdd?: number;
+  crossPlatformFailureRateStabilityIntervalAddMs?: number;
+  crossPlatformFailureRateStabilityMaxSamples?: number;
+  crossPlatformFailureRateStabilityMaxIntervalMs?: number;
   crossPlatformReasonPreflightPenalty?: number;
   crossPlatformReasonExecutionPenalty?: number;
   crossPlatformReasonPostTradePenalty?: number;
@@ -806,6 +925,9 @@ export interface Config {
   arbExecutionCooldownMs?: number;
   arbScanIntervalMs?: number;
   arbMaxMarkets?: number;
+  arbOpportunitiesPath?: string;
+  arbCommandPath?: string;
+  arbSnapshotMax?: number;
   arbOrderbookConcurrency?: number;
   arbMarketsCacheMs?: number;
   arbWsMaxAgeMs?: number;
@@ -875,16 +997,6 @@ export interface Config {
   polymarketWsStaleMs?: number;
   polymarketWsResetOnReconnect?: boolean;
   polymarketCacheTtlMs?: number;
-  probableEnabled?: boolean;
-  probableMarketApiUrl?: string;
-  probableOrderbookApiUrl?: string;
-  probableMaxMarkets?: number;
-  probableFeeBps?: number;
-  probableWsEnabled?: boolean;
-  probableWsUrl?: string;
-  probableWsStaleMs?: number;
-  probableWsResetOnReconnect?: boolean;
-  probableCacheTtlMs?: number;
   predictWsEnabled?: boolean;
   predictWsUrl?: string;
   predictWsApiKey?: string;
@@ -913,10 +1025,6 @@ export interface Config {
   polymarketApiPassphrase?: string;
   polymarketChainId?: number;
   polymarketAutoDeriveApiKey?: boolean;
-  probablePrivateKey?: string;
-  probableChainId?: number;
-  probableAutoDeriveApiKey?: boolean;
-  probableRpcUrl?: string;
   opinionOpenApiUrl?: string;
   opinionApiKey?: string;
   opinionMaxMarkets?: number;
@@ -934,18 +1042,13 @@ export interface Config {
   marketTokenIds?: string[];
   refreshInterval: number;
   enableTrading: boolean;
-  // Unified Strategy Config
-  unifiedStrategyEnabled?: boolean;
-  unifiedStrategyTolerance?: number;
-  unifiedStrategyMinSize?: number;
-  unifiedStrategyMaxSize?: number;
-  unifiedStrategyBuyOffsetBps?: number;
-  unifiedStrategySellOffsetBps?: number;
-  unifiedStrategyHedgeSlippageBps?: number;
-  unifiedStrategyMaxUnhedgedShares?: number;
-  unifiedStrategyAsyncHedging?: boolean;
-  unifiedStrategyDualTrackMode?: boolean;
-  unifiedStrategyDynamicOffsetMode?: boolean;
+}
+
+export interface MarketOutcome {
+  name: string;
+  indexSet: number;
+  status: 'WON' | 'LOST' | 'OPEN' | 'CANCELLED';
+  onChainId: string;
 }
 
 export interface Market {
@@ -958,16 +1061,27 @@ export interface Market {
   market_slug?: string;
   outcome?: string;
   end_date?: string;
+  venue?: 'predict' | 'polymarket';
   is_neg_risk: boolean;
   is_yield_bearing: boolean;
   fee_rate_bps: number;
   volume_24h?: number;
   liquidity_24h?: number;
+  // Outcomes array containing all outcome tokens
+  outcomes?: MarketOutcome[];
   // Price aggregation from orderbook
   best_bid?: number;
   best_ask?: number;
   spread_pct?: number;
   total_orders?: number;
+  polymarket_rewards_enabled?: boolean;
+  polymarket_reward_min_size?: number;
+  polymarket_reward_max_spread?: number;
+  polymarket_reward_daily_rate?: number;
+  polymarket_reward_hourly_rate?: number;
+  polymarket_reward_epoch?: number;
+  polymarket_reward_in_game_multiplier?: number;
+  polymarket_accepting_orders?: boolean;
   // Liquidity Points Activation Rules
   // These fields control when orders qualify for liquidity points
   liquidity_activation?: LiquidityActivation;
@@ -1040,6 +1154,17 @@ export interface Position {
   avg_entry_price: number;
   current_price: number;
   pnl: number;
+  tokenId?: string;
+  market?: { tokenId?: string; question?: string };
+  outcome?: string;
+  side?: string;
+  amount?: number;
+  shares?: number;
+  size?: number;
+  value?: number;
+  avg_price?: number;
+  avgEntryPrice?: number;
+  currentPrice?: number;
 }
 
 export interface MarketMakerState {

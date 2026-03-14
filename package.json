@@ -1,11 +1,11 @@
 {
   "name": "predict-fun-market-maker",
   "version": "1.1.0",
-  "description": "Automated market maker bot for Predict.fun & Probable - 双平台支持",
+  "description": "Automated market maker bot for Predict.fun & Polymarket - 双平台支持",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "start": "cd desktop-app && npm start",
+    "start": "npm --prefix lite-release/predict-fun-market-maker-lite/desktop-app-lite start",
     "start:cli": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
@@ -25,7 +25,6 @@
     "@polymarket/clob-client": "^5.2.3",
     "@polymarket/order-utils": "^3.0.1",
     "@predictdotfun/sdk": "^1.0.0",
-    "@prob/clob": "^0.5.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.0",

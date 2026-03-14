@@ -3,11 +3,12 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import axios from 'axios';
 import { PredictAPI } from '../src/api/client.js';
+import { PolymarketAPI } from '../src/api/polymarket-client.js';
 import { MarketSelector } from '../src/market-selector.js';
 import type { Market, Orderbook, OrderbookEntry } from '../src/types.js';
 
 interface Args {
-  venue: 'predict' | 'probable';
+  venue: 'predict' | 'polymarket';
   top: number;
   scan: number;
   apply: boolean;
@@ -44,6 +45,18 @@ interface MakerQuality {
   liquidityScore: number;
 }
 
+interface PolymarketIncentiveSummary {
+  enabled: boolean;
+  minSize: number | null;
+  maxSpread: number | null;
+  dailyRate: number | null;
+  hourlyRate: number | null;
+  fitScore: number | null;
+  spreadFit: number | null;
+  l1SizeFit: number | null;
+  l2SizeFit: number | null;
+}
+
 function slugifyQuestion(question: string): string {
   return String(question || '')
     .toLowerCase()
@@ -70,9 +83,9 @@ interface MarketLinkCacheEntry {
 
 type MarketLinkCache = Record<string, MarketLinkCacheEntry>;
 
-function buildMarketLink(venue: 'predict' | 'probable', market: Market): string {
+function buildMarketLink(venue: 'predict' | 'polymarket', market: Market): string {
   const explicit = String(market.market_url || '').trim();
-  if (explicit && !explicit.includes('api.predict.fun') && !explicit.includes('market-api.probable.markets')) {
+  if (explicit && !explicit.includes('api.predict.fun') && !explicit.includes('gamma-api.polymarket.com') && !explicit.includes('clob.polymarket.com')) {
     return explicit;
   }
 
@@ -80,7 +93,7 @@ function buildMarketLink(venue: 'predict' | 'probable', market: Market): string 
   if (slug) {
     return venue === 'predict'
       ? `https://predict.fun/market/${encodeURIComponent(slug)}?ref=B0CE6`
-      : `https://probable.markets/market/${encodeURIComponent(slug)}?ref=PNRBS9VL`;
+      : `https://polymarket.com/event/${encodeURIComponent(slug)}`;
   }
 
   if (venue === 'predict') {
@@ -90,14 +103,14 @@ function buildMarketLink(venue: 'predict' | 'probable', market: Market): string 
     }
   }
 
-  const query = encodeURIComponent(`${market.question || ''} site:${venue === 'predict' ? 'predict.fun/market' : 'probable.markets/market'}`);
+  const query = encodeURIComponent(`${market.question || ''} site:${venue === 'predict' ? 'predict.fun/market' : 'polymarket.com/event'}`);
   return `https://duckduckgo.com/?q=${query}`;
 }
 
-function buildMarketLinkLabel(venue: 'predict' | 'probable', market: Market): string {
+function buildMarketLinkLabel(venue: 'predict' | 'polymarket', market: Market): string {
   const explicit = String(market.market_url || '').trim();
   const slug = String(market.market_slug || '').trim();
-  if ((explicit && !explicit.includes('api.predict.fun') && !explicit.includes('market-api.probable.markets')) || slug) {
+  if ((explicit && !explicit.includes('api.predict.fun') && !explicit.includes('gamma-api.polymarket.com') && !explicit.includes('clob.polymarket.com')) || slug) {
     return '打开市场';
   }
   if (venue === 'predict' && slugifyQuestion(String(market.question || ''))) {
@@ -132,7 +145,7 @@ function normalizeQuestion(question: string): string {
     .trim();
 }
 
-function buildMarketLinkCacheKey(venue: 'predict' | 'probable', market: Market): string {
+function buildMarketLinkCacheKey(venue: 'predict' | 'polymarket', market: Market): string {
   return [
     venue,
     market.event_id || '',
@@ -163,16 +176,16 @@ function unwrapSearchUrl(url: string): string {
   }
 }
 
-function isValidDirectMarketUrl(venue: 'predict' | 'probable', url: string): boolean {
-  const domain = venue === 'predict' ? 'predict.fun' : 'probable.markets';
-  return new RegExp(`^https?://(?:www\\.)?${domain.replace('.', '\\.')}/market/`, 'i').test(url);
+function isValidDirectMarketUrl(venue: 'predict' | 'polymarket', url: string): boolean {
+  const domain = venue === 'predict' ? 'predict.fun' : 'polymarket.com';
+  return new RegExp(`^https?://(?:www\\.)?${domain.replace('.', '\\.')}/event/`, 'i').test(url);
 }
 
 async function searchDirectMarketUrl(
-  venue: 'predict' | 'probable',
+  venue: 'predict' | 'polymarket',
   market: Market
 ): Promise<string | null> {
-  const site = venue === 'predict' ? 'predict.fun/market' : 'probable.markets/market';
+  const site = venue === 'predict' ? 'predict.fun/market' : 'polymarket.com/event';
   const searchUrl = 'https://html.duckduckgo.com/html/';
   const query = `"${market.question || ''}" site:${site}`;
   try {
@@ -201,7 +214,7 @@ async function searchDirectMarketUrl(
 }
 
 async function resolveMarketLink(
-  venue: 'predict' | 'probable',
+  venue: 'predict' | 'polymarket',
   market: Market,
   cache: MarketLinkCache,
   cachePath: string
@@ -273,18 +286,23 @@ function toFiniteNumber(value: unknown): number {
   return Number.isFinite(num) ? num : 0;
 }
 
-function sortByLiquidityAndVolume<T>(
+function sortByLiquidityAndVolume<T extends Partial<Market>>(
   items: T[],
   getLiquidity: (item: T) => number,
   getVolume: (item: T) => number
 ): T[] {
-  return [...items].sort((a, b) => {
-    const liquidityDiff = getLiquidity(b) - getLiquidity(a);
-    if (liquidityDiff !== 0) return liquidityDiff;
-    const volumeDiff = getVolume(b) - getVolume(a);
-    if (volumeDiff !== 0) return volumeDiff;
-    return 0;
-  });
+  const scoreItem = (item: T): number => {
+    const liquidity = Math.log10(getLiquidity(item) + 1) * 4;
+    const volume = Math.log10(getVolume(item) + 1) * 2.5;
+    const rewardDaily = toFiniteNumber(item.polymarket_reward_daily_rate);
+    const rewardMaxSpread = toFiniteNumber(item.polymarket_reward_max_spread);
+    const rewardScore = item.polymarket_rewards_enabled
+      ? 6 + Math.log10(rewardDaily + 1) * 5 + Math.min(3, rewardMaxSpread * 60)
+      : 0;
+    return liquidity + volume + rewardScore;
+  };
+
+  return [...items].sort((a, b) => scoreItem(b) - scoreItem(a));
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -343,11 +361,11 @@ function printHelp(): void {
   console.log(
     [
       'Usage:',
-      '  npx tsx scripts/recommend-markets.ts [--venue predict|probable] [--top 10] [--scan 60] [--apply] [--json] [--env .env]',
+      '  npx tsx scripts/recommend-markets.ts [--venue predict|polymarket] [--top 10] [--scan 60] [--apply] [--json] [--env .env]',
       '',
       'Examples:',
       '  npx tsx scripts/recommend-markets.ts --venue predict --top 12',
-      '  npx tsx scripts/recommend-markets.ts --venue probable --apply',
+      '  npx tsx scripts/recommend-markets.ts --venue polymarket --apply',
     ].join('\n')
   );
 }
@@ -371,8 +389,8 @@ function parseArgs(argv: string[]): Args {
     }
     if (token === '--venue') {
       const value = (rest.shift() || '').toLowerCase();
-      if (value !== 'predict' && value !== 'probable') {
-        throw new Error('--venue must be "predict" or "probable"');
+      if (value !== 'predict' && value !== 'polymarket') {
+        throw new Error('--venue must be "predict" or "polymarket"');
       }
       defaults.venue = value;
       continue;
@@ -527,7 +545,7 @@ async function populateOrderbooksWithConcurrency(
   return orderbooks;
 }
 
-async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets: Market[]; orderbooks: Map<string, Orderbook> }> {
+async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets: Market[]; orderbooks: Map<string, Orderbook>; api: PredictAPI }> {
   const apiBaseUrl = env.get('API_BASE_URL') || 'https://api.predict.fun';
   const apiKey = env.get('API_KEY');
   const jwtToken = env.get('JWT_TOKEN') || undefined;
@@ -546,87 +564,31 @@ async function loadPredictMarkets(env: EnvMap, scan: number): Promise<{ markets:
     api.getOrderbook(market.token_id)
   );
   console.error(`[Predict] 订单簿抓取成功: ${orderbooks.size}/${selected.length}`);
-  return { markets: selected, orderbooks };
+  return { markets: selected, orderbooks, api };
 }
 
-async function loadProbableMarkets(env: EnvMap, scan: number): Promise<{ markets: Market[]; orderbooks: Map<string, Orderbook> }> {
-  const marketApiUrl = env.get('PROBABLE_MARKET_API_URL') || 'https://market-api.probable.markets';
-  const orderbookApiUrl = env.get('PROBABLE_ORDERBOOK_API_URL') || 'https://api.probable.markets/public/api/v1';
-  const url = `${marketApiUrl.replace(/\/+$/g, '')}/public/api/v1/markets/`;
-  const response = await httpGetWithRetry(url, {
-    params: { active: true, closed: false, limit: scan },
-    timeout: 10000,
+async function loadPolymarketMarkets(env: EnvMap, scan: number): Promise<{ markets: Market[]; orderbooks: Map<string, Orderbook>; api: PolymarketAPI }> {
+  const api = new PolymarketAPI({
+    gammaUrl: env.get('POLYMARKET_GAMMA_URL') || 'https://gamma-api.polymarket.com',
+    clobUrl: env.get('POLYMARKET_CLOB_URL') || 'https://clob.polymarket.com',
+    privateKey: env.get('POLYMARKET_PRIVATE_KEY') || env.get('PRIVATE_KEY') || '',
+    chainId: Number(env.get('POLYMARKET_CHAIN_ID') || 137),
+    maxMarkets: Number(env.get('POLYMARKET_MAX_MARKETS') || Math.max(scan * 4, 120)),
+    feeBps: Number(env.get('POLYMARKET_FEE_BPS') || 0),
+    apiKey: env.get('POLYMARKET_API_KEY') || undefined,
+    apiSecret: env.get('POLYMARKET_API_SECRET') || undefined,
+    apiPassphrase: env.get('POLYMARKET_API_PASSPHRASE') || undefined,
+    autoDeriveApiKey: (env.get('POLYMARKET_AUTO_DERIVE_API_KEY') || 'true').toLowerCase() !== 'false',
   });
-  const raw = response.data;
-  const list = Array.isArray(raw?.markets)
-    ? raw.markets
-    : Array.isArray(raw?.data?.markets)
-    ? raw.data.markets
-    : Array.isArray(raw?.data)
-    ? raw.data
-    : Array.isArray(raw?.result)
-    ? raw.result
-    : Array.isArray(raw)
-    ? raw
-    : [];
-
-  const markets: Market[] = [];
-  for (const item of list) {
-    if (item?.active === false || item?.closed === true) continue;
-    const outcomes = toArray(item?.outcomes || item?.outcomeNames);
-    const tokens = toArray(item?.clobTokenIds || item?.clob_token_ids || item?.tokens || item?.tokenIds);
-    if (outcomes.length < 2 || tokens.length < 2) continue;
-    const question = item?.question || item?.title || 'Probable Market';
-    const eventId = String(item?.id || item?.marketId || '');
-    const volume24h = Number(
-      item?.volume_24h ??
-        item?.volume24h ??
-        item?.volume24hr ??
-        item?.volume24hUsd ??
-        item?.stats?.volume24hUsd ??
-        0
-    );
-    const liquidity24h = Number(
-      item?.liquidity_24h ??
-        item?.liquidity24h ??
-        item?.liquidity ??
-        item?.totalLiquidityUsd ??
-        item?.stats?.liquidity24hUsd ??
-        0
-    );
-    for (let i = 0; i < Math.min(tokens.length, outcomes.length); i += 1) {
-      const tokenId = String(tokens[i] || '');
-      if (!tokenId) continue;
-      markets.push({
-        token_id: tokenId,
-        question,
-        condition_id: eventId,
-        event_id: eventId,
-        outcome: String(outcomes[i] || ''),
-        volume_24h: volume24h,
-        liquidity_24h: liquidity24h,
-        is_neg_risk: false,
-        is_yield_bearing: false,
-        fee_rate_bps: Number(env.get('PROBABLE_FEE_BPS') || 0),
-      });
-    }
-  }
-
+  const allMarkets = await api.getMarkets();
   const rankedMarkets = sortByLiquidityAndVolume(
-    markets,
+    allMarkets,
     (market) => toFiniteNumber(market.liquidity_24h),
     (market) => toFiniteNumber(market.volume_24h)
   );
-  const selected = rankedMarkets.slice(0, Math.min(rankedMarkets.length, Math.max(scan * 3, 48)));
-  const orderbooks = await populateOrderbooksWithConcurrency(selected, 5, async (market) => {
-    const bookResponse = await httpGetWithRetry(`${orderbookApiUrl.replace(/\/+$/g, '')}/book`, {
-      params: { token_id: market.token_id },
-      timeout: 8000,
-    });
-    return normalizeOrderbook(market.token_id, bookResponse.data);
-  });
-
-  return { markets: selected, orderbooks };
+  const selected = rankedMarkets.slice(0, Math.min(rankedMarkets.length, Math.max(scan * 4, 60)));
+  const orderbooks = await populateOrderbooksWithConcurrency(selected, 5, async (market) => api.getOrderbook(market.token_id));
+  return { markets: selected, orderbooks, api };
 }
 
 function readNumber(env: EnvMap, key: string, fallback: number): number {
@@ -646,11 +608,11 @@ function getPredictSafetyConfig(env: EnvMap): PredictSafetyConfig {
   };
 }
 
-function getSelectorConfig(env: EnvMap, venue: 'predict' | 'probable'): [number, number, number, number] {
+function getSelectorConfig(env: EnvMap, venue: 'predict' | 'polymarket'): [number, number, number, number] {
   const predictSafety = getPredictSafetyConfig(env);
   const defaults =
-    venue === 'probable'
-      ? { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.2, minOrders: 0 }
+    venue === 'polymarket'
+      ? { minLiquidity: 0, minVolume24h: 0, maxSpread: 0.12, minOrders: 0 }
       : { minLiquidity: 0, minVolume24h: 0, maxSpread: predictSafety.maxSpread, minOrders: 0 };
 
   const configuredMaxSpread = readNumber(env, 'MARKET_SELECTOR_MAX_SPREAD', defaults.maxSpread);
@@ -777,6 +739,50 @@ function getMakerQuality(orderbook: Orderbook | undefined): MakerQuality {
   return { supportRatio, levelGap, symmetry, centerScore, liquidityScore };
 }
 
+function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | undefined): PolymarketIncentiveSummary {
+  const enabled = Boolean(market.polymarket_rewards_enabled);
+  const minSize = toFiniteNumber(market.polymarket_reward_min_size);
+  const maxSpread = toFiniteNumber(market.polymarket_reward_max_spread);
+  const dailyRate = toFiniteNumber(market.polymarket_reward_daily_rate);
+  if (!enabled || minSize <= 0 || maxSpread <= 0 || dailyRate <= 0) {
+    return {
+      enabled: false,
+      minSize: null,
+      maxSpread: null,
+      dailyRate: null,
+      hourlyRate: null,
+      fitScore: null,
+      spreadFit: null,
+      l1SizeFit: null,
+      l2SizeFit: null,
+    };
+  }
+
+  const bid1Shares = readLevel(orderbook, 'bids', 0).shares ?? 0;
+  const ask1Shares = readLevel(orderbook, 'asks', 0).shares ?? 0;
+  const bid2Shares = readLevel(orderbook, 'bids', 1).shares ?? 0;
+  const ask2Shares = readLevel(orderbook, 'asks', 1).shares ?? 0;
+  const l1MinShares = bid1Shares > 0 && ask1Shares > 0 ? Math.min(bid1Shares, ask1Shares) : 0;
+  const l2MinShares = bid2Shares > 0 && ask2Shares > 0 ? Math.min(bid2Shares, ask2Shares) : 0;
+  const l1SizeFit = Math.min(1.25, l1MinShares / minSize);
+  const l2SizeFit = Math.min(1.25, l2MinShares / minSize);
+  const rawSpread = getBookSpread(orderbook);
+  const spreadFit = rawSpread === null ? 0 : Math.max(0, Math.min(1, 1 - rawSpread / maxSpread));
+  const fitScore = Math.max(0, Math.min(1.1, 0.3 * spreadFit + 0.25 * (l1SizeFit / 1.25) + 0.45 * (l2SizeFit / 1.25)));
+
+  return {
+    enabled: true,
+    minSize,
+    maxSpread,
+    dailyRate,
+    hourlyRate: dailyRate / 24,
+    fitScore,
+    spreadFit,
+    l1SizeFit,
+    l2SizeFit,
+  };
+}
+
 function normalizeGroupKey(market: Market): string {
   const question = String(market.question || '')
     .toLowerCase()
@@ -815,9 +821,9 @@ async function main(): Promise<void> {
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
   const selector = new MarketSelector(minLiquidity, minVolume24h, maxSpread, minOrders);
 
-  const { markets, orderbooks } =
-    args.venue === 'probable'
-      ? await loadProbableMarkets(env, args.scan)
+  const { markets, orderbooks, api: linkApi } =
+    args.venue === 'polymarket'
+      ? await loadPolymarketMarkets(env, args.scan)
       : await loadPredictMarkets(env, args.scan);
 
   let scored = selector.selectMarkets(markets, orderbooks);
@@ -876,9 +882,18 @@ async function main(): Promise<void> {
     const l2Notional =
       (bid2.notional && Number.isFinite(bid2.notional) ? bid2.notional : 0) +
       (ask2.notional && Number.isFinite(ask2.notional) ? ask2.notional : 0);
+    const l1Usable =
+      bid1.notional && ask1.notional && Number.isFinite(bid1.notional) && Number.isFinite(ask1.notional)
+        ? Math.min(bid1.notional, ask1.notional)
+        : 0;
+    const l2Usable =
+      bid2.notional && ask2.notional && Number.isFinite(bid2.notional) && Number.isFinite(ask2.notional)
+        ? Math.min(bid2.notional, ask2.notional)
+        : 0;
     const quality = getMakerQuality(book);
+    const incentive = getPolymarketIncentiveSummary(entry.market, book);
     const linkedMarket =
-      args.venue === 'predict' ? await hydratePredictMarketLink(client as PredictAPI, entry.market) : entry.market;
+      args.venue === 'predict' ? await hydratePredictMarketLink(linkApi as PredictAPI, entry.market) : entry.market;
     const marketLink = await resolveMarketLink(args.venue, linkedMarket, linkCache, linkCachePath);
 
     return {
@@ -911,10 +926,22 @@ async function main(): Promise<void> {
       ask2Shares: toFixedOrNull(ask2.shares, 2),
       l1NotionalUsd: toFixedOrNull(l1Notional > 0 ? l1Notional : null, 2),
       l2NotionalUsd: toFixedOrNull(l2Notional > 0 ? l2Notional : null, 2),
+      l1UsableUsd: toFixedOrNull(l1Usable > 0 ? l1Usable : null, 2),
+      l2UsableUsd: toFixedOrNull(l2Usable > 0 ? l2Usable : null, 2),
       supportRatio: toFixedOrNull(quality.supportRatio, 3),
       maxLevelGap: toFixedOrNull(quality.levelGap, 4),
       symmetry: toFixedOrNull(quality.symmetry, 3),
       centerScore: toFixedOrNull(quality.centerScore, 3),
+      rewardEnabled: incentive.enabled,
+      rewardMinSize: toFixedOrNull(incentive.minSize, 0),
+      rewardMaxSpread: toFixedOrNull(incentive.maxSpread, 4),
+      rewardMaxSpreadCents: toFixedOrNull(incentive.maxSpread !== null ? incentive.maxSpread * 100 : null, 2),
+      rewardDailyRate: toFixedOrNull(incentive.dailyRate, 0),
+      rewardHourlyRate: toFixedOrNull(incentive.hourlyRate, 2),
+      rewardFitScore: toFixedOrNull(incentive.fitScore, 3),
+      rewardSpreadFit: toFixedOrNull(incentive.spreadFit, 3),
+      rewardL1SizeFit: toFixedOrNull(incentive.l1SizeFit, 3),
+      rewardL2SizeFit: toFixedOrNull(incentive.l2SizeFit, 3),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

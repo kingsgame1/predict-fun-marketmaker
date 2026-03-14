@@ -45,7 +45,7 @@ function printHelp() {
   console.log(
     [
       '用法:',
-      '  node scripts/apply-mm-template.mjs <predict|probable> [--env <path>] [--dry-run]',
+      '  node scripts/apply-mm-template.mjs <predict|polymarket> [--env <path>] [--dry-run]',
       '',
       '说明:',
       '  1) 模板只保留“需要用户填写”的字段（中文注释）',
@@ -53,7 +53,7 @@ function printHelp() {
       '',
       '示例:',
       '  node scripts/apply-mm-template.mjs predict',
-      '  node scripts/apply-mm-template.mjs probable --env .env',
+      '  node scripts/apply-mm-template.mjs polymarket --env .env',
     ].join('\n')
   );
 }
@@ -76,11 +76,7 @@ function pick(existing, key, placeholder = '') {
   const value = (existing.get(key) || '').trim();
   if (!value) return placeholder;
   const lower = value.toLowerCase();
-  if (
-    lower.includes('your_') ||
-    lower.includes('placeholder') ||
-    lower.includes('请填写')
-  ) {
+  if (lower.includes('your_') || lower.includes('placeholder') || lower.includes('请填写')) {
     return placeholder;
   }
   return value;
@@ -90,7 +86,7 @@ function buildPredictTemplate(existing) {
   const apiKey = pick(existing, 'API_KEY', '请填写你的_API_KEY');
   const privateKey = pick(existing, 'PRIVATE_KEY', '请填写你的钱包私钥');
   const jwtToken = pick(existing, 'JWT_TOKEN', '请填写你的_JWT_TOKEN（仅实盘必填）');
-  const account = pick(existing, 'PREDICT_ACCOUNT_ADDRESS', '');
+  const account = pick(existing, 'PREDICT_ACCOUNT_ADDRESS', '请填写 Predict 网站里的 deposit address');
   const marketIds = pick(existing, 'MARKET_TOKEN_IDS', '');
 
   return `# ==============================
@@ -100,85 +96,75 @@ function buildPredictTemplate(existing) {
 
 # ---- 需要你填写（必填） ----
 # [需自行获取] Predict API Key（必填）
-# 获取方式：Predict 官方渠道/工单申请
 API_KEY=${apiKey}
 # [需自行获取] 钱包私钥（必填）
 PRIVATE_KEY=${privateKey}
-
-# ---- JWT Token 自动获取 ----
-# 填写完 API_KEY 和 PRIVATE_KEY 后，运行以下命令自动获取 JWT：
-# npm run auth:jwt
-# 获取成功后会自动写入本文件
+# [需自行获取] Predict 私有接口 JWT（仅 ENABLE_TRADING=true 实盘时必填）
 JWT_TOKEN=${jwtToken}
-
 # [需自行获取] Predict 账户地址（实盘必填，必须填写网站里显示的 deposit address）
 PREDICT_ACCOUNT_ADDRESS=${account}
 
 # ---- 官方默认 API / WS（直接使用）----
-# [官方默认 API] 直接使用即可
 API_BASE_URL=https://api.predict.fun
-# [官方默认 WS] 直接使用即可
 PREDICT_WS_URL=wss://ws.predict.fun/ws
 
-# ---- 统一做市策略（默认启用）----
+# ---- 统一做市策略开关（自动）----
 MM_VENUE=predict
 MM_REQUIRE_JWT=true
-PROBABLE_ENABLED=false
-MM_WS_ENABLED=true
+POLYMARKET_WS_ENABLED=false
 PREDICT_WS_ENABLED=true
-PROBABLE_WS_ENABLED=false
+MM_WS_ENABLED=true
 
-# ---- 核心开关（默认启用）----
-UNIFIED_STRATEGY_ENABLED=true
-ENABLE_TRADING=true
-AUTO_CONFIRM=true
+ENABLE_TRADING=false
+AUTO_CONFIRM=false
 
 # ---- 市场筛选（可选）----
-# 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
 MARKET_TOKEN_IDS=${marketIds}
 `;
 }
 
-function buildProbableTemplate(existing) {
-  const probableKey = pick(existing, 'PROBABLE_PRIVATE_KEY', '请填写你的_Probable_私钥（必填）');
-  const privateKey = pick(existing, 'PRIVATE_KEY', '');
+function buildPolymarketTemplate(existing) {
+  const privateKey = pick(existing, 'POLYMARKET_PRIVATE_KEY', '请填写你的 Polymarket 私钥（必填）');
+  const legacyPrivateKey = pick(existing, 'PRIVATE_KEY', '');
+  const apiKey = pick(existing, 'POLYMARKET_API_KEY', '');
+  const apiSecret = pick(existing, 'POLYMARKET_API_SECRET', '');
+  const apiPassphrase = pick(existing, 'POLYMARKET_API_PASSPHRASE', '');
   const marketIds = pick(existing, 'MARKET_TOKEN_IDS', '');
 
   return `# ==============================
-# Probable 做市模板（统一策略）
+# Polymarket 做市模板（统一策略）
 # 只展示你需要填写的字段；其余参数使用系统统一策略默认值
 # ==============================
 
 # ---- 需要你填写（必填） ----
-# [需自行获取] Probable 私钥（必填）
-PROBABLE_PRIVATE_KEY=${probableKey}
-# 兼容字段（可留空；如有值可与 PROBABLE_PRIVATE_KEY 一致）
-PRIVATE_KEY=${privateKey}
+# [需自行获取] Polymarket 私钥（必填）
+POLYMARKET_PRIVATE_KEY=${privateKey}
+# 兼容字段（可留空；如有值可与 POLYMARKET_PRIVATE_KEY 一致）
+PRIVATE_KEY=${legacyPrivateKey}
+# [可选] 已有 API 凭证；留空则默认自动派生
+POLYMARKET_API_KEY=${apiKey}
+POLYMARKET_API_SECRET=${apiSecret}
+POLYMARKET_API_PASSPHRASE=${apiPassphrase}
 
 # ---- 官方默认 API / WS（直接使用）----
-# 文档来源：https://developer.probable.markets/
-# Market API: /public/api/v1/markets/
-# Orderbook API: /public/api/v1/book
-MM_VENUE=probable
-PROBABLE_MARKET_API_URL=https://market-api.probable.markets
-PROBABLE_ORDERBOOK_API_URL=https://api.probable.markets/public/api/v1
-# [官方默认 WS] 直接使用即可
-PROBABLE_WS_URL=wss://ws.probable.markets/public/api/v1
-PROBABLE_CHAIN_ID=56
+MM_VENUE=polymarket
+POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
+POLYMARKET_CLOB_URL=https://clob.polymarket.com
+POLYMARKET_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market
+POLYMARKET_CHAIN_ID=137
+POLYMARKET_AUTO_DERIVE_API_KEY=true
+POLYMARKET_MAX_MARKETS=120
 
 # ---- 统一做市策略开关（自动）----
 MM_REQUIRE_JWT=false
-PROBABLE_ENABLED=true
-MM_WS_ENABLED=true
-PROBABLE_WS_ENABLED=true
+POLYMARKET_WS_ENABLED=true
 PREDICT_WS_ENABLED=false
-UNIFIED_STRATEGY_ENABLED=true
+MM_WS_ENABLED=true
 
-ENABLE_TRADING=true
-AUTO_CONFIRM=true
+ENABLE_TRADING=false
+AUTO_CONFIRM=false
 
 # ---- 市场筛选（可选）----
-# 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
 MARKET_TOKEN_IDS=${marketIds}
 `;
 }
@@ -194,7 +180,7 @@ function ensureEnvFile(envPath) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (!args.template || !['predict', 'probable'].includes(args.template)) {
+  if (!args.template || !['predict', 'polymarket'].includes(args.template)) {
     printHelp();
     process.exit(1);
   }
@@ -202,11 +188,7 @@ function main() {
   ensureEnvFile(args.envPath);
   const current = fs.readFileSync(args.envPath, 'utf8');
   const existing = parseEnv(current);
-
-  const next =
-    args.template === 'predict'
-      ? buildPredictTemplate(existing)
-      : buildProbableTemplate(existing);
+  const next = args.template === 'predict' ? buildPredictTemplate(existing) : buildPolymarketTemplate(existing);
 
   if (!args.dryRun) {
     if (fs.existsSync(args.envPath)) {
@@ -217,20 +199,8 @@ function main() {
     fs.writeFileSync(args.envPath, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
   }
 
-  console.log(
-    `${args.dryRun ? '[DRY-RUN] ' : ''}已生成 ${args.template} 模板: ${args.envPath}`
-  );
+  console.log(`${args.dryRun ? '[DRY-RUN] ' : ''}已生成 ${args.template} 模板: ${args.envPath}`);
   console.log('模板特点: 只展示需填写字段（中文注释）+ 官方默认 API/WS + 统一策略默认值。');
 }
 
 main();
-ENABLE_TRADING=true
-AUTO_CONFIRM=true
-
-# ---- 统一策略开关（自动）----
-UNIFIED_STRATEGY_ENABLED=true
-
-# ---- 市场筛选（可选）----
-# 手动填写 tokenId（逗号分隔），为空则走自动推荐市场
-MARKET_TOKEN_IDS=${marketIds}
-`'

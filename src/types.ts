@@ -221,7 +221,7 @@ export interface Config {
   mmWsHealthEmergencyRecoveryOffsetVolWeight?: number;
   mmWsHealthEmergencyRecoveryTemplateResetEnabled?: boolean;
   mmWsHealthEmergencyRecoverySingleSideLossWeight?: number;
-  mmVenue?: 'predict' | 'probable';
+  mmVenue?: 'predict' | 'polymarket';
   mmRequireJwt?: boolean;
   mmAsymSpreadWeight?: number;
   inventorySkewFactor?: number;
@@ -997,16 +997,6 @@ export interface Config {
   polymarketWsStaleMs?: number;
   polymarketWsResetOnReconnect?: boolean;
   polymarketCacheTtlMs?: number;
-  probableEnabled?: boolean;
-  probableMarketApiUrl?: string;
-  probableOrderbookApiUrl?: string;
-  probableMaxMarkets?: number;
-  probableFeeBps?: number;
-  probableWsEnabled?: boolean;
-  probableWsUrl?: string;
-  probableWsStaleMs?: number;
-  probableWsResetOnReconnect?: boolean;
-  probableCacheTtlMs?: number;
   predictWsEnabled?: boolean;
   predictWsUrl?: string;
   predictWsApiKey?: string;
@@ -1035,10 +1025,6 @@ export interface Config {
   polymarketApiPassphrase?: string;
   polymarketChainId?: number;
   polymarketAutoDeriveApiKey?: boolean;
-  probablePrivateKey?: string;
-  probableChainId?: number;
-  probableAutoDeriveApiKey?: boolean;
-  probableRpcUrl?: string;
   opinionOpenApiUrl?: string;
   opinionApiKey?: string;
   opinionMaxMarkets?: number;
@@ -1075,6 +1061,7 @@ export interface Market {
   market_slug?: string;
   outcome?: string;
   end_date?: string;
+  venue?: 'predict' | 'polymarket';
   is_neg_risk: boolean;
   is_yield_bearing: boolean;
   fee_rate_bps: number;
@@ -1087,6 +1074,14 @@ export interface Market {
   best_ask?: number;
   spread_pct?: number;
   total_orders?: number;
+  polymarket_rewards_enabled?: boolean;
+  polymarket_reward_min_size?: number;
+  polymarket_reward_max_spread?: number;
+  polymarket_reward_daily_rate?: number;
+  polymarket_reward_hourly_rate?: number;
+  polymarket_reward_epoch?: number;
+  polymarket_reward_in_game_multiplier?: number;
+  polymarket_accepting_orders?: boolean;
   // Liquidity Points Activation Rules
   // These fields control when orders qualify for liquidity points
   liquidity_activation?: LiquidityActivation;

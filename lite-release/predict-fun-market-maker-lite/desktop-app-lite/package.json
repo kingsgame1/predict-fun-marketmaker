@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "electron/main.mjs",
-  "description": "Lite desktop market maker app for Predict.fun and Probable",
+  "description": "Lite desktop market maker app for Predict.fun and Polymarket",
   "author": {
     "name": "ccjing",
     "email": "ccjing.eth@gmail.com"
@@ -74,11 +74,17 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "category": "Finance",
@@ -87,7 +93,6 @@
     }
   },
   "dependencies": {
-    "@prob/clob": "latest",
     "@polymarket/clob-client": "^5.2.3",
     "@polymarket/order-utils": "^3.0.1",
     "@predictdotfun/sdk": "^1.0.0",
@@ -100,8 +105,8 @@
     "ws": "^8.17.0"
   },
   "devDependencies": {
-    "fs-extra": "^11.3.3",
     "electron": "^30.0.0",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "fs-extra": "^11.3.3"
   }
 }

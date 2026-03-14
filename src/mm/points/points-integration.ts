@@ -10,7 +10,6 @@ import { pointsOptimizerEngine } from './points-optimizer.js';
 import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './points-optimizer-v2.js';
 import { smartMarketFilter, type MarketScore } from './smart-market-filter.js';
 import { batchProcessor, type BatchCheckResult } from './batch-processor.js';
-import { probablePointsAdapter } from './probable-adapter.js';
 
 /**
  * 积分系统配置
@@ -253,11 +252,6 @@ export class PointsSystemIntegration {
     // 记录到积分管理器
     pointsManager.recordOrder(market, orderSize, spread, isEligible);
 
-    // 记录到 Probable 适配器
-    if (orderbook) {
-      probablePointsAdapter.recordProbableOrder(market, orderSize, spread, orderbook);
-    }
-
     // 记录到 V2 优化器（用于机器学习）
     pointsOptimizerEngineV2.recordOrderResult({
       timestamp: Date.now(),
@@ -297,7 +291,6 @@ export class PointsSystemIntegration {
    */
   cleanup(maxAge: number = 24 * 60 * 60 * 1000): void {
     pointsManager.clearExpired(maxAge);
-    probablePointsAdapter.clearExpired(maxAge);
     batchProcessor.clearCache();
     smartMarketFilter.clearCache();
   }
@@ -325,7 +318,6 @@ export class PointsSystemIntegration {
     pointsOptimizerEngineV2.reset();
     smartMarketFilter.reset();
     batchProcessor.reset();
-    probablePointsAdapter.reset();
   }
 
   /**
@@ -345,9 +337,6 @@ export class PointsSystemIntegration {
       batchProcessor: {
         queueLength: batchProcessor.getQueueLength(),
         stats: batchProcessor.getStats(),
-      },
-      probableAdapter: {
-        metrics: probablePointsAdapter.getAllMetrics(),
       },
     };
   }

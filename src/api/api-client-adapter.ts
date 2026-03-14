@@ -1,7 +1,7 @@
 /**
  * 🔌 统一API客户端适配器
  *
- * 提供统一的API调用接口，支持Predict和Probable平台
+ * 提供统一的API调用接口，支持 Predict 平台
  *
  * @author Predict.fun Team
  * @version 1.0.0
@@ -17,9 +17,7 @@ const { ChainId, OrderBuilder, ProviderByChainId } = PredictSdk as any;
  * 平台类型
  */
 export enum PlatformType {
-  PREDICT = 'predict',
-  PROBABLE = 'probable'
-}
+  PREDICT = 'predict',}
 
 /**
  * 订单状态
