@@ -177,8 +177,15 @@ function unwrapSearchUrl(url: string): string {
 }
 
 function isValidDirectMarketUrl(venue: 'predict' | 'polymarket', url: string): boolean {
-  const domain = venue === 'predict' ? 'predict.fun' : 'polymarket.com';
-  return new RegExp(`^https?://(?:www\\.)?${domain.replace('.', '\\.')}/event/`, 'i').test(url);
+  try {
+    const parsed = new URL(url);
+    const expectedHost = venue === 'predict' ? 'predict.fun' : 'polymarket.com';
+    const expectedPrefix = venue === 'predict' ? '/market/' : '/event/';
+    const host = parsed.hostname.toLowerCase();
+    return (host === expectedHost || host === `www.${expectedHost}`) && parsed.pathname.startsWith(expectedPrefix);
+  } catch {
+    return false;
+  }
 }
 
 async function searchDirectMarketUrl(
@@ -579,10 +586,15 @@ async function loadPolymarketMarkets(env: EnvMap, scan: number): Promise<{ marke
     apiSecret: env.get('POLYMARKET_API_SECRET') || undefined,
     apiPassphrase: env.get('POLYMARKET_API_PASSPHRASE') || undefined,
     autoDeriveApiKey: (env.get('POLYMARKET_AUTO_DERIVE_API_KEY') || 'true').toLowerCase() !== 'false',
+    funderAddress: env.get('POLYMARKET_FUNDER_ADDRESS') || undefined,
+    signatureType: Number(env.get('POLYMARKET_SIGNATURE_TYPE') || 0),
   });
   const allMarkets = await api.getMarkets();
+  const eligibleMarkets = allMarkets.filter(
+    (market) => market.polymarket_accepting_orders !== false && market.polymarket_enable_order_book !== false
+  );
   const rankedMarkets = sortByLiquidityAndVolume(
-    allMarkets,
+    eligibleMarkets.length > 0 ? eligibleMarkets : allMarkets,
     (market) => toFiniteNumber(market.liquidity_24h),
     (market) => toFiniteNumber(market.volume_24h)
   );

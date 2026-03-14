@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import type { Config } from '../types.js';
 import type { PlatformLeg, ExternalPlatform } from './types.js';
 import { PredictAPI } from '../api/client.js';
-import { OrderManager } from '../order-manager.js';
+import type { MakerOrderManager } from '../mm/venue.js';
 import { Wallet } from 'ethers';
 import { ClobClient } from '@polymarket/clob-client';
 import { createClobClient, OrderSide, LimitTimeInForce } from '@prob/clob';
@@ -59,7 +59,7 @@ interface PlatformExecutor {
 class PredictExecutor implements PlatformExecutor {
   platform: ExternalPlatform = 'Predict';
   private api: PredictAPI;
-  private orderManager: OrderManager;
+  private orderManager: MakerOrderManager;
   private slippageBps: string;
   private useLimitOrders: boolean;
   private cancelOpenMs: number;
@@ -67,7 +67,7 @@ class PredictExecutor implements PlatformExecutor {
 
   constructor(
     api: PredictAPI,
-    orderManager: OrderManager,
+    orderManager: MakerOrderManager,
     slippageBps: number,
     options?: { useLimitOrders?: boolean; cancelOpenMs?: number }
   ) {
@@ -212,13 +212,16 @@ class PolymarketExecutor implements PlatformExecutor {
     this.client = new ClobClient(
       config.polymarketClobUrl || 'https://clob.polymarket.com',
       config.polymarketChainId || 137,
-      signer
+      signer,
+      undefined,
+      (config.polymarketSignatureType || 0) as any,
+      config.polymarketFunderAddress || signer.address
     );
 
     this.autoDerive = config.polymarketAutoDeriveApiKey !== false;
     this.useFok = config.crossPlatformUseFok !== false;
     this.cancelOpenMs = config.crossPlatformCancelOpenMs || 0;
-    this.ownerAddress = signer.address;
+    this.ownerAddress = config.polymarketFunderAddress || signer.address;
     this.orderType = config.crossPlatformOrderType;
     this.batchOrders = config.crossPlatformBatchOrders === true;
     const rawBatchMax = Math.max(1, config.crossPlatformBatchMax || 15);
@@ -264,6 +267,55 @@ class PolymarketExecutor implements PlatformExecutor {
     }
   }
 
+  private resolvePostOnly(orderType: string): boolean {
+    return orderType === 'GTC' || orderType === 'GTD';
+  }
+
+  private async buildSignedOrder(leg: PlatformLeg): Promise<any> {
+    const clientAny = this.client as any;
+    const [tickSize, negRisk] = await Promise.all([
+      typeof clientAny.getTickSize === 'function'
+        ? clientAny.getTickSize(leg.tokenId).catch(() => '0.01')
+        : Promise.resolve('0.01'),
+      typeof clientAny.getNegRisk === 'function'
+        ? clientAny.getNegRisk(leg.tokenId).catch(() => false)
+        : Promise.resolve(false),
+    ]);
+
+    return await this.client.createOrder(
+      {
+        tokenID: leg.tokenId,
+        price: leg.price,
+        side: leg.side as any,
+        size: leg.shares,
+      },
+      {
+        tickSize,
+        negRisk: Boolean(negRisk),
+      }
+    );
+  }
+
+  private extractOrderId(result: any, fallbackOrder?: any): string | null {
+    const candidates = [
+      result?.orderID,
+      result?.orderId,
+      result?.order?.id,
+      result?.order?.orderID,
+      result?.order?.orderId,
+      result?.order?.hash,
+      result?.data?.orderID,
+      result?.data?.orderId,
+      fallbackOrder?.order?.hash,
+      fallbackOrder?.order?.orderHash,
+    ];
+
+    for (const candidate of candidates) {
+      if (candidate) return String(candidate);
+    }
+    return null;
+  }
+
   async execute(legs: PlatformLeg[], options?: PlatformExecuteOptions): Promise<ExecutionResult> {
     await this.ensureApiCreds();
     if (!this.apiCreds) {
@@ -279,14 +331,17 @@ class PolymarketExecutor implements PlatformExecutor {
     const orderIds: string[] = [];
 
     for (const leg of legs) {
-      const order = await this.client.createOrder({
-        tokenId: leg.tokenId,
-        price: leg.price,
-        side: leg.side,
-        size: leg.shares,
-      });
-      const result: any = await (this.client as any).postOrder(order, orderType as any);
-      const orderId = result?.orderID || result?.orderId || order?.order?.hash || order?.order?.orderHash;
+      const order = await this.buildSignedOrder(leg);
+      const result: any = await (this.client as any).postOrder(
+        order,
+        orderType as any,
+        undefined,
+        this.resolvePostOnly(orderType)
+      );
+      if (result?.success === false) {
+        throw new Error(result?.errorMsg || result?.message || 'Polymarket order rejected');
+      }
+      const orderId = this.extractOrderId(result, order);
       if (orderId) {
         orderIds.push(String(orderId));
         if (orderType !== 'FOK' && this.cancelOpenMs > 0) {
@@ -312,12 +367,7 @@ class PolymarketExecutor implements PlatformExecutor {
     const orderIds: string[] = [];
     const orders = [];
     for (const leg of legs) {
-      const order = await this.client.createOrder({
-        tokenId: leg.tokenId,
-        price: leg.price,
-        side: leg.side,
-        size: leg.shares,
-      });
+      const order = await this.buildSignedOrder(leg);
       orders.push(order);
     }
 
@@ -328,7 +378,14 @@ class PolymarketExecutor implements PlatformExecutor {
 
     for (const chunk of chunks) {
       try {
-        const resp = await this.postOrdersBatch(chunk, orderType);
+        const clientAny = this.client as any;
+        const resp = typeof clientAny.postOrders === 'function'
+          ? await clientAny.postOrders(
+              chunk.map((order: any) => ({ order, orderType: orderType as any, postOnly: this.resolvePostOnly(orderType) })),
+              undefined,
+              this.resolvePostOnly(orderType)
+            )
+          : await this.postOrdersBatch(chunk, orderType);
         const batchIds = this.extractBatchOrderIds(resp);
         if (batchIds.length > 0) {
           orderIds.push(...batchIds);
@@ -339,8 +396,16 @@ class PolymarketExecutor implements PlatformExecutor {
       } catch (error) {
         console.warn('Polymarket batch submit failed, falling back to single orders:', error);
         for (const order of chunk) {
-          const result: any = await (this.client as any).postOrder(order, orderType as any);
-          const orderId = result?.orderID || result?.orderId || order?.order?.hash || order?.order?.orderHash;
+          const result: any = await (this.client as any).postOrder(
+            order,
+            orderType as any,
+            undefined,
+            this.resolvePostOnly(orderType)
+          );
+          if (result?.success === false) {
+            throw new Error(result?.errorMsg || result?.message || 'Polymarket order rejected');
+          }
+          const orderId = this.extractOrderId(result, order);
           if (orderId) {
             orderIds.push(String(orderId));
             if (orderType !== 'FOK' && this.cancelOpenMs > 0) {
@@ -516,13 +581,8 @@ class PolymarketExecutor implements PlatformExecutor {
           ? Math.min(1, refPrice * (1 + slippage))
           : Math.max(0.0001, refPrice * (1 - slippage));
 
-      const order = await this.client.createOrder({
-        tokenId: leg.tokenId,
-        price: hedgePrice,
-        side: hedgeSide,
-        size: leg.shares,
-      });
-      await (this.client as any).postOrder(order, 'FOK');
+      const order = await this.buildSignedOrder({ ...leg, side: hedgeSide, price: hedgePrice });
+      await (this.client as any).postOrder(order, 'FOK', undefined, false);
     }
   }
 
@@ -647,6 +707,7 @@ export class CrossPlatformExecutionRouter {
   private failureMinDepthSharesExtra = 0;
   private forceFokUntil = 0;
   private failureTotalCostBpsExtra = 0;
+  private failureRateWindow = { attempts: 0, failures: 0, windowStart: 0 };
   private allowlistTokens?: Set<string>;
   private blocklistTokens?: Set<string>;
   private allowlistPlatforms?: Set<string>;
@@ -697,7 +758,7 @@ export class CrossPlatformExecutionRouter {
   private wsHealthChunkDelayExtraMs = 0;
   private wsHealthChunkFactor = 1;
 
-  constructor(config: Config, api: PredictAPI, orderManager: OrderManager) {
+  constructor(config: Config, api: PredictAPI, orderManager: MakerOrderManager) {
     this.config = config;
     this.api = api;
     this.allowlistTokens = this.buildSet(config.crossPlatformAllowlistTokens);
@@ -735,6 +796,32 @@ export class CrossPlatformExecutionRouter {
     }
   }
 
+  async preflightOnly(legs: PlatformLeg[]): Promise<{ ok: boolean; reason?: string; legs?: PlatformLeg[] }> {
+    try {
+      this.assertAvoidHours();
+      this.assertCircuitHealthy();
+      this.assertGlobalCooldown();
+      const planned = this.adjustLegsForAttempt(legs, 0);
+      if (!planned.length) {
+        return { ok: false, reason: 'No executable legs after scaling' };
+      }
+      this.assertAllowlist(planned);
+      this.assertTokenHealthy(planned);
+      this.assertPlatformScore(planned);
+      this.assertPlatformHealthy(planned);
+      const prepared = await this.prepareLegs(planned);
+      this.assertMinNotionalAndProfit(prepared);
+      await this.shadowProfitCheck(prepared);
+      if (this.config.crossPlatformPreSubmitGlobal) {
+        await this.preSubmitCheck(prepared);
+      }
+      return { ok: true, legs: prepared };
+    } catch (error: any) {
+      const message = error?.message || 'Preflight failed';
+      return { ok: false, reason: message };
+    }
+  }
+
   async execute(legs: PlatformLeg[]): Promise<void> {
     this.assertAvoidHours();
     this.assertCircuitHealthy();
@@ -764,6 +851,10 @@ export class CrossPlatformExecutionRouter {
         preparedLegs = await this.prepareLegs(plannedLegs);
         preflightMs = Date.now() - preflightStart;
         this.assertMinNotionalAndProfit(preparedLegs);
+        await this.shadowProfitCheck(preparedLegs);
+        if (this.config.crossPlatformPreSubmitGlobal) {
+          await this.preSubmitCheck(preparedLegs);
+        }
 
         const execStart = Date.now();
         const chunkResult = await this.executeChunks(preparedLegs, attempt);
@@ -989,6 +1080,94 @@ export class CrossPlatformExecutionRouter {
   }
 
   private async preSubmitCheck(legs: PlatformLeg[]): Promise<void> {
+    await this.preSubmitCheckOnce(legs);
+    const recheckMs = Math.max(0, this.config.crossPlatformPreSubmitRecheckMs || 0);
+    if (recheckMs > 0) {
+      await this.sleep(recheckMs);
+      await this.preSubmitCheckOnce(legs);
+    }
+  }
+
+  private async shadowProfitCheck(legs: PlatformLeg[]): Promise<void> {
+    const minUsd = Math.max(0, this.config.crossPlatformShadowMinProfitUsd || 0);
+    const minBps = Math.max(0, this.config.crossPlatformShadowMinProfitBps || 0);
+    if (!minUsd && !minBps) {
+      return;
+    }
+    const slippageBps = this.getSlippageBps();
+    const depthLevels = Math.max(0, this.config.crossPlatformDepthLevels || 0);
+    const transfer = Math.max(0, this.config.crossPlatformTransferCost || 0);
+    let totalCostPerShare = 0;
+    let totalProceedsPerShare = 0;
+    let hasBuy = false;
+    let hasSell = false;
+
+    for (const leg of legs) {
+      const book = await this.fetchOrderbookInternal(leg);
+      if (!book) {
+        throw new Error(`Shadow check failed: missing orderbook for ${leg.platform}:${leg.tokenId}`);
+      }
+      const feeBps = this.getFeeBps(leg.platform);
+      const { curveRate, curveExponent } = this.getFeeCurve(leg.platform);
+      const vwap =
+        leg.side === 'BUY'
+          ? estimateBuy(book.asks, leg.shares, feeBps, curveRate, curveExponent, slippageBps, depthLevels)
+          : estimateSell(book.bids, leg.shares, feeBps, curveRate, curveExponent, slippageBps, depthLevels);
+      if (!vwap) {
+        throw new Error(`Shadow check failed: insufficient depth for ${leg.platform}:${leg.tokenId}`);
+      }
+      let vwapAllIn = Number.isFinite(vwap.avgAllIn) ? vwap.avgAllIn : vwap.avgPrice;
+      if (!Number.isFinite(vwapAllIn) || vwapAllIn <= 0) {
+        throw new Error(`Shadow check failed: invalid VWAP for ${leg.platform}:${leg.tokenId}`);
+      }
+      const impactBase = Math.max(0, this.config.crossPlatformShadowImpactBps || 0);
+      const impactPerLevel = Math.max(0, this.config.crossPlatformShadowImpactPerLevelBps || 0);
+      let impactBps = impactBase;
+      if (impactPerLevel > 0) {
+        const extraLevels = Math.max(0, (vwap.levelsUsed ?? 1) - 1);
+        impactBps += extraLevels * impactPerLevel;
+      }
+      if (impactBps > 0) {
+        const factor = impactBps / 10000;
+        vwapAllIn = leg.side === 'BUY' ? vwapAllIn * (1 + factor) : vwapAllIn * (1 - factor);
+      }
+      if (leg.side === 'BUY') {
+        hasBuy = true;
+        totalCostPerShare += vwapAllIn;
+      } else {
+        hasSell = true;
+        totalProceedsPerShare += vwapAllIn;
+      }
+    }
+
+    const shares = Math.min(...legs.map((leg) => leg.shares));
+    if (!Number.isFinite(shares) || shares <= 0) {
+      return;
+    }
+    let profit = 0;
+    let notional = 0;
+    if (hasBuy && !hasSell) {
+      notional = totalCostPerShare * shares;
+      profit = (1 - totalCostPerShare - transfer) * shares;
+    } else if (hasSell && !hasBuy) {
+      notional = totalProceedsPerShare * shares;
+      profit = (totalProceedsPerShare - 1 - transfer) * shares;
+    } else {
+      notional = Math.max(totalCostPerShare, totalProceedsPerShare) * shares;
+      profit = (totalProceedsPerShare - totalCostPerShare - transfer) * shares;
+    }
+    if (minUsd > 0 && profit < minUsd) {
+      throw new Error(`Shadow check failed: profit $${profit.toFixed(2)} < min $${minUsd}`);
+    }
+    if (minBps > 0 && notional > 0) {
+      const pct = (profit / notional) * 10000;
+      if (pct < minBps) {
+        throw new Error(`Shadow check failed: profit ${pct.toFixed(1)} bps < min ${minBps} bps`);
+      }
+    }
+  }
+
+  private async preSubmitCheckOnce(legs: PlatformLeg[]): Promise<void> {
     let driftBps = Math.max(0, this.config.crossPlatformPreSubmitDriftBps || 0);
     let vwapBps = Math.max(0, this.config.crossPlatformPreSubmitVwapBps || 0);
     let minProfitBps = Math.max(0, this.config.crossPlatformPreSubmitProfitBps || 0);
@@ -1021,6 +1200,16 @@ export class CrossPlatformExecutionRouter {
       if (profitUsdBump > 0) {
         minProfitUsd += profitUsdBump;
       }
+    }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      if (driftBps > 0) driftBps = Math.max(0, driftBps / failureRateFactor);
+      if (vwapBps > 0) vwapBps = Math.max(0, vwapBps / failureRateFactor);
+      if (totalCostBps > 0) totalCostBps = Math.max(0, totalCostBps / failureRateFactor);
+      if (legSpreadBps > 0) legSpreadBps = Math.max(0, legSpreadBps / failureRateFactor);
+      if (legCostSpreadBps > 0) legCostSpreadBps = Math.max(0, legCostSpreadBps / failureRateFactor);
+      if (minProfitBps > 0) minProfitBps = Math.max(0, minProfitBps * failureRateFactor);
+      if (minProfitUsd > 0) minProfitUsd = Math.max(0, minProfitUsd * failureRateFactor);
     }
     if (this.consecutiveFailures > 0) {
       const tighten = Math.max(0, this.config.crossPlatformFailureDriftTightenBps || 0);
@@ -2774,6 +2963,56 @@ export class CrossPlatformExecutionRouter {
     this.qualityScore = Math.max(minFactor, this.qualityScore - down * Math.max(0, multiplier));
   }
 
+  private updateFailureRateWindow(success: boolean, now: number = Date.now()): void {
+    const windowMs = Math.max(0, this.config.crossPlatformFailureRateWindowMs || 0);
+    if (!windowMs) {
+      return;
+    }
+    if (!this.failureRateWindow.windowStart || now - this.failureRateWindow.windowStart > windowMs) {
+      this.failureRateWindow.windowStart = now;
+      this.failureRateWindow.attempts = 0;
+      this.failureRateWindow.failures = 0;
+    }
+    this.failureRateWindow.attempts += 1;
+    if (!success) {
+      this.failureRateWindow.failures += 1;
+    }
+  }
+
+  private getFailureRateStats(now: number = Date.now()): { attempts: number; failures: number; rate: number } {
+    const windowMs = Math.max(0, this.config.crossPlatformFailureRateWindowMs || 0);
+    if (!windowMs) {
+      return { attempts: 0, failures: 0, rate: 0 };
+    }
+    const windowStart = this.failureRateWindow.windowStart || 0;
+    if (!windowStart || now - windowStart > windowMs) {
+      return { attempts: 0, failures: 0, rate: 0 };
+    }
+    const attempts = Math.max(0, this.failureRateWindow.attempts || 0);
+    const failures = Math.max(0, this.failureRateWindow.failures || 0);
+    const rate = attempts > 0 ? (failures / attempts) * 100 : 0;
+    return { attempts, failures, rate };
+  }
+
+  private getFailureRateFactor(now: number = Date.now()): number {
+    const maxFactor = Math.max(1, this.config.crossPlatformFailureRateTightenMax || 1);
+    const threshold = Math.max(0, this.config.crossPlatformFailureRateThreshold || 0);
+    const minAttempts = Math.max(0, this.config.crossPlatformFailureRateMinAttempts || 0);
+    if (maxFactor <= 1 || threshold <= 0) {
+      return 1;
+    }
+    const stats = this.getFailureRateStats(now);
+    if (minAttempts > 0 && stats.attempts < minAttempts) {
+      return 1;
+    }
+    if (stats.rate <= threshold) {
+      return 1;
+    }
+    const denom = Math.max(1, 100 - threshold);
+    const ratio = Math.min(1, (stats.rate - threshold) / denom);
+    return 1 + ratio * (maxFactor - 1);
+  }
+
   private updateConsistencyPressure(now: number): void {
     if (!this.consistencyPressure) {
       this.lastConsistencyPressureAt = now;
@@ -3151,6 +3390,7 @@ export class CrossPlatformExecutionRouter {
     reason?: 'preflight' | 'execution' | 'postTrade' | 'hedge' | 'unknown';
   }): void {
     const alpha = 0.2;
+    this.updateFailureRateWindow(input.success);
     this.metrics.attempts += 1;
     if (input.success) {
       this.metrics.successes += 1;
@@ -3207,12 +3447,15 @@ export class CrossPlatformExecutionRouter {
     }
     this.lastMetricsLogAt = now;
     const reasons = this.metrics.failureReasons;
+    const failureRate = this.getFailureRateStats();
+    const failureRateText =
+      failureRate.attempts > 0 ? ` failRate=${failureRate.rate.toFixed(1)}%(${failureRate.failures}/${failureRate.attempts})` : '';
     console.log(
       `[CrossExec] attempts=${this.metrics.attempts} success=${this.metrics.successes} fail=${this.metrics.failures} ` +
         `preflight=${this.metrics.emaPreflightMs.toFixed(0)}ms exec=${this.metrics.emaExecMs.toFixed(0)}ms ` +
         `total=${this.metrics.emaTotalMs.toFixed(0)}ms postDrift=${this.metrics.emaPostTradeDriftBps.toFixed(1)}bps ` +
         `alerts=${this.metrics.postTradeAlerts} softBlocks=${this.metrics.softBlocks} quality=${this.qualityScore.toFixed(2)} ` +
-        `depthPenalty=${this.depthRatioPenalty.toFixed(2)} ` +
+        `depthPenalty=${this.depthRatioPenalty.toFixed(2)}${failureRateText} ` +
         `failures=preflight:${reasons.preflight} exec:${reasons.execution} post:${reasons.postTrade} hedge:${reasons.hedge} ` +
         `lastError=${this.metrics.lastError || 'none'}`
     );
@@ -3255,6 +3498,8 @@ export class CrossPlatformExecutionRouter {
   }
 
   private buildMetricsSnapshot(): Record<string, unknown> {
+    const failureRateWindow = this.getFailureRateStats();
+    const failureRateFactor = this.getFailureRateFactor();
     return {
       version: 1,
       ts: Date.now(),
@@ -3263,6 +3508,8 @@ export class CrossPlatformExecutionRouter {
       depthRatioPenalty: this.depthRatioPenalty,
       chunkFactor: this.chunkFactor,
       chunkDelayMs: this.chunkDelayMs,
+      failureRateWindow,
+      failureRateFactor,
       globalCooldownUntil: this.globalCooldownUntil,
       lastConsistencyFailureAt: this.lastConsistencyFailureAt,
       lastConsistencyFailureReason: this.lastConsistencyFailureReason,
@@ -3965,6 +4212,11 @@ export class CrossPlatformExecutionRouter {
       samples += Math.max(0, this.config.crossPlatformFailureStabilitySamplesAdd || 0);
       intervalMs += Math.max(0, this.config.crossPlatformFailureStabilityIntervalAddMs || 0);
     }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      samples += Math.max(0, this.config.crossPlatformFailureRateStabilitySamplesAdd || 0);
+      intervalMs += Math.max(0, this.config.crossPlatformFailureRateStabilityIntervalAddMs || 0);
+    }
     const maxSamples = Math.max(0, this.config.crossPlatformFailureStabilitySamplesMax || 0);
     if (maxSamples > 0) {
       samples = Math.min(samples, maxSamples);
@@ -3973,7 +4225,20 @@ export class CrossPlatformExecutionRouter {
     if (maxInterval > 0) {
       intervalMs = Math.min(intervalMs, maxInterval);
     }
-    const threshold = Math.max(0, this.getStabilityBps() * this.getAutoTuneFactor());
+    if (failureRateFactor > 1) {
+      const maxSamplesRate = Math.max(0, this.config.crossPlatformFailureRateStabilityMaxSamples || 0);
+      if (maxSamplesRate > 0) {
+        samples = Math.min(samples, maxSamplesRate);
+      }
+      const maxIntervalRate = Math.max(0, this.config.crossPlatformFailureRateStabilityMaxIntervalMs || 0);
+      if (maxIntervalRate > 0) {
+        intervalMs = Math.min(intervalMs, maxIntervalRate);
+      }
+    }
+    let threshold = Math.max(0, this.getStabilityBps() * this.getAutoTuneFactor());
+    if (failureRateFactor > 1 && threshold > 0) {
+      threshold = Math.max(0, threshold / failureRateFactor);
+    }
     if (samples <= 1 || threshold <= 0) {
       return;
     }
@@ -4024,6 +4289,10 @@ export class CrossPlatformExecutionRouter {
     if (this.circuitFailures > 0 || this.isDegraded()) {
       const factor = Math.max(0.05, Math.min(1, this.config.crossPlatformFailureDepthUsageFactor || 1));
       usage = Math.max(0.05, Math.min(1, usage * factor));
+    }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      usage = Math.max(0.05, Math.min(1, usage / failureRateFactor));
     }
     if (this.isConsistencyTemplateActive()) {
       const templateUsage = Math.max(0, this.config.crossPlatformConsistencyTemplateDepthUsage || 0);
@@ -4301,6 +4570,10 @@ export class CrossPlatformExecutionRouter {
     }
     if (qualityFactor > 1) {
       required *= qualityFactor;
+    }
+    const failureRateFactor = this.getFailureRateFactor();
+    if (failureRateFactor > 1) {
+      required *= failureRateFactor;
     }
     if (hasMissingVwap) {
       const penaltyBps = Math.max(0, this.config.crossPlatformMissingVwapPenaltyBps || 0);

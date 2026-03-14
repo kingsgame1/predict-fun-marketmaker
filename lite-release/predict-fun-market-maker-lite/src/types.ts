@@ -990,6 +990,8 @@ export interface Config {
   polymarketFeeRateCacheMs?: number;
   polymarketFeeCurveRate?: number;
   polymarketFeeCurveExponent?: number;
+  polymarketFunderAddress?: string;
+  polymarketSignatureType?: number;
   polymarketWsEnabled?: boolean;
   polymarketWsUrl?: string;
   polymarketWsCustomFeature?: boolean;
@@ -1082,6 +1084,8 @@ export interface Market {
   polymarket_reward_epoch?: number;
   polymarket_reward_in_game_multiplier?: number;
   polymarket_accepting_orders?: boolean;
+  polymarket_tick_size?: number;
+  polymarket_enable_order_book?: boolean;
   // Liquidity Points Activation Rules
   // These fields control when orders qualify for liquidity points
   liquidity_activation?: LiquidityActivation;

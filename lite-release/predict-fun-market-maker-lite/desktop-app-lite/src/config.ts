@@ -1174,6 +1174,8 @@ export function loadConfig(): Config {
     polymarketFeeRateCacheMs: parseInt(process.env.POLYMARKET_FEE_RATE_CACHE_MS || '300000'),
     polymarketFeeCurveRate: parseFloat(process.env.POLYMARKET_FEE_CURVE_RATE || '0.25'),
     polymarketFeeCurveExponent: parseFloat(process.env.POLYMARKET_FEE_CURVE_EXPONENT || '2'),
+    polymarketFunderAddress: process.env.POLYMARKET_FUNDER_ADDRESS,
+    polymarketSignatureType: parseInt(process.env.POLYMARKET_SIGNATURE_TYPE || '0'),
     polymarketWsEnabled: process.env.POLYMARKET_WS_ENABLED === 'true',
     polymarketWsUrl: process.env.POLYMARKET_WS_URL || 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
     polymarketWsCustomFeature: process.env.POLYMARKET_WS_CUSTOM_FEATURE === 'true',

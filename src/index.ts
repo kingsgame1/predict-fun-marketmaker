@@ -629,7 +629,7 @@ export class PolymarketMarketMakerBot {
   private warnedStatusSync = false;
 
   private getAccountAddressForQueries(): string {
-    return this.wallet.address;
+    return this.config.polymarketFunderAddress || this.wallet.address;
   }
 
   constructor() {
@@ -638,6 +638,9 @@ export class PolymarketMarketMakerBot {
 
     this.wallet = new Wallet(this.config.polymarketPrivateKey || this.config.privateKey);
     console.log('🔐 Wallet: ' + this.wallet.address + '\n');
+    if (this.config.polymarketFunderAddress) {
+      console.log('🏦 Polymarket Funder/Profile: ' + this.config.polymarketFunderAddress + '\n');
+    }
 
     this.api = new PolymarketAPI({
       gammaUrl: this.config.polymarketGammaUrl || 'https://gamma-api.polymarket.com',
@@ -650,6 +653,8 @@ export class PolymarketMarketMakerBot {
       apiSecret: this.config.polymarketApiSecret,
       apiPassphrase: this.config.polymarketApiPassphrase,
       autoDeriveApiKey: this.config.polymarketAutoDeriveApiKey !== false,
+      funderAddress: this.config.polymarketFunderAddress || this.wallet.address,
+      signatureType: this.config.polymarketSignatureType || 0,
     });
 
     this.marketSelector = new MarketSelector(0, 0, 0.12, 0);
@@ -659,6 +664,8 @@ export class PolymarketMarketMakerBot {
         chainId: this.config.polymarketChainId || 137,
         privateKey: this.config.polymarketPrivateKey || this.config.privateKey,
         orderType: this.config.crossPlatformOrderType || 'GTC',
+        funderAddress: this.config.polymarketFunderAddress || this.wallet.address,
+        signatureType: this.config.polymarketSignatureType || 0,
       });
     });
   }
@@ -676,7 +683,7 @@ export class PolymarketMarketMakerBot {
     this.setupMarketWs();
 
     if (!this.warnedStatusSync) {
-      console.log('ℹ️  Polymarket 模式使用链上订单，不依赖 Predict JWT，同步仅基于当前钱包地址');
+      console.log('ℹ️  Polymarket 模式使用链上订单，不依赖 Predict JWT，同步基于当前 Profile/Funder 地址');
       this.warnedStatusSync = true;
     }
 

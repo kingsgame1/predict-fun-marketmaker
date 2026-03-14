@@ -91,6 +91,9 @@ export class MarketSelector {
     const mid = Number(orderbook.mid_price || 0);
     const rewardProfile = this.getPolymarketRewardProfile(market, orderbook);
 
+    if (market.venue === 'polymarket' && market.polymarket_enable_order_book === false) {
+      return { market, score: 0, reasons: ['Polymarket 市场未启用 orderbook'] };
+    }
     if (market.polymarket_accepting_orders === false) {
       return { market, score: 0, reasons: ['Polymarket 市场当前不接受下单'] };
     }

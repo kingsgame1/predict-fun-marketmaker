@@ -129,6 +129,8 @@ function buildPolymarketTemplate(existing) {
   const apiKey = pick(existing, 'POLYMARKET_API_KEY', '');
   const apiSecret = pick(existing, 'POLYMARKET_API_SECRET', '');
   const apiPassphrase = pick(existing, 'POLYMARKET_API_PASSPHRASE', '');
+  const funderAddress = pick(existing, 'POLYMARKET_FUNDER_ADDRESS', '请填写你的 Polymarket Profile Address / Funder Address（建议填写）');
+  const signatureType = pick(existing, 'POLYMARKET_SIGNATURE_TYPE', '0');
   const marketIds = pick(existing, 'MARKET_TOKEN_IDS', '');
 
   return `# ==============================
@@ -145,6 +147,10 @@ PRIVATE_KEY=${legacyPrivateKey}
 POLYMARKET_API_KEY=${apiKey}
 POLYMARKET_API_SECRET=${apiSecret}
 POLYMARKET_API_PASSPHRASE=${apiPassphrase}
+# [建议填写] Polymarket Profile Address / Funder Address（用于查询持仓、挂单归属）
+POLYMARKET_FUNDER_ADDRESS=${funderAddress}
+# [建议填写] 签名类型：0=EOA/浏览器钱包，1=Magic/邮箱登录
+POLYMARKET_SIGNATURE_TYPE=${signatureType}
 
 # ---- 官方默认 API / WS（直接使用）----
 MM_VENUE=polymarket

@@ -212,13 +212,16 @@ class PolymarketExecutor implements PlatformExecutor {
     this.client = new ClobClient(
       config.polymarketClobUrl || 'https://clob.polymarket.com',
       config.polymarketChainId || 137,
-      signer
+      signer,
+      undefined,
+      (config.polymarketSignatureType || 0) as any,
+      config.polymarketFunderAddress || signer.address
     );
 
     this.autoDerive = config.polymarketAutoDeriveApiKey !== false;
     this.useFok = config.crossPlatformUseFok !== false;
     this.cancelOpenMs = config.crossPlatformCancelOpenMs || 0;
-    this.ownerAddress = signer.address;
+    this.ownerAddress = config.polymarketFunderAddress || signer.address;
     this.orderType = config.crossPlatformOrderType;
     this.batchOrders = config.crossPlatformBatchOrders === true;
     const rawBatchMax = Math.max(1, config.crossPlatformBatchMax || 15);
@@ -264,6 +267,55 @@ class PolymarketExecutor implements PlatformExecutor {
     }
   }
 
+  private resolvePostOnly(orderType: string): boolean {
+    return orderType === 'GTC' || orderType === 'GTD';
+  }
+
+  private async buildSignedOrder(leg: PlatformLeg): Promise<any> {
+    const clientAny = this.client as any;
+    const [tickSize, negRisk] = await Promise.all([
+      typeof clientAny.getTickSize === 'function'
+        ? clientAny.getTickSize(leg.tokenId).catch(() => '0.01')
+        : Promise.resolve('0.01'),
+      typeof clientAny.getNegRisk === 'function'
+        ? clientAny.getNegRisk(leg.tokenId).catch(() => false)
+        : Promise.resolve(false),
+    ]);
+
+    return await this.client.createOrder(
+      {
+        tokenID: leg.tokenId,
+        price: leg.price,
+        side: leg.side as any,
+        size: leg.shares,
+      },
+      {
+        tickSize,
+        negRisk: Boolean(negRisk),
+      }
+    );
+  }
+
+  private extractOrderId(result: any, fallbackOrder?: any): string | null {
+    const candidates = [
+      result?.orderID,
+      result?.orderId,
+      result?.order?.id,
+      result?.order?.orderID,
+      result?.order?.orderId,
+      result?.order?.hash,
+      result?.data?.orderID,
+      result?.data?.orderId,
+      fallbackOrder?.order?.hash,
+      fallbackOrder?.order?.orderHash,
+    ];
+
+    for (const candidate of candidates) {
+      if (candidate) return String(candidate);
+    }
+    return null;
+  }
+
   async execute(legs: PlatformLeg[], options?: PlatformExecuteOptions): Promise<ExecutionResult> {
     await this.ensureApiCreds();
     if (!this.apiCreds) {
@@ -279,14 +331,17 @@ class PolymarketExecutor implements PlatformExecutor {
     const orderIds: string[] = [];
 
     for (const leg of legs) {
-      const order = await this.client.createOrder({
-        tokenId: leg.tokenId,
-        price: leg.price,
-        side: leg.side,
-        size: leg.shares,
-      });
-      const result: any = await (this.client as any).postOrder(order, orderType as any);
-      const orderId = result?.orderID || result?.orderId || order?.order?.hash || order?.order?.orderHash;
+      const order = await this.buildSignedOrder(leg);
+      const result: any = await (this.client as any).postOrder(
+        order,
+        orderType as any,
+        undefined,
+        this.resolvePostOnly(orderType)
+      );
+      if (result?.success === false) {
+        throw new Error(result?.errorMsg || result?.message || 'Polymarket order rejected');
+      }
+      const orderId = this.extractOrderId(result, order);
       if (orderId) {
         orderIds.push(String(orderId));
         if (orderType !== 'FOK' && this.cancelOpenMs > 0) {
@@ -312,12 +367,7 @@ class PolymarketExecutor implements PlatformExecutor {
     const orderIds: string[] = [];
     const orders = [];
     for (const leg of legs) {
-      const order = await this.client.createOrder({
-        tokenId: leg.tokenId,
-        price: leg.price,
-        side: leg.side,
-        size: leg.shares,
-      });
+      const order = await this.buildSignedOrder(leg);
       orders.push(order);
     }
 
@@ -328,7 +378,14 @@ class PolymarketExecutor implements PlatformExecutor {
 
     for (const chunk of chunks) {
       try {
-        const resp = await this.postOrdersBatch(chunk, orderType);
+        const clientAny = this.client as any;
+        const resp = typeof clientAny.postOrders === 'function'
+          ? await clientAny.postOrders(
+              chunk.map((order: any) => ({ order, orderType: orderType as any, postOnly: this.resolvePostOnly(orderType) })),
+              undefined,
+              this.resolvePostOnly(orderType)
+            )
+          : await this.postOrdersBatch(chunk, orderType);
         const batchIds = this.extractBatchOrderIds(resp);
         if (batchIds.length > 0) {
           orderIds.push(...batchIds);
@@ -339,8 +396,16 @@ class PolymarketExecutor implements PlatformExecutor {
       } catch (error) {
         console.warn('Polymarket batch submit failed, falling back to single orders:', error);
         for (const order of chunk) {
-          const result: any = await (this.client as any).postOrder(order, orderType as any);
-          const orderId = result?.orderID || result?.orderId || order?.order?.hash || order?.order?.orderHash;
+          const result: any = await (this.client as any).postOrder(
+            order,
+            orderType as any,
+            undefined,
+            this.resolvePostOnly(orderType)
+          );
+          if (result?.success === false) {
+            throw new Error(result?.errorMsg || result?.message || 'Polymarket order rejected');
+          }
+          const orderId = this.extractOrderId(result, order);
           if (orderId) {
             orderIds.push(String(orderId));
             if (orderType !== 'FOK' && this.cancelOpenMs > 0) {
@@ -516,13 +581,8 @@ class PolymarketExecutor implements PlatformExecutor {
           ? Math.min(1, refPrice * (1 + slippage))
           : Math.max(0.0001, refPrice * (1 - slippage));
 
-      const order = await this.client.createOrder({
-        tokenId: leg.tokenId,
-        price: hedgePrice,
-        side: hedgeSide,
-        size: leg.shares,
-      });
-      await (this.client as any).postOrder(order, 'FOK');
+      const order = await this.buildSignedOrder({ ...leg, side: hedgeSide, price: hedgePrice });
+      await (this.client as any).postOrder(order, 'FOK', undefined, false);
     }
   }
 

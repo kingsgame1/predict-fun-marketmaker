@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Wallet } from 'ethers';
 import { ClobClient } from '@polymarket/clob-client';
+import type { SignatureType } from '@polymarket/order-utils';
 import type { MakerApi } from '../mm/venue.js';
 import type { Market, Order, Orderbook, OrderbookEntry, Position } from '../types.js';
 
@@ -15,6 +16,8 @@ interface PolymarketConfig {
   apiSecret?: string;
   apiPassphrase?: string;
   autoDeriveApiKey?: boolean;
+  funderAddress?: string;
+  signatureType?: number;
 }
 
 interface GammaMarket {
@@ -26,17 +29,28 @@ interface GammaMarket {
   description?: string;
   slug?: string;
   market_slug?: string;
+  url?: string;
   active?: boolean;
   closed?: boolean;
   archived?: boolean;
   acceptingOrders?: boolean;
   accepting_orders?: boolean;
+  enableOrderBook?: boolean;
+  enable_order_book?: boolean;
+  negRisk?: boolean;
+  neg_risk?: boolean;
+  isNegRisk?: boolean;
+  is_neg_risk?: boolean;
   endDate?: string;
   end_date?: string;
   volume?: number | string;
   volume24hr?: number | string;
   liquidity?: number | string;
   liquidityNum?: number | string;
+  minimumTickSize?: number | string;
+  minimum_tick_size?: number | string;
+  tickSize?: number | string;
+  tick_size?: number | string;
   clobTokenIds?: string[] | string;
   outcomes?: string[] | string;
   outcomePrices?: number[] | string;
@@ -69,6 +83,7 @@ interface SimplifiedMarket {
 
 interface RewardSnapshot {
   conditionId: string;
+  tokenId?: string;
   rewardEnabled: boolean;
   rewardMinSize: number;
   rewardMaxSpread: number;
@@ -77,6 +92,11 @@ interface RewardSnapshot {
   rewardEpoch?: number;
   inGameMultiplier?: number;
   acceptingOrders?: boolean;
+}
+
+interface RewardState {
+  byToken: Map<string, RewardSnapshot>;
+  byCondition: Map<string, RewardSnapshot>;
 }
 
 function toArray<T>(value: T[] | string | undefined): T[] {
@@ -116,6 +136,12 @@ function normalizeRewardSpread(value: unknown): number {
   return numeric > 1 ? numeric / 100 : numeric;
 }
 
+function normalizeTickSize(...values: unknown[]): number {
+  const numeric = toFiniteNumber(...values);
+  if (!numeric) return 0;
+  return numeric > 1 ? numeric / 100 : numeric;
+}
+
 function mapEntries(levels: any[], side: 'bids' | 'asks'): OrderbookEntry[] {
   return levels
     .map((level) => ({
@@ -149,36 +175,14 @@ function buildOrderbook(tokenId: string, payload: any): Orderbook {
   };
 }
 
-function buildRewardSnapshot(entry: SimplifiedMarket): RewardSnapshot | null {
-  const conditionId = String(entry?.condition_id || '').trim();
-  if (!conditionId) return null;
-  const rewards = entry?.rewards || {};
-  const dailyRate = Array.isArray(rewards.rates)
-    ? rewards.rates.reduce((sum, rate) => sum + toFiniteNumber(rate?.rewards_daily_rate), 0)
-    : 0;
-  const minSize = toFiniteNumber(rewards.min_size);
-  const maxSpread = normalizeRewardSpread(rewards.max_spread);
-  const rewardEnabled = dailyRate > 0 || minSize > 0 || maxSpread > 0;
-  return {
-    conditionId,
-    rewardEnabled,
-    rewardMinSize: minSize,
-    rewardMaxSpread: maxSpread,
-    rewardDailyRate: dailyRate,
-    rewardHourlyRate: dailyRate > 0 ? dailyRate / 24 : 0,
-    rewardEpoch: toFiniteNumber(rewards.reward_epoch) || undefined,
-    inGameMultiplier: toFiniteNumber(rewards.in_game_multiplier) || undefined,
-    acceptingOrders: toOptionalBoolean(entry.accepting_orders),
-  };
-}
-
 export class PolymarketAPI implements MakerApi {
   private config: PolymarketConfig;
   private client: ClobClient;
   private cachedMarkets: Market[] = [];
   private cacheTimestamp = 0;
   private tokenIndex = new Map<string, Market>();
-  private rewardIndex = new Map<string, RewardSnapshot>();
+  private rewardByToken = new Map<string, RewardSnapshot>();
+  private rewardByCondition = new Map<string, RewardSnapshot>();
   private rewardCacheTimestamp = 0;
   private credsReady = false;
 
@@ -188,7 +192,18 @@ export class PolymarketAPI implements MakerApi {
     const fallbackPrivateKey = '0x' + '11'.repeat(32);
     const normalized = rawPrivateKey ? (rawPrivateKey.startsWith('0x') ? rawPrivateKey : '0x' + rawPrivateKey) : fallbackPrivateKey;
     const signer = new Wallet(normalized);
-    this.client = new ClobClient(config.clobUrl.replace(/\/+$/g, ''), config.chainId, signer);
+    const funderAddress = String(config.funderAddress || '').trim() || signer.address;
+    const signatureType = Number.isFinite(Number(config.signatureType)) ? Number(config.signatureType) : 0;
+
+    this.client = new ClobClient(
+      config.clobUrl.replace(/\/+$/g, ''),
+      config.chainId as any,
+      signer,
+      undefined,
+      signatureType as SignatureType,
+      funderAddress
+    );
+
     const clientAny = this.client as any;
     if (config.apiKey && config.apiSecret && config.apiPassphrase) {
       clientAny.creds = {
@@ -247,6 +262,7 @@ export class PolymarketAPI implements MakerApi {
       : Array.isArray(raw?.data?.markets)
       ? raw.data.markets
       : [];
+
     return list.flatMap((entry: GammaMarket) => {
       if (Array.isArray(entry?.markets) && entry.markets.length > 0) {
         return entry.markets.map((child) => ({ ...entry, ...child }));
@@ -255,15 +271,22 @@ export class PolymarketAPI implements MakerApi {
     });
   }
 
-  private async loadRewardMarkets(): Promise<Map<string, RewardSnapshot>> {
+  private async loadRewardMarkets(): Promise<RewardState> {
     const ttl = 120000;
-    if (this.rewardIndex.size > 0 && Date.now() - this.rewardCacheTimestamp < ttl) {
-      return new Map(this.rewardIndex);
+    if (
+      (this.rewardByToken.size > 0 || this.rewardByCondition.size > 0) &&
+      Date.now() - this.rewardCacheTimestamp < ttl
+    ) {
+      return {
+        byToken: new Map(this.rewardByToken),
+        byCondition: new Map(this.rewardByCondition),
+      };
     }
 
     const baseUrl = this.config.clobUrl.replace(/\/+$/g, '');
     const endpoints = ['/sampling-simplified-markets', '/simplified-markets'];
-    const nextIndex = new Map<string, RewardSnapshot>();
+    const byToken = new Map<string, RewardSnapshot>();
+    const byCondition = new Map<string, RewardSnapshot>();
 
     for (const endpoint of endpoints) {
       let nextCursor = '';
@@ -282,9 +305,66 @@ export class PolymarketAPI implements MakerApi {
             : [];
 
           for (const entry of data as SimplifiedMarket[]) {
-            const snapshot = buildRewardSnapshot(entry);
-            if (!snapshot || !snapshot.rewardEnabled) continue;
-            nextIndex.set(snapshot.conditionId, snapshot);
+            const conditionId = String(entry?.condition_id || '').trim();
+            if (!conditionId) continue;
+
+            const rewards = entry?.rewards || {};
+            const rewardMinSize = toFiniteNumber(rewards.min_size);
+            const rewardMaxSpread = normalizeRewardSpread(rewards.max_spread);
+            const rewardEpoch = toFiniteNumber(rewards.reward_epoch) || undefined;
+            const inGameMultiplier = toFiniteNumber(rewards.in_game_multiplier) || undefined;
+            const acceptingOrders = toOptionalBoolean(entry.accepting_orders);
+            const rates = Array.isArray(rewards.rates) ? rewards.rates : [];
+
+            let bestSnapshot: RewardSnapshot | null = null;
+
+            for (const rate of rates) {
+              const tokenId = String(rate?.asset_address || '').trim();
+              const rewardDailyRate = toFiniteNumber(rate?.rewards_daily_rate);
+              const rewardEnabled = rewardDailyRate > 0 || rewardMinSize > 0 || rewardMaxSpread > 0;
+              if (!rewardEnabled) continue;
+
+              const snapshot: RewardSnapshot = {
+                conditionId,
+                tokenId: tokenId || undefined,
+                rewardEnabled,
+                rewardMinSize,
+                rewardMaxSpread,
+                rewardDailyRate,
+                rewardHourlyRate: rewardDailyRate > 0 ? rewardDailyRate / 24 : 0,
+                rewardEpoch,
+                inGameMultiplier,
+                acceptingOrders,
+              };
+
+              if (tokenId) {
+                byToken.set(tokenId, snapshot);
+              }
+              if (!bestSnapshot || snapshot.rewardDailyRate > bestSnapshot.rewardDailyRate) {
+                bestSnapshot = snapshot;
+              }
+            }
+
+            if (!bestSnapshot) {
+              const rewardEnabled = rewardMinSize > 0 || rewardMaxSpread > 0;
+              if (rewardEnabled) {
+                bestSnapshot = {
+                  conditionId,
+                  rewardEnabled,
+                  rewardMinSize,
+                  rewardMaxSpread,
+                  rewardDailyRate: 0,
+                  rewardHourlyRate: 0,
+                  rewardEpoch,
+                  inGameMultiplier,
+                  acceptingOrders,
+                };
+              }
+            }
+
+            if (bestSnapshot) {
+              byCondition.set(conditionId, { ...bestSnapshot, tokenId: undefined });
+            }
           }
 
           nextCursor = String(payload?.next_cursor || '');
@@ -296,14 +376,18 @@ export class PolymarketAPI implements MakerApi {
       } catch {
         continue;
       }
-      if (nextIndex.size > 0) {
+      if (byToken.size > 0 || byCondition.size > 0) {
         break;
       }
     }
 
-    this.rewardIndex = nextIndex;
+    this.rewardByToken = byToken;
+    this.rewardByCondition = byCondition;
     this.rewardCacheTimestamp = Date.now();
-    return new Map(this.rewardIndex);
+    return {
+      byToken: new Map(this.rewardByToken),
+      byCondition: new Map(this.rewardByCondition),
+    };
   }
 
   private getMarketPriority(market: Market): number {
@@ -323,7 +407,7 @@ export class PolymarketAPI implements MakerApi {
       return this.cachedMarkets.slice();
     }
 
-    const [rawMarkets, rewardIndex] = await Promise.all([this.loadGammaMarkets(), this.loadRewardMarkets()]);
+    const [rawMarkets, rewardState] = await Promise.all([this.loadGammaMarkets(), this.loadRewardMarkets()]);
     const mapped: Market[] = [];
 
     for (const item of rawMarkets) {
@@ -336,15 +420,28 @@ export class PolymarketAPI implements MakerApi {
       const conditionId = String(item.conditionId || item.condition_id || item.id || '').trim();
       const eventId = String(item.id || conditionId).trim();
       const slug = String(item.slug || item.market_slug || '').trim();
-      const marketUrl = slug ? `https://polymarket.com/event/${encodeURIComponent(slug)}` : undefined;
+      const explicitUrl = String(item.url || '').trim();
+      const marketUrl = explicitUrl && /^https?:\/\//i.test(explicitUrl)
+        ? explicitUrl
+        : slug
+        ? `https://polymarket.com/event/${encodeURIComponent(slug)}`
+        : undefined;
       const volume24h = toFiniteNumber(item.volume24hr, item.volume);
       const liquidity24h = toFiniteNumber(item.liquidityNum, item.liquidity);
-      const rewards = rewardIndex.get(conditionId);
-      const acceptingOrders = toOptionalBoolean(item.acceptingOrders, item.accepting_orders, rewards?.acceptingOrders);
+      const acceptingOrders = toOptionalBoolean(item.acceptingOrders, item.accepting_orders);
+      const enableOrderBook = toOptionalBoolean(item.enableOrderBook, item.enable_order_book);
+      const negRisk = toOptionalBoolean(item.negRisk, item.neg_risk, item.isNegRisk, item.is_neg_risk) ?? false;
+      const tickSize = normalizeTickSize(
+        item.minimumTickSize,
+        item.minimum_tick_size,
+        item.tickSize,
+        item.tick_size
+      );
 
       for (let i = 0; i < Math.min(outcomes.length, tokenIds.length); i += 1) {
         const tokenId = String(tokenIds[i] || '').trim();
         if (!tokenId) continue;
+        const rewards = rewardState.byToken.get(tokenId) || rewardState.byCondition.get(conditionId);
         mapped.push({
           token_id: tokenId,
           question,
@@ -356,7 +453,7 @@ export class PolymarketAPI implements MakerApi {
           market_slug: slug || undefined,
           outcome: String(outcomes[i] || ''),
           end_date: String(item.endDate || item.end_date || ''),
-          is_neg_risk: false,
+          is_neg_risk: negRisk,
           is_yield_bearing: false,
           fee_rate_bps: Number(this.config.feeBps || 0),
           volume_24h: volume24h,
@@ -368,7 +465,9 @@ export class PolymarketAPI implements MakerApi {
           polymarket_reward_hourly_rate: rewards?.rewardHourlyRate,
           polymarket_reward_epoch: rewards?.rewardEpoch,
           polymarket_reward_in_game_multiplier: rewards?.inGameMultiplier,
-          polymarket_accepting_orders: acceptingOrders,
+          polymarket_accepting_orders: rewards?.acceptingOrders ?? acceptingOrders,
+          polymarket_tick_size: tickSize || undefined,
+          polymarket_enable_order_book: enableOrderBook,
         });
       }
     }
@@ -421,7 +520,14 @@ export class PolymarketAPI implements MakerApi {
     const clientAny = this.client as any;
     const order = payload?.order || payload;
     const orderType = payload?.orderType || 'GTC';
-    return await clientAny.postOrder(order, orderType);
+    const deferExec = payload?.deferExec;
+    const postOnly = payload?.postOnly === true;
+    const response = await clientAny.postOrder(order, orderType, deferExec, postOnly);
+    if (response?.success === false) {
+      const message = response?.errorMsg || response?.message || 'unknown Polymarket rejection';
+      throw new Error(`Polymarket order rejected: ${message}`);
+    }
+    return response;
   }
 
   async removeOrders(orderIds: string[]): Promise<void> {
@@ -434,7 +540,7 @@ export class PolymarketAPI implements MakerApi {
     }
     if (typeof clientAny.cancelOrder === 'function') {
       for (const orderId of orderIds) {
-        await clientAny.cancelOrder(orderId);
+        await clientAny.cancelOrder({ orderID: orderId });
       }
     }
   }
@@ -454,22 +560,24 @@ export class PolymarketAPI implements MakerApi {
       ? response.data
       : [];
 
-    return list.map((order: any) => ({
-      id: order?.id ? String(order.id) : undefined,
-      order_hash: String(order?.orderID || order?.orderId || order?.order_hash || order?.hash || order?.id || ''),
-      token_id: String(order?.asset_id || order?.tokenId || order?.token_id || ''),
-      maker: String(order?.owner || order?.maker || makerAddress || ''),
-      signer: order?.signer ? String(order.signer) : undefined,
-      order_type: 'LIMIT',
-      side: String(order?.side || '').toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
-      price: String(order?.price ?? order?.limit_price ?? ''),
-      shares: String(order?.original_size ?? order?.size ?? order?.quantity ?? ''),
-      is_neg_risk: false,
-      is_yield_bearing: false,
-      fee_rate_bps: Number(this.config.feeBps || 0),
-      status: 'OPEN',
-      timestamp: Date.now(),
-    })).filter((order: Order) => Boolean(order.order_hash) && Boolean(order.token_id));
+    return list
+      .map((order: any) => ({
+        id: order?.id ? String(order.id) : undefined,
+        order_hash: String(order?.orderID || order?.orderId || order?.order_hash || order?.hash || order?.id || ''),
+        token_id: String(order?.asset_id || order?.tokenId || order?.token_id || ''),
+        maker: String(order?.owner || order?.maker || makerAddress || ''),
+        signer: order?.signer ? String(order.signer) : undefined,
+        order_type: 'LIMIT',
+        side: String(order?.side || '').toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
+        price: String(order?.price ?? order?.limit_price ?? ''),
+        shares: String(order?.original_size ?? order?.size ?? order?.quantity ?? ''),
+        is_neg_risk: false,
+        is_yield_bearing: false,
+        fee_rate_bps: Number(this.config.feeBps || 0),
+        status: 'OPEN',
+        timestamp: Date.now(),
+      }))
+      .filter((order: Order) => Boolean(order.order_hash) && Boolean(order.token_id));
   }
 
   async getPositions(_makerAddress: string): Promise<Position[]> {
