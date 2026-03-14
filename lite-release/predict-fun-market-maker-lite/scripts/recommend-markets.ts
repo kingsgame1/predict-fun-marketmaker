@@ -69,13 +69,13 @@ function slugifyQuestion(question: string): string {
 
 interface MarketLinkResolution {
   url: string;
-  label: '打开市场' | '搜索市场';
+  label: '打开市场';
   source: 'direct' | 'slug' | 'cache' | 'search' | 'fallback';
 }
 
 interface MarketLinkCacheEntry {
   url: string;
-  label: '打开市场' | '搜索市场';
+  label: '打开市场';
   source: MarketLinkResolution['source'];
   expiresAt: number;
   updatedAt: number;
@@ -102,9 +102,13 @@ function buildMarketLink(venue: 'predict' | 'polymarket', market: Market): strin
       return `https://predict.fun/market/${encodeURIComponent(derivedSlug)}?ref=B0CE6`;
     }
   }
-
-  const query = encodeURIComponent(`${market.question || ''} site:${venue === 'predict' ? 'predict.fun/market' : 'polymarket.com/event'}`);
-  return `https://duckduckgo.com/?q=${query}`;
+  if (venue === 'polymarket') {
+    const derivedSlug = slugifyQuestion(String(market.question || ''));
+    if (derivedSlug) {
+      return `https://polymarket.com/event/${encodeURIComponent(derivedSlug)}`;
+    }
+  }
+  return venue === 'predict' ? 'https://predict.fun' : 'https://polymarket.com';
 }
 
 function buildMarketLinkLabel(venue: 'predict' | 'polymarket', market: Market): string {
@@ -116,7 +120,10 @@ function buildMarketLinkLabel(venue: 'predict' | 'polymarket', market: Market): 
   if (venue === 'predict' && slugifyQuestion(String(market.question || ''))) {
     return '打开市场';
   }
-  return '搜索市场';
+  if (venue === 'polymarket' && slugifyQuestion(String(market.question || ''))) {
+    return '打开市场';
+  }
+  return '打开市场';
 }
 
 function getMarketLinkCachePath(envPath: string): string {
@@ -262,13 +269,13 @@ async function resolveMarketLink(
   const fallbackUrl = buildMarketLink(venue, market);
   cache[cacheKey] = {
     url: fallbackUrl,
-    label: '搜索市场',
+    label: '打开市场',
     source: 'fallback',
     updatedAt: now,
     expiresAt: now + 24 * 60 * 60 * 1000,
   };
   saveMarketLinkCache(cachePath, cache);
-  return { url: fallbackUrl, label: '搜索市场', source: 'fallback' };
+  return { url: fallbackUrl, label: '打开市场', source: 'fallback' };
 }
 
 async function hydratePredictMarketLink(api: PredictAPI, market: Market): Promise<Market> {
