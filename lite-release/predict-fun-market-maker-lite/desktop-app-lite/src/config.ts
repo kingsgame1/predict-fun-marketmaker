@@ -1232,6 +1232,11 @@ export function loadConfig(): Config {
     polymarketHourRiskPenaltyMax: parseFloat(process.env.POLYMARKET_HOUR_RISK_PENALTY_MAX || '8'),
     polymarketHourRiskBlockPenalty: parseFloat(process.env.POLYMARKET_HOUR_RISK_BLOCK_PENALTY || '6'),
     polymarketHourRiskSizeFactorMin: parseFloat(process.env.POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN || '0.55'),
+    polymarketOrderLifecycleWindowMs: parseInt(process.env.POLYMARKET_ORDER_LIFECYCLE_WINDOW_MS || '21600000'),
+    polymarketCancelRatePenaltyStart: parseFloat(process.env.POLYMARKET_CANCEL_RATE_PENALTY_START || '0.8'),
+    polymarketCancelRatePenaltyMax: parseFloat(process.env.POLYMARKET_CANCEL_RATE_PENALTY_MAX || '6'),
+    polymarketMinAvgOrderLifetimeMs: parseInt(process.env.POLYMARKET_MIN_AVG_ORDER_LIFETIME_MS || '120000'),
+    polymarketShortLifetimePenaltyMax: parseFloat(process.env.POLYMARKET_SHORT_LIFETIME_PENALTY_MAX || '5'),
     polymarketRewardQueueRetreatStart: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_START || '3'),
     polymarketRewardQueueRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_MAX_BPS || '12'),
     polymarketRewardFastFlowRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_RETREAT_MAX_BPS || '8'),
@@ -1345,6 +1350,21 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketHourRiskSizeFactorMin ?? 0) <= 0 || (config.polymarketHourRiskSizeFactorMin ?? 0) > 1) {
       throw new Error('POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN must be within (0, 1]');
+    }
+    if ((config.polymarketOrderLifecycleWindowMs ?? 0) <= 0) {
+      throw new Error('POLYMARKET_ORDER_LIFECYCLE_WINDOW_MS must be > 0');
+    }
+    if ((config.polymarketCancelRatePenaltyStart ?? 0) < 0 || (config.polymarketCancelRatePenaltyStart ?? 0) > 1) {
+      throw new Error('POLYMARKET_CANCEL_RATE_PENALTY_START must be within [0, 1]');
+    }
+    if ((config.polymarketCancelRatePenaltyMax ?? 0) < 0) {
+      throw new Error('POLYMARKET_CANCEL_RATE_PENALTY_MAX must be >= 0');
+    }
+    if ((config.polymarketMinAvgOrderLifetimeMs ?? 0) <= 0) {
+      throw new Error('POLYMARKET_MIN_AVG_ORDER_LIFETIME_MS must be > 0');
+    }
+    if ((config.polymarketShortLifetimePenaltyMax ?? 0) < 0) {
+      throw new Error('POLYMARKET_SHORT_LIFETIME_PENALTY_MAX must be >= 0');
     }
     if ((config.polymarketRewardQueueRetreatStart ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_QUEUE_RETREAT_START must be >= 0');

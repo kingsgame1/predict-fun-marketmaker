@@ -35,6 +35,11 @@ export interface MarketSelectorOptions {
       cooldownReason?: string;
       fillPenaltyBps?: number;
       riskThrottleFactor?: number;
+      cancelRate?: number;
+      avgCancelLifetimeMs?: number;
+      avgFillLifetimeMs?: number;
+      cancelPenalty?: number;
+      lifetimePenalty?: number;
     }
   >;
   polymarketHourRiskPenalty?: { penalty: number; reason: string; hour: number };
@@ -125,6 +130,11 @@ export class MarketSelector {
       cooldownReason?: string;
       fillPenaltyBps?: number;
       riskThrottleFactor?: number;
+      cancelRate?: number;
+      avgCancelLifetimeMs?: number;
+      avgFillLifetimeMs?: number;
+      cancelPenalty?: number;
+      lifetimePenalty?: number;
     }
   >;
   private polymarketHourRiskPenalty: { penalty: number; reason: string; hour: number };
@@ -201,6 +211,11 @@ export class MarketSelector {
     market.polymarket_recent_risk_cooldown_reason = recentRisk?.cooldownReason;
     market.polymarket_recent_fill_penalty_bps = recentRisk?.fillPenaltyBps;
     market.polymarket_recent_risk_throttle_factor = recentRisk?.riskThrottleFactor;
+    market.polymarket_recent_cancel_rate = recentRisk?.cancelRate;
+    market.polymarket_recent_avg_cancel_lifetime_ms = recentRisk?.avgCancelLifetimeMs;
+    market.polymarket_recent_avg_fill_lifetime_ms = recentRisk?.avgFillLifetimeMs;
+    market.polymarket_recent_cancel_penalty = recentRisk?.cancelPenalty;
+    market.polymarket_recent_lifetime_penalty = recentRisk?.lifetimePenalty;
     market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
@@ -480,8 +495,11 @@ export class MarketSelector {
     const capitalEstimateUsd = midPrice > 0 ? minSize * midPrice * 2 : 0;
     const efficiency = capitalEstimateUsd > 0 ? dailyRate / capitalEstimateUsd : 0;
     const fillPenaltyBps = Math.max(0, Number(market.polymarket_recent_fill_penalty_bps || 0));
+    const cancelPenalty = Math.max(0, Number(market.polymarket_recent_cancel_penalty || 0));
+    const lifetimePenalty = Math.max(0, Number(market.polymarket_recent_lifetime_penalty || 0));
     const riskThrottleFactor = clamp(Number(market.polymarket_recent_risk_throttle_factor || 1), 0.1, 1);
-    const estimatedCostBps = fillPenaltyBps * this.polymarketRewardNetCostBpsMultiplier;
+    const estimatedCostBps =
+      fillPenaltyBps * this.polymarketRewardNetCostBpsMultiplier + (cancelPenalty + lifetimePenalty) * 5;
     const netEfficiency = Math.max(0, efficiency - estimatedCostBps / 10000) * riskThrottleFactor;
     const netDailyRate = netEfficiency * capitalEstimateUsd;
     const hourPenaltyRatio = this.polymarketHourRiskPenalty.penalty > 0

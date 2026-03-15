@@ -25,6 +25,11 @@ interface RecentRiskPenalty {
   cooldownReason?: string;
   fillPenaltyBps?: number;
   riskThrottleFactor?: number;
+  cancelRate?: number;
+  avgCancelLifetimeMs?: number;
+  avgFillLifetimeMs?: number;
+  cancelPenalty?: number;
+  lifetimePenalty?: number;
 }
 
 interface HourRiskPenalty {
@@ -694,7 +699,16 @@ function loadRecentPolymarketRiskPenalty(
     }
     const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
       events?: Array<{ ts?: number; type?: string; tokenId?: string; message?: string }>;
-      markets?: Array<{ tokenId?: string; fillPenaltyBps?: number; riskThrottleFactor?: number }>;
+      markets?: Array<{
+        tokenId?: string;
+        fillPenaltyBps?: number;
+        riskThrottleFactor?: number;
+        cancelRate?: number;
+        avgCancelLifetimeMs?: number;
+        avgFillLifetimeMs?: number;
+        cancelPenalty?: number;
+        lifetimePenalty?: number;
+      }>;
     };
     const cutoff = Date.now() - lookbackMs;
     const scores = new Map<
@@ -737,6 +751,11 @@ function loadRecentPolymarketRiskPenalty(
         cooldownReason: '',
         fillPenaltyBps: 0,
         riskThrottleFactor: 1,
+        cancelRate: 0,
+        avgCancelLifetimeMs: 0,
+        avgFillLifetimeMs: 0,
+        cancelPenalty: 0,
+        lifetimePenalty: 0,
       };
       if (type === 'POLYMARKET_ADVERSE_FILL') {
         entry.penalty += 2;
@@ -770,9 +789,23 @@ function loadRecentPolymarketRiskPenalty(
         cooldownReason: '',
         fillPenaltyBps: 0,
         riskThrottleFactor: 1,
+        cancelRate: 0,
+        avgCancelLifetimeMs: 0,
+        avgFillLifetimeMs: 0,
+        cancelPenalty: 0,
+        lifetimePenalty: 0,
       };
       const fillPenaltyBps = Number(metric.fillPenaltyBps || 0);
       const riskThrottleFactor = Number(metric.riskThrottleFactor || 1);
+      const cancelRate = Number(metric.cancelRate || 0);
+      const avgCancelLifetimeMs = Number(metric.avgCancelLifetimeMs || 0);
+      const avgFillLifetimeMs = Number(metric.avgFillLifetimeMs || 0);
+      const derivedCancelPenalty = Number(metric.cancelPenalty || 0);
+      const derivedLifetimePenalty = Number(metric.lifetimePenalty || 0);
+      const cancelRatePenaltyStart = readNumber(env, 'POLYMARKET_CANCEL_RATE_PENALTY_START', 0.8);
+      const cancelRatePenaltyMax = readNumber(env, 'POLYMARKET_CANCEL_RATE_PENALTY_MAX', 6);
+      const minAvgOrderLifetimeMs = readNumber(env, 'POLYMARKET_MIN_AVG_ORDER_LIFETIME_MS', 120000);
+      const shortLifetimePenaltyMax = readNumber(env, 'POLYMARKET_SHORT_LIFETIME_PENALTY_MAX', 5);
       if (Number.isFinite(fillPenaltyBps) && fillPenaltyBps > 0) {
         entry.penalty += Math.min(4, fillPenaltyBps / 6);
         entry.fillPenaltyBps = Math.max(entry.fillPenaltyBps, fillPenaltyBps);
@@ -780,6 +813,45 @@ function loadRecentPolymarketRiskPenalty(
       if (Number.isFinite(riskThrottleFactor) && riskThrottleFactor > 0 && riskThrottleFactor < 1) {
         entry.penalty += Math.min(4, (1 - riskThrottleFactor) * 6);
         entry.riskThrottleFactor = Math.min(entry.riskThrottleFactor, riskThrottleFactor);
+      }
+      if (Number.isFinite(cancelRate) && cancelRate > 0) {
+        const cancelPenalty =
+          derivedCancelPenalty > 0
+            ? derivedCancelPenalty
+            : cancelRate <= cancelRatePenaltyStart
+              ? 0
+              : Math.min(
+                  cancelRatePenaltyMax,
+                  ((cancelRate - cancelRatePenaltyStart) / Math.max(0.01, 1 - cancelRatePenaltyStart)) *
+                    cancelRatePenaltyMax
+                );
+        entry.penalty += cancelPenalty;
+        entry.cancelRate = Math.max(entry.cancelRate, cancelRate);
+        entry.cancelPenalty = Math.max(entry.cancelPenalty, cancelPenalty);
+      }
+      if (Number.isFinite(avgCancelLifetimeMs) && avgCancelLifetimeMs > 0) {
+        entry.avgCancelLifetimeMs =
+          entry.avgCancelLifetimeMs > 0 ? Math.min(entry.avgCancelLifetimeMs, avgCancelLifetimeMs) : avgCancelLifetimeMs;
+      }
+      if (Number.isFinite(avgFillLifetimeMs) && avgFillLifetimeMs > 0) {
+        entry.avgFillLifetimeMs =
+          entry.avgFillLifetimeMs > 0 ? Math.min(entry.avgFillLifetimeMs, avgFillLifetimeMs) : avgFillLifetimeMs;
+      }
+      const comparableLifetimeMs = avgCancelLifetimeMs > 0 ? avgCancelLifetimeMs : avgFillLifetimeMs;
+      if (Number.isFinite(comparableLifetimeMs) && comparableLifetimeMs > 0) {
+        const lifetimePenalty =
+          derivedLifetimePenalty > 0
+            ? derivedLifetimePenalty
+            : Math.max(
+                0,
+                Math.min(
+                  shortLifetimePenaltyMax,
+                  ((minAvgOrderLifetimeMs - comparableLifetimeMs) / Math.max(1, minAvgOrderLifetimeMs)) *
+                    shortLifetimePenaltyMax
+                )
+              );
+        entry.penalty += lifetimePenalty;
+        entry.lifetimePenalty = Math.max(entry.lifetimePenalty, lifetimePenalty);
       }
       scores.set(tokenId, entry);
     }
@@ -790,6 +862,8 @@ function loadRecentPolymarketRiskPenalty(
       if (entry.adverse > 0) parts.push(`不利成交${entry.adverse}次`);
       if (entry.postOnly > 0) parts.push(`postOnly熔断${entry.postOnly}次`);
       if (entry.pauses > 0) parts.push(`风控暂停${entry.pauses}次`);
+      if (entry.cancelRate > 0) parts.push(`撤单率${(entry.cancelRate * 100).toFixed(0)}%`);
+      if (entry.avgCancelLifetimeMs > 0) parts.push(`平均撤单寿命${Math.round(entry.avgCancelLifetimeMs / 1000)}s`);
       penalties.set(tokenId, {
         penalty,
         reason: `${parts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
@@ -797,6 +871,11 @@ function loadRecentPolymarketRiskPenalty(
         cooldownReason: entry.cooldownReason || undefined,
         fillPenaltyBps: entry.fillPenaltyBps > 0 ? entry.fillPenaltyBps : undefined,
         riskThrottleFactor: entry.riskThrottleFactor > 0 && entry.riskThrottleFactor < 1 ? entry.riskThrottleFactor : undefined,
+        cancelRate: entry.cancelRate > 0 ? entry.cancelRate : undefined,
+        avgCancelLifetimeMs: entry.avgCancelLifetimeMs > 0 ? entry.avgCancelLifetimeMs : undefined,
+        avgFillLifetimeMs: entry.avgFillLifetimeMs > 0 ? entry.avgFillLifetimeMs : undefined,
+        cancelPenalty: entry.cancelPenalty > 0 ? entry.cancelPenalty : undefined,
+        lifetimePenalty: entry.lifetimePenalty > 0 ? entry.lifetimePenalty : undefined,
       });
     }
   } catch (error) {
@@ -1274,6 +1353,17 @@ async function main(): Promise<void> {
       recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
       recentFillPenaltyBps: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.fillPenaltyBps ?? null, 2),
       recentRiskThrottleFactor: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.riskThrottleFactor ?? null, 3),
+      recentCancelRate: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.cancelRate ?? null, 3),
+      recentAvgCancelLifetimeMs: toFixedOrNull(
+        recentRiskPenalty.get(entry.market.token_id)?.avgCancelLifetimeMs ?? null,
+        0
+      ),
+      recentAvgFillLifetimeMs: toFixedOrNull(
+        recentRiskPenalty.get(entry.market.token_id)?.avgFillLifetimeMs ?? null,
+        0
+      ),
+      recentCancelPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.cancelPenalty ?? null, 2),
+      recentLifetimePenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.lifetimePenalty ?? null, 2),
       recentRiskReason: recentRiskPenalty.get(entry.market.token_id)?.reason || null,
       recentRiskCooldownMinutes:
         recentRiskPenalty.get(entry.market.token_id)?.cooldownRemainingMs != null

@@ -1048,6 +1048,11 @@ export interface Config {
   polymarketHourRiskPenaltyMax?: number;
   polymarketHourRiskBlockPenalty?: number;
   polymarketHourRiskSizeFactorMin?: number;
+  polymarketOrderLifecycleWindowMs?: number;
+  polymarketCancelRatePenaltyStart?: number;
+  polymarketCancelRatePenaltyMax?: number;
+  polymarketMinAvgOrderLifetimeMs?: number;
+  polymarketShortLifetimePenaltyMax?: number;
   polymarketRewardQueueRetreatStart?: number;
   polymarketRewardQueueRetreatMaxBps?: number;
   polymarketRewardFastFlowRetreatMaxBps?: number;
@@ -1133,6 +1138,11 @@ export interface Market {
   polymarket_recent_risk_cooldown_reason?: string;
   polymarket_recent_fill_penalty_bps?: number;
   polymarket_recent_risk_throttle_factor?: number;
+  polymarket_recent_cancel_rate?: number;
+  polymarket_recent_avg_cancel_lifetime_ms?: number;
+  polymarket_recent_avg_fill_lifetime_ms?: number;
+  polymarket_recent_cancel_penalty?: number;
+  polymarket_recent_lifetime_penalty?: number;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;

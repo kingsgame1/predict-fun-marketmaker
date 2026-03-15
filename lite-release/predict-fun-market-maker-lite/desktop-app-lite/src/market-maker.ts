@@ -263,6 +263,20 @@ export class MarketMaker {
     string,
     { score: number; count: number; windowStart: number; lastAt: number }
   > = new Map();
+  private polymarketOrderLifecycleState: Map<
+    string,
+    {
+      windowStart: number;
+      placed: number;
+      canceled: number;
+      filled: number;
+      cancelLifetimeMsSum: number;
+      cancelSamples: number;
+      fillLifetimeMsSum: number;
+      fillSamples: number;
+      lastUpdate: number;
+    }
+  > = new Map();
 
   // ===== Phase 1: 增强模块字段 =====
   // 为每个市场维护独立的估算器
@@ -3461,6 +3475,132 @@ export class MarketMaker {
     };
   }
 
+  private getPolymarketLifecycleState(tokenId: string): {
+    windowStart: number;
+    placed: number;
+    canceled: number;
+    filled: number;
+    cancelLifetimeMsSum: number;
+    cancelSamples: number;
+    fillLifetimeMsSum: number;
+    fillSamples: number;
+    lastUpdate: number;
+  } {
+    const now = Date.now();
+    const existing = this.polymarketOrderLifecycleState.get(tokenId);
+    if (existing) {
+      const windowMs = Math.max(60_000, this.config.polymarketOrderLifecycleWindowMs ?? 6 * 60 * 60 * 1000);
+      if (now - existing.windowStart <= windowMs) {
+        return existing;
+      }
+    }
+    const state = {
+      windowStart: now,
+      placed: 0,
+      canceled: 0,
+      filled: 0,
+      cancelLifetimeMsSum: 0,
+      cancelSamples: 0,
+      fillLifetimeMsSum: 0,
+      fillSamples: 0,
+      lastUpdate: now,
+    };
+    this.polymarketOrderLifecycleState.set(tokenId, state);
+    return state;
+  }
+
+  private recordPolymarketLifecycleEvent(
+    tokenId: string,
+    type: 'PLACED' | 'CANCELED' | 'FILLED',
+    lifetimeMs?: number
+  ): void {
+    if (this.config.mmVenue !== 'polymarket') {
+      return;
+    }
+    const now = Date.now();
+    const state = this.getPolymarketLifecycleState(tokenId);
+    const windowMs = Math.max(60_000, this.config.polymarketOrderLifecycleWindowMs ?? 6 * 60 * 60 * 1000);
+    if (now - state.windowStart > windowMs) {
+      state.windowStart = now;
+      state.placed = 0;
+      state.canceled = 0;
+      state.filled = 0;
+      state.cancelLifetimeMsSum = 0;
+      state.cancelSamples = 0;
+      state.fillLifetimeMsSum = 0;
+      state.fillSamples = 0;
+    }
+    if (type === 'PLACED') {
+      state.placed += 1;
+    } else if (type === 'CANCELED') {
+      state.canceled += 1;
+      if (Number.isFinite(lifetimeMs) && (lifetimeMs ?? 0) > 0) {
+        state.cancelLifetimeMsSum += Number(lifetimeMs);
+        state.cancelSamples += 1;
+      }
+    } else if (type === 'FILLED') {
+      state.filled += 1;
+      if (Number.isFinite(lifetimeMs) && (lifetimeMs ?? 0) > 0) {
+        state.fillLifetimeMsSum += Number(lifetimeMs);
+        state.fillSamples += 1;
+      }
+    }
+    state.lastUpdate = now;
+  }
+
+  private getPolymarketLifecycleSnapshot(tokenId: string): {
+    cancelRate: number;
+    avgCancelLifetimeMs: number;
+    avgFillLifetimeMs: number;
+    cancelPenalty: number;
+    lifetimePenalty: number;
+  } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return {
+        cancelRate: 0,
+        avgCancelLifetimeMs: 0,
+        avgFillLifetimeMs: 0,
+        cancelPenalty: 0,
+        lifetimePenalty: 0,
+      };
+    }
+    const state = this.polymarketOrderLifecycleState.get(tokenId);
+    if (!state) {
+      return {
+        cancelRate: 0,
+        avgCancelLifetimeMs: 0,
+        avgFillLifetimeMs: 0,
+        cancelPenalty: 0,
+        lifetimePenalty: 0,
+      };
+    }
+    const placed = Math.max(1, state.placed);
+    const cancelRate = state.canceled / placed;
+    const avgCancelLifetimeMs = state.cancelSamples > 0 ? state.cancelLifetimeMsSum / state.cancelSamples : 0;
+    const avgFillLifetimeMs = state.fillSamples > 0 ? state.fillLifetimeMsSum / state.fillSamples : 0;
+
+    const cancelPenaltyStart = this.clamp(Number(this.config.polymarketCancelRatePenaltyStart ?? 0.8), 0, 1);
+    const cancelPenaltyMax = Math.max(0, Number(this.config.polymarketCancelRatePenaltyMax ?? 6));
+    const cancelPenaltyRatio =
+      cancelRate <= cancelPenaltyStart ? 0 : this.clamp((cancelRate - cancelPenaltyStart) / Math.max(0.01, 1 - cancelPenaltyStart), 0, 1);
+    const cancelPenalty = cancelPenaltyMax * cancelPenaltyRatio;
+
+    const minAvgLifetimeMs = Math.max(1_000, Number(this.config.polymarketMinAvgOrderLifetimeMs ?? 120_000));
+    const shortLifetimePenaltyMax = Math.max(0, Number(this.config.polymarketShortLifetimePenaltyMax ?? 5));
+    const comparableLifetimeMs = avgCancelLifetimeMs > 0 ? avgCancelLifetimeMs : avgFillLifetimeMs;
+    const lifetimePenaltyRatio =
+      comparableLifetimeMs <= 0 ? 0 : this.clamp((minAvgLifetimeMs - comparableLifetimeMs) / minAvgLifetimeMs, 0, 1);
+    const lifetimePenalty = shortLifetimePenaltyMax * lifetimePenaltyRatio;
+
+    return {
+      cancelRate,
+      avgCancelLifetimeMs,
+      avgFillLifetimeMs,
+      cancelPenalty,
+      lifetimePenalty,
+    };
+  }
+
   private async flushMmMetrics(): Promise<void> {
     const target = this.config.mmMetricsPath;
     const interval = this.config.mmMetricsFlushMs ?? 0;
@@ -3518,6 +3658,7 @@ export class MarketMaker {
     const riskLocal = this.getRiskThrottleFactor(market.token_id);
     const riskGlobal = this.getRiskThrottleFactor('__global__');
     const riskThrottle = Math.min(riskLocal, riskGlobal);
+    const lifecycle = this.getPolymarketLifecycleSnapshot(market.token_id);
     const riskOnlyFarThreshold = Math.max(0, this.config.mmRiskThrottleOnlyFarThreshold ?? 0);
     const riskOnlyFarActive = riskOnlyFarThreshold > 0 && riskThrottle <= riskOnlyFarThreshold;
     const burstEntry = this.cancelBurst.get(market.token_id);
@@ -3543,6 +3684,11 @@ export class MarketMaker {
       inventoryBias: prices.inventoryBias,
       nearTouchPenaltyBps: this.getNearTouchPenalty(market.token_id),
       fillPenaltyBps: this.getFillPenalty(market.token_id),
+      cancelRate: lifecycle.cancelRate,
+      avgCancelLifetimeMs: lifecycle.avgCancelLifetimeMs,
+      avgFillLifetimeMs: lifecycle.avgFillLifetimeMs,
+      cancelPenalty: lifecycle.cancelPenalty,
+      lifetimePenalty: lifecycle.lifetimePenalty,
       noFillPenaltyBps: this.getNoFillPenalty(market.token_id).spreadBps,
       autoTune: this.getAutoTuneSnapshot(market.token_id),
       wsHealthScore: wsHealth.score,
@@ -6052,6 +6198,7 @@ export class MarketMaker {
       }
 
       this.recordAutoTuneEvent(market.token_id, 'PLACED');
+      this.recordPolymarketLifecycleEvent(market.token_id, 'PLACED');
       const optTag = pointsOptimized ? ' [Points optimized]' : '';
       console.log(`✅ ${side} order submitted at ${adjustedPrice.toFixed(4)} (${adjustedShares} shares)${optTag}`);
       if (isPolymarketPostOnly) {
@@ -6129,8 +6276,10 @@ export class MarketMaker {
       try {
         await this.api.removeOrders(ids);
         for (const order of chunk) {
+          const lifetimeMs = Math.max(0, Date.now() - Number(order.timestamp || 0));
           this.openOrders.delete(order.order_hash);
           this.recordAutoTuneEvent(order.token_id, 'CANCELED');
+          this.recordPolymarketLifecycleEvent(order.token_id, 'CANCELED', lifetimeMs);
         }
         if (reason) {
           this.recordMmEvent('BATCH_CANCEL', `${reason} x${ids.length}`);
@@ -6148,8 +6297,10 @@ export class MarketMaker {
     try {
       const id = order.id || order.order_hash;
       await this.api.removeOrders([id]);
+      const lifetimeMs = Math.max(0, Date.now() - Number(order.timestamp || 0));
       this.openOrders.delete(order.order_hash);
       this.recordAutoTuneEvent(order.token_id, 'CANCELED');
+      this.recordPolymarketLifecycleEvent(order.token_id, 'CANCELED', lifetimeMs);
       console.log(`❌ Canceled ${order.order_hash.substring(0, 10)}...`);
     } catch (error) {
       console.error('Error canceling order:', error);
@@ -6343,6 +6494,14 @@ export class MarketMaker {
         this.updateFillPressure(tokenId, absDelta);
         this.lastFillAt.set(tokenId, Date.now());
         this.recordAutoTuneEvent(tokenId, 'FILLED');
+        if (this.config.mmVenue === 'polymarket') {
+          const openLifetimes = Array.from(this.openOrders.values())
+            .filter((order) => order.token_id === tokenId && order.status === 'OPEN')
+            .map((order) => Math.max(0, Date.now() - Number(order.timestamp || 0)))
+            .filter((value) => Number.isFinite(value) && value > 0);
+          const estimatedLifetimeMs = openLifetimes.length > 0 ? Math.min(...openLifetimes) : undefined;
+          this.recordPolymarketLifecycleEvent(tokenId, 'FILLED', estimatedLifetimeMs);
+        }
         if (this.config.mmVenue === 'predict') {
           await this.triggerPredictFillCircuitBreaker(tokenId, '检测到成交');
         } else if (this.config.mmVenue === 'polymarket') {
