@@ -726,7 +726,16 @@ export class MarketMaker {
       return 0;
     }
     const mult = Math.max(1, Number(this.getPolymarketExecutionSafetyConfig().rewardSizeCapMultiplier || 1.25));
-    return Math.max(0, Math.floor(reward.minShares * mult));
+    let shares = Math.max(0, Math.floor(reward.minShares * mult));
+    const recentRiskPenalty = Number(market.polymarket_recent_risk_penalty || 0);
+    const blockPenalty = Math.max(1, Number(this.config.polymarketRecentRiskBlockPenalty || 12));
+    const minFactor = this.clamp(Number(this.config.polymarketRecentRiskSizeFactorMin || 0.45), 0.1, 1);
+    if (recentRiskPenalty > 0) {
+      const penaltyRatio = this.clamp(recentRiskPenalty / blockPenalty, 0, 1);
+      const shrinkFactor = 1 - (1 - minFactor) * penaltyRatio;
+      shares = Math.max(1, Math.floor(shares * shrinkFactor));
+    }
+    return shares;
   }
 
   private getPolymarketRewardCrowdingMultiple(market: Market, orderbook: Orderbook): number {

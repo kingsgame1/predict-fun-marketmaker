@@ -782,8 +782,10 @@ export class PolymarketMarketMakerBot {
         this.config.polymarketRewardMinFitScore ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_MIN_FIT_SCORE,
       rewardMinDailyRate:
         this.config.polymarketRewardMinDailyRate ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_MIN_DAILY_RATE,
+      rewardMinEfficiency: this.config.polymarketRewardMinEfficiency ?? 0.0015,
       rewardRequireFit: this.config.polymarketRewardRequireFit !== false,
       rewardRequireEnabled: this.config.polymarketRewardRequireEnabled === true,
+      rewardMaxQueueMultiple: this.config.polymarketRewardMaxQueueMultiple ?? 12,
       rewardCrowdingPenaltyStart: this.config.polymarketRewardCrowdingPenaltyStart ?? 4,
       rewardCrowdingPenaltyMax: this.config.polymarketRewardCrowdingPenaltyMax ?? 12,
       rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
@@ -809,8 +811,10 @@ export class PolymarketMarketMakerBot {
     return {
       polymarketRewardMinFitScore: safety.rewardMinFitScore,
       polymarketRewardMinDailyRate: safety.rewardMinDailyRate,
+      polymarketRewardMinEfficiency: safety.rewardMinEfficiency,
       polymarketRewardRequireFit: safety.rewardRequireFit,
       polymarketRewardRequireEnabled: safety.rewardRequireEnabled,
+      polymarketRewardMaxQueueMultiple: safety.rewardMaxQueueMultiple,
       polymarketRewardCrowdingPenaltyStart: safety.rewardCrowdingPenaltyStart,
       polymarketRewardCrowdingPenaltyMax: safety.rewardCrowdingPenaltyMax,
       polymarketRewardMinQueueHours: safety.rewardMinQueueHours,
@@ -844,8 +848,14 @@ export class PolymarketMarketMakerBot {
     if (profile.enabled && profile.dailyRate < safety.rewardMinDailyRate) {
       return { skip: true, reason: `激励日速率不足 ${profile.dailyRate.toFixed(0)}` };
     }
+    if (profile.enabled && profile.efficiency < safety.rewardMinEfficiency) {
+      return { skip: true, reason: `激励效率不足 ${(profile.efficiency * 100).toFixed(2)}%/日` };
+    }
     if (profile.enabled && safety.rewardRequireFit && profile.fitScore < safety.rewardMinFitScore) {
       return { skip: true, reason: `激励适配度不足 ${(profile.fitScore * 100).toFixed(0)}%` };
+    }
+    if (profile.enabled && profile.crowdingMultiple > safety.rewardMaxQueueMultiple) {
+      return { skip: true, reason: `奖励队列过厚 ${profile.crowdingMultiple.toFixed(1)}x` };
     }
     return { skip: false };
   }

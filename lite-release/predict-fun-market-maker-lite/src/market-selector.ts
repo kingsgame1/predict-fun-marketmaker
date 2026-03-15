@@ -15,8 +15,10 @@ export interface MarketScore {
 export interface MarketSelectorOptions {
   polymarketRewardMinFitScore?: number;
   polymarketRewardMinDailyRate?: number;
+  polymarketRewardMinEfficiency?: number;
   polymarketRewardRequireFit?: boolean;
   polymarketRewardRequireEnabled?: boolean;
+  polymarketRewardMaxQueueMultiple?: number;
   polymarketRewardCrowdingPenaltyStart?: number;
   polymarketRewardCrowdingPenaltyMax?: number;
   polymarketRewardMinQueueHours?: number;
@@ -84,8 +86,10 @@ export class MarketSelector {
   private minOrders: number;
   private polymarketRewardMinFitScore: number;
   private polymarketRewardMinDailyRate: number;
+  private polymarketRewardMinEfficiency: number;
   private polymarketRewardRequireFit: boolean;
   private polymarketRewardRequireEnabled: boolean;
+  private polymarketRewardMaxQueueMultiple: number;
   private polymarketRewardCrowdingPenaltyStart: number;
   private polymarketRewardCrowdingPenaltyMax: number;
   private polymarketRewardMinQueueHours: number;
@@ -109,8 +113,10 @@ export class MarketSelector {
     this.minOrders = minOrders;
     this.polymarketRewardMinFitScore = options.polymarketRewardMinFitScore ?? 0.6;
     this.polymarketRewardMinDailyRate = options.polymarketRewardMinDailyRate ?? 0;
+    this.polymarketRewardMinEfficiency = options.polymarketRewardMinEfficiency ?? 0.0015;
     this.polymarketRewardRequireFit = options.polymarketRewardRequireFit !== false;
     this.polymarketRewardRequireEnabled = options.polymarketRewardRequireEnabled === true;
+    this.polymarketRewardMaxQueueMultiple = options.polymarketRewardMaxQueueMultiple ?? 12;
     this.polymarketRewardCrowdingPenaltyStart = options.polymarketRewardCrowdingPenaltyStart ?? 4;
     this.polymarketRewardCrowdingPenaltyMax = options.polymarketRewardCrowdingPenaltyMax ?? 12;
     this.polymarketRewardMinQueueHours = options.polymarketRewardMinQueueHours ?? 0.75;
@@ -152,6 +158,11 @@ export class MarketSelector {
     const rewardProfile = this.getPolymarketRewardProfile(market, orderbook);
     const recentRisk = this.polymarketRecentRiskPenalty.get(market.token_id);
 
+    market.polymarket_recent_risk_penalty = recentRisk?.penalty;
+    market.polymarket_recent_risk_reason = recentRisk?.reason;
+    market.polymarket_recent_risk_cooldown_remaining_ms = recentRisk?.cooldownRemainingMs;
+    market.polymarket_recent_risk_cooldown_reason = recentRisk?.cooldownReason;
+
     if (market.venue === 'polymarket' && market.polymarket_enable_order_book === false) {
       return { market, score: 0, reasons: ['Polymarket 市场未启用 orderbook'] };
     }
@@ -185,6 +196,17 @@ export class MarketSelector {
           market,
           score: 0,
           reasons: [`激励日速率不足: ${rewardProfile.dailyRate.toFixed(0)} < ${this.polymarketRewardMinDailyRate.toFixed(0)}`],
+        };
+      }
+      if (rewardProfile.enabled && rewardProfile.efficiency < this.polymarketRewardMinEfficiency) {
+        return {
+          market,
+          score: 0,
+          reasons: [
+            `激励效率不足: ${(rewardProfile.efficiency * 100).toFixed(2)}%/日 < ${(
+              this.polymarketRewardMinEfficiency * 100
+            ).toFixed(2)}%/日`,
+          ],
         };
       }
       if (rewardProfile.enabled && this.polymarketRewardRequireFit && rewardProfile.fitScore < this.polymarketRewardMinFitScore) {
@@ -281,6 +303,15 @@ export class MarketSelector {
       if (rewardProfile.spreadFit <= 0) {
         score *= 0.9;
         reasons.push('当前盘口宽于激励价差上限，降权');
+      }
+      if (rewardProfile.crowdingMultiple > this.polymarketRewardMaxQueueMultiple) {
+        return {
+          market,
+          score: 0,
+          reasons: [
+            `奖励队列过厚: ${rewardProfile.crowdingMultiple.toFixed(1)}x > ${this.polymarketRewardMaxQueueMultiple.toFixed(1)}x`,
+          ],
+        };
       }
       if (rewardProfile.l2SizeFit < 0.6) {
         score *= 0.92;
