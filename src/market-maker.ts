@@ -866,10 +866,35 @@ export class MarketMaker {
     const maxPenalty = Math.max(1, Number(cfg.patternMemoryMaxPenalty || 8));
     const dominance = this.clamp(Number(market.polymarket_pattern_memory_dominance || 0.5), 0, 1);
     const decayFactor = this.clamp(Number(market.polymarket_pattern_memory_decay_factor || 1), 0.15, 1);
+    const nearTouchMix = this.clamp(Number(market.polymarket_pattern_memory_near_touch || 0), 0, 1);
+    const refreshMix = this.clamp(Number(market.polymarket_pattern_memory_refresh || 0), 0, 1);
+    const vwapMix = this.clamp(Number(market.polymarket_pattern_memory_vwap || 0), 0, 1);
+    const aggressiveMix = this.clamp(Number(market.polymarket_pattern_memory_aggressive || 0), 0, 1);
+    const unsafeMix = this.clamp(Number(market.polymarket_pattern_memory_unsafe || 0), 0, 1);
     const scaled = this.clamp((penalty / maxPenalty) * (0.65 + 0.35 * dominance) * decayFactor, 0, 1);
-    const retreatBps = Number(cfg.patternMemoryRetreatMaxBps || 0) * scaled;
+    const retreatWeight = this.clamp(
+      0.15 +
+        nearTouchMix * 1.05 +
+        aggressiveMix * 0.95 +
+        unsafeMix * 0.9 +
+        vwapMix * 0.45 +
+        refreshMix * 0.25,
+      0.2,
+      1.6
+    );
+    const sizeWeight = this.clamp(
+      0.2 +
+        aggressiveMix * 1.1 +
+        unsafeMix * 1.05 +
+        vwapMix * 0.65 +
+        nearTouchMix * 0.35 +
+        refreshMix * 0.2,
+      0.25,
+      1.7
+    );
+    const retreatBps = Number(cfg.patternMemoryRetreatMaxBps || 0) * this.clamp(scaled * retreatWeight, 0, 1);
     const sizeMin = this.clamp(Number(cfg.patternMemorySizeFactorMin || 0.7), 0.1, 1);
-    const sizeFactor = 1 - (1 - sizeMin) * scaled;
+    const sizeFactor = 1 - (1 - sizeMin) * this.clamp(scaled * sizeWeight, 0, 1);
     const dominantReason = String(
       market.polymarket_pattern_memory_dominant_reason || market.polymarket_pattern_memory_reason || '长期撤单模式'
     );

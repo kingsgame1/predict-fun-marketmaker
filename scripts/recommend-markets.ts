@@ -51,6 +51,7 @@ interface PatternMemoryPenalty {
   ageMs?: number;
   ttlRemainingMs?: number;
   decayFactor?: number;
+  reasonMix?: Record<string, number>;
 }
 
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
@@ -706,6 +707,7 @@ function loadPolymarketPatternMemory(
         dominance?: number;
         dominantReason?: string;
         reason?: string;
+        reasonMix?: Record<string, number>;
       }>;
     };
     const cutoff = Date.now() - ttlMs;
@@ -727,6 +729,7 @@ function loadPolymarketPatternMemory(
         ageMs,
         ttlRemainingMs: remainingMs,
         decayFactor,
+        reasonMix: market.reasonMix && typeof market.reasonMix === 'object' ? market.reasonMix : undefined,
       });
     }
   } catch {
@@ -1521,6 +1524,11 @@ async function main(): Promise<void> {
           1
         ),
       patternMemoryDecayFactor: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.decayFactor ?? null, 3),
+      patternMemoryNearTouch: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.nearTouch ?? null, 3),
+      patternMemoryRefresh: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.refresh ?? null, 3),
+      patternMemoryVwap: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.vwap ?? null, 3),
+      patternMemoryAggressive: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.aggressive ?? null, 3),
+      patternMemoryUnsafe: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.unsafe ?? null, 3),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

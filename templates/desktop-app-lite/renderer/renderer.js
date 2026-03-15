@@ -272,6 +272,11 @@ function renderMarketCards(items, selected = new Set()) {
     const patternMemoryPenalty = item.patternMemoryPenalty == null ? null : Number(item.patternMemoryPenalty);
     const patternMemoryTtlHours = item.patternMemoryTtlHours == null ? null : Number(item.patternMemoryTtlHours);
     const patternMemoryDecayFactor = item.patternMemoryDecayFactor == null ? null : Number(item.patternMemoryDecayFactor);
+    const patternNearTouch = item.patternMemoryNearTouch == null ? null : Number(item.patternMemoryNearTouch);
+    const patternRefresh = item.patternMemoryRefresh == null ? null : Number(item.patternMemoryRefresh);
+    const patternVwap = item.patternMemoryVwap == null ? null : Number(item.patternMemoryVwap);
+    const patternAggressive = item.patternMemoryAggressive == null ? null : Number(item.patternMemoryAggressive);
+    const patternUnsafe = item.patternMemoryUnsafe == null ? null : Number(item.patternMemoryUnsafe);
     const riskChip =
       riskPenalty && riskPenalty > 0
         ? `<span class="status-chip" style="background:#7f1d1d;border-color:#b91c1c;">近期风险 -${escapeHtml(formatNum(riskPenalty, 1))}</span>`
@@ -288,6 +293,13 @@ function renderMarketCards(items, selected = new Set()) {
       patternMemoryPenalty && patternMemoryPenalty > 0
         ? `<span class="status-chip" style="background:#3f1d7a;border-color:#8b5cf6;">长期模式 -${escapeHtml(formatNum(patternMemoryPenalty, 1))}${patternMemoryTtlHours && patternMemoryTtlHours > 0 ? ` / ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h` : ''}</span>`
         : '';
+    const patternMixSummary = [
+      patternAggressive != null ? `激进${formatPct(patternAggressive * 100, 0)}` : null,
+      patternUnsafe != null ? `不安全${formatPct(patternUnsafe * 100, 0)}` : null,
+      patternNearTouch != null ? `近触${formatPct(patternNearTouch * 100, 0)}` : null,
+      patternVwap != null ? `VWAP${formatPct(patternVwap * 100, 0)}` : null,
+      patternRefresh != null ? `追价${formatPct(patternRefresh * 100, 0)}` : null,
+    ].filter(Boolean).join(' / ');
 
     const incentivePanels = [];
     if (item.rewardEnabled) {
@@ -304,6 +316,7 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-subvalue">撤单率 ${item.recentCancelRate == null ? '--' : `${formatPct(Number(item.recentCancelRate) * 100, 0)}`} / 平均撤单寿命 ${item.recentAvgCancelLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgCancelLifetimeMs) / 60000, 1)}m`} / 平均成交寿命 ${item.recentAvgFillLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgFillLifetimeMs) / 60000, 1)}m`}</div>
           <div class="metric-subvalue">队列耗时 ${item.rewardQueueHours == null ? '--' : `${formatNum(item.rewardQueueHours, 2)}h`} / 流速倍率 ${item.rewardFlowToQueuePerHour == null ? '--' : `${formatNum(item.rewardFlowToQueuePerHour, 2)}x/h`}</div>
           ${item.patternMemoryReason ? `<div class="metric-subvalue">长期模式 ${escapeHtml(item.patternMemoryReason)}${item.patternMemoryDominantReason ? ` / 主导撤单 ${escapeHtml(item.patternMemoryDominantReason)}` : ""}${item.patternMemoryDominance == null ? "" : ` / 主导度 ${escapeHtml(formatPct(Number(item.patternMemoryDominance) * 100, 0))}`}${patternMemoryDecayFactor == null ? "" : ` / 衰减系数 ${escapeHtml(formatNum(patternMemoryDecayFactor, 3))}x`}${patternMemoryTtlHours == null ? "" : ` / 剩余 ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h`}</div>` : ""}
+          ${patternMixSummary ? `<div class="metric-subvalue">长期模式构成 ${escapeHtml(patternMixSummary)}</div>` : ""}
         </div>
       `);
     }

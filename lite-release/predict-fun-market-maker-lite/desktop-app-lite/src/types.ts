@@ -1167,6 +1167,11 @@ export interface Market {
   polymarket_pattern_memory_age_ms?: number;
   polymarket_pattern_memory_ttl_remaining_ms?: number;
   polymarket_pattern_memory_decay_factor?: number;
+  polymarket_pattern_memory_near_touch?: number;
+  polymarket_pattern_memory_refresh?: number;
+  polymarket_pattern_memory_vwap?: number;
+  polymarket_pattern_memory_aggressive?: number;
+  polymarket_pattern_memory_unsafe?: number;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;

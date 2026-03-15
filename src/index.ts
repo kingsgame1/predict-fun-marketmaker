@@ -370,6 +370,7 @@ function loadPolymarketPatternMemory(
     ageMs?: number;
     ttlRemainingMs?: number;
     decayFactor?: number;
+    reasonMix?: Record<string, number>;
   }
 > {
   const penalties = new Map<
@@ -382,6 +383,7 @@ function loadPolymarketPatternMemory(
       ageMs?: number;
       ttlRemainingMs?: number;
       decayFactor?: number;
+      reasonMix?: Record<string, number>;
     }
   >();
   const memoryPath = resolvePolymarketPatternMemoryPath(metricsPath, cwd);
@@ -399,6 +401,7 @@ function loadPolymarketPatternMemory(
         penalty?: number;
         dominance?: number;
         dominantReason?: string;
+        reasonMix?: Record<string, number>;
       }>;
     };
     const now = Date.now();
@@ -434,6 +437,7 @@ function loadPolymarketPatternMemory(
         ageMs,
         ttlRemainingMs,
         decayFactor,
+        reasonMix: entry.reasonMix && typeof entry.reasonMix === 'object' ? entry.reasonMix : undefined,
       });
     }
   } catch (error) {

@@ -60,6 +60,7 @@ export interface MarketSelectorOptions {
       ageMs?: number;
       ttlRemainingMs?: number;
       decayFactor?: number;
+      reasonMix?: Record<string, number>;
     }
   >;
   polymarketPatternMemoryBlockPenalty?: number;
@@ -173,6 +174,7 @@ export class MarketSelector {
       ageMs?: number;
       ttlRemainingMs?: number;
       decayFactor?: number;
+      reasonMix?: Record<string, number>;
     }
   >;
   private polymarketPatternMemoryBlockPenalty: number;
@@ -267,6 +269,11 @@ export class MarketSelector {
     market.polymarket_pattern_memory_age_ms = patternMemory?.ageMs;
     market.polymarket_pattern_memory_ttl_remaining_ms = patternMemory?.ttlRemainingMs;
     market.polymarket_pattern_memory_decay_factor = patternMemory?.decayFactor;
+    market.polymarket_pattern_memory_near_touch = patternMemory?.reasonMix?.nearTouch;
+    market.polymarket_pattern_memory_refresh = patternMemory?.reasonMix?.refresh;
+    market.polymarket_pattern_memory_vwap = patternMemory?.reasonMix?.vwap;
+    market.polymarket_pattern_memory_aggressive = patternMemory?.reasonMix?.aggressive;
+    market.polymarket_pattern_memory_unsafe = patternMemory?.reasonMix?.unsafe;
     market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
