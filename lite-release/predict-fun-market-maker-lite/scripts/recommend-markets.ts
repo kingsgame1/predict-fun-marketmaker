@@ -58,6 +58,8 @@ interface PolymarketIncentiveSummary {
   crowdingMultiple: number | null;
   capitalEstimateUsd: number | null;
   efficiency: number | null;
+  queueHours: number | null;
+  flowToQueuePerHour: number | null;
 }
 
 function slugifyQuestion(question: string): string {
@@ -791,6 +793,8 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
       crowdingMultiple: null,
       capitalEstimateUsd: null,
       efficiency: null,
+      queueHours: null,
+      flowToQueuePerHour: null,
     };
   }
 
@@ -809,6 +813,12 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
   const midPrice = toFiniteNumber(orderbook?.mid_price);
   const capitalEstimateUsd = midPrice > 0 ? minSize * midPrice * 2 : null;
   const efficiency = capitalEstimateUsd && capitalEstimateUsd > 0 ? dailyRate / capitalEstimateUsd : null;
+  const queueAheadShares = l1MinShares + l2MinShares;
+  const volume24h = toFiniteNumber(market.volume_24h);
+  const hourlyTurnoverShares = midPrice > 0 ? volume24h / midPrice / 24 : 0;
+  const queueHours = queueAheadShares > 0 && hourlyTurnoverShares > 0 ? queueAheadShares / hourlyTurnoverShares : null;
+  const flowToQueuePerHour =
+    queueAheadShares > 0 && hourlyTurnoverShares > 0 ? hourlyTurnoverShares / queueAheadShares : null;
 
   return {
     enabled: true,
@@ -823,6 +833,8 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
     crowdingMultiple,
     capitalEstimateUsd,
     efficiency,
+    queueHours,
+    flowToQueuePerHour,
   };
 }
 
@@ -995,6 +1007,8 @@ async function main(): Promise<void> {
       rewardCrowdingMultiple: toFixedOrNull(incentive.crowdingMultiple, 2),
       rewardCapitalEstimateUsd: toFixedOrNull(incentive.capitalEstimateUsd, 2),
       rewardEfficiency: toFixedOrNull(incentive.efficiency, 4),
+      rewardQueueHours: toFixedOrNull(incentive.queueHours, 2),
+      rewardFlowToQueuePerHour: toFixedOrNull(incentive.flowToQueuePerHour, 2),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

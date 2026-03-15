@@ -404,8 +404,10 @@ export class MarketMaker {
       windowMs: this.config.polymarketPostOnlyWindowMs ?? 10 * 60 * 1000,
       pauseMs: this.config.polymarketPostOnlyPauseMs ?? 5 * 60 * 1000,
       rewardSizeCapMultiplier: this.config.polymarketRewardSizeCapMultiplier ?? 1.25,
+      rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
       rewardQueueRetreatStart: this.config.polymarketRewardQueueRetreatStart ?? 3,
       rewardQueueRetreatMaxBps: this.config.polymarketRewardQueueRetreatMaxBps ?? 12,
+      rewardFastFlowRetreatMaxBps: this.config.polymarketRewardFastFlowRetreatMaxBps ?? 8,
       adversePressureThreshold: this.config.polymarketAdversePressureThreshold ?? 0.18,
       adverseImbalanceThreshold: this.config.polymarketAdverseImbalanceThreshold ?? 0.55,
       adverseDepthSpeedBps: this.config.polymarketAdverseDepthSpeedBps ?? 12,
@@ -744,8 +746,20 @@ export class MarketMaker {
     }
     const crowdingMultiple = this.getPolymarketRewardCrowdingMultiple(market, orderbook);
     const cfg = this.getPolymarketExecutionSafetyConfig();
-    const extra = Math.max(0, crowdingMultiple - cfg.rewardQueueRetreatStart) * 2;
-    return this.clamp(extra, 0, cfg.rewardQueueRetreatMaxBps);
+    const crowdingExtra = Math.max(0, crowdingMultiple - cfg.rewardQueueRetreatStart) * 2;
+    const reward = this.getPolymarketRewardRule(market);
+    const mid = Number(orderbook.mid_price || 0);
+    const volume24h = Number(market.volume_24h || 0);
+    const queueAheadShares = reward.enabled ? reward.minShares * Math.max(0, crowdingMultiple) : 0;
+    const hourlyTurnoverShares = mid > 0 ? volume24h / mid / 24 : 0;
+    const queueHours =
+      queueAheadShares > 0 && hourlyTurnoverShares > 0 ? queueAheadShares / hourlyTurnoverShares : Number.POSITIVE_INFINITY;
+    const fastFlowExtra =
+      Number.isFinite(queueHours) && queueHours < cfg.rewardMinQueueHours
+        ? ((cfg.rewardMinQueueHours - queueHours) / Math.max(cfg.rewardMinQueueHours, 0.01)) *
+          cfg.rewardFastFlowRetreatMaxBps
+        : 0;
+    return this.clamp(crowdingExtra + fastFlowExtra, 0, cfg.rewardQueueRetreatMaxBps + cfg.rewardFastFlowRetreatMaxBps);
   }
 
   private getPolymarketAdverseSuppression(

@@ -19,6 +19,8 @@ export interface MarketSelectorOptions {
   polymarketRewardRequireEnabled?: boolean;
   polymarketRewardCrowdingPenaltyStart?: number;
   polymarketRewardCrowdingPenaltyMax?: number;
+  polymarketRewardMinQueueHours?: number;
+  polymarketRewardFastFlowPenaltyMax?: number;
 }
 
 interface LevelLiquidity {
@@ -49,6 +51,11 @@ interface PolymarketRewardProfile {
   capitalEstimateUsd: number;
   efficiency: number;
   efficiencyBonus: number;
+  queueAheadShares: number;
+  hourlyTurnoverShares: number;
+  queueHours: number;
+  flowToQueuePerHour: number;
+  fastFlowPenalty: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -66,6 +73,8 @@ export class MarketSelector {
   private polymarketRewardRequireEnabled: boolean;
   private polymarketRewardCrowdingPenaltyStart: number;
   private polymarketRewardCrowdingPenaltyMax: number;
+  private polymarketRewardMinQueueHours: number;
+  private polymarketRewardFastFlowPenaltyMax: number;
 
   constructor(
     minLiquidity: number = 100,
@@ -84,6 +93,8 @@ export class MarketSelector {
     this.polymarketRewardRequireEnabled = options.polymarketRewardRequireEnabled === true;
     this.polymarketRewardCrowdingPenaltyStart = options.polymarketRewardCrowdingPenaltyStart ?? 4;
     this.polymarketRewardCrowdingPenaltyMax = options.polymarketRewardCrowdingPenaltyMax ?? 12;
+    this.polymarketRewardMinQueueHours = options.polymarketRewardMinQueueHours ?? 0.75;
+    this.polymarketRewardFastFlowPenaltyMax = options.polymarketRewardFastFlowPenaltyMax ?? 8;
   }
 
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
@@ -244,6 +255,12 @@ export class MarketSelector {
         score += rewardProfile.efficiencyBonus;
         reasons.push(`激励效率: ${(rewardProfile.efficiency * 100).toFixed(2)}%/最小资金`);
       }
+      if (rewardProfile.fastFlowPenalty > 0 && Number.isFinite(rewardProfile.queueHours)) {
+        score -= rewardProfile.fastFlowPenalty;
+        reasons.push(
+          `成交流速过快，降权: 队列约 ${rewardProfile.queueHours.toFixed(2)}h / ${rewardProfile.flowToQueuePerHour.toFixed(2)}x每小时`
+        );
+      }
     }
 
     reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);
@@ -292,6 +309,11 @@ export class MarketSelector {
         capitalEstimateUsd: 0,
         efficiency: 0,
         efficiencyBonus: 0,
+        queueAheadShares: 0,
+        hourlyTurnoverShares: 0,
+        queueHours: 0,
+        flowToQueuePerHour: 0,
+        fastFlowPenalty: 0,
       };
     }
 
@@ -307,12 +329,27 @@ export class MarketSelector {
     const bonus = rewardStrength * (0.35 + 0.65 * fitScore);
     // For a second-layer quoting strategy, the practical queue ahead is the
     // first level plus the resting size already sitting on level two.
-    const crowdingMultiple = (l1MinShares + l2MinShares) / Math.max(1, minSize);
+    const queueAheadShares = l1MinShares + l2MinShares;
+    const crowdingMultiple = queueAheadShares / Math.max(1, minSize);
     const crowdingPenalty = clamp(
       Math.max(0, crowdingMultiple - this.polymarketRewardCrowdingPenaltyStart) * 1.6,
       0,
       this.polymarketRewardCrowdingPenaltyMax
     );
+    const hourlyTurnoverShares = midPrice > 0 ? Number(market.volume_24h || 0) / midPrice / 24 : 0;
+    const queueHours =
+      queueAheadShares > 0 && hourlyTurnoverShares > 0 ? queueAheadShares / hourlyTurnoverShares : Number.POSITIVE_INFINITY;
+    const flowToQueuePerHour =
+      queueAheadShares > 0 && hourlyTurnoverShares > 0 ? hourlyTurnoverShares / queueAheadShares : 0;
+    const fastFlowPenalty =
+      Number.isFinite(queueHours) && queueHours < this.polymarketRewardMinQueueHours
+        ? clamp(
+            ((this.polymarketRewardMinQueueHours - queueHours) / Math.max(this.polymarketRewardMinQueueHours, 0.01)) *
+              this.polymarketRewardFastFlowPenaltyMax,
+            0,
+            this.polymarketRewardFastFlowPenaltyMax
+          )
+        : 0;
 
     return {
       enabled,
@@ -331,6 +368,11 @@ export class MarketSelector {
       capitalEstimateUsd,
       efficiency,
       efficiencyBonus,
+      queueAheadShares,
+      hourlyTurnoverShares,
+      queueHours,
+      flowToQueuePerHour,
+      fastFlowPenalty,
     };
   }
 
