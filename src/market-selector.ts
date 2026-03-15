@@ -17,6 +17,8 @@ export interface MarketSelectorOptions {
   polymarketRewardMinDailyRate?: number;
   polymarketRewardRequireFit?: boolean;
   polymarketRewardRequireEnabled?: boolean;
+  polymarketRewardCrowdingPenaltyStart?: number;
+  polymarketRewardCrowdingPenaltyMax?: number;
 }
 
 interface LevelLiquidity {
@@ -42,6 +44,8 @@ interface PolymarketRewardProfile {
   spreadFit: number;
   fitScore: number;
   bonus: number;
+  crowdingMultiple: number;
+  crowdingPenalty: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -57,6 +61,8 @@ export class MarketSelector {
   private polymarketRewardMinDailyRate: number;
   private polymarketRewardRequireFit: boolean;
   private polymarketRewardRequireEnabled: boolean;
+  private polymarketRewardCrowdingPenaltyStart: number;
+  private polymarketRewardCrowdingPenaltyMax: number;
 
   constructor(
     minLiquidity: number = 100,
@@ -73,6 +79,8 @@ export class MarketSelector {
     this.polymarketRewardMinDailyRate = options.polymarketRewardMinDailyRate ?? 0;
     this.polymarketRewardRequireFit = options.polymarketRewardRequireFit !== false;
     this.polymarketRewardRequireEnabled = options.polymarketRewardRequireEnabled === true;
+    this.polymarketRewardCrowdingPenaltyStart = options.polymarketRewardCrowdingPenaltyStart ?? 4;
+    this.polymarketRewardCrowdingPenaltyMax = options.polymarketRewardCrowdingPenaltyMax ?? 12;
   }
 
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
@@ -223,6 +231,12 @@ export class MarketSelector {
         score *= 0.92;
         reasons.push('二档深度不足以稳定吃到激励，降权');
       }
+      if (rewardProfile.crowdingPenalty > 0) {
+        score -= rewardProfile.crowdingPenalty;
+        reasons.push(
+          `奖励队列过厚，降权: ${rewardProfile.crowdingMultiple.toFixed(1)}x min-size`
+        );
+      }
     }
 
     reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);
@@ -266,6 +280,8 @@ export class MarketSelector {
         spreadFit: 0,
         fitScore: 0,
         bonus: 0,
+        crowdingMultiple: 0,
+        crowdingPenalty: 0,
       };
     }
 
@@ -275,6 +291,12 @@ export class MarketSelector {
     const fitScore = clamp(0.3 * spreadFit + 0.25 * (l1SizeFit / 1.25) + 0.45 * (l2SizeFit / 1.25), 0, 1.1);
     const rewardStrength = Math.min(20, Math.log10(dailyRate + 1) * 4.5);
     const bonus = rewardStrength * (0.35 + 0.65 * fitScore);
+    const crowdingMultiple = Math.max(l1MinShares, l2MinShares) / Math.max(1, minSize);
+    const crowdingPenalty = clamp(
+      Math.max(0, crowdingMultiple - this.polymarketRewardCrowdingPenaltyStart) * 1.6,
+      0,
+      this.polymarketRewardCrowdingPenaltyMax
+    );
 
     return {
       enabled,
@@ -288,6 +310,8 @@ export class MarketSelector {
       spreadFit,
       fitScore,
       bonus,
+      crowdingMultiple,
+      crowdingPenalty,
     };
   }
 

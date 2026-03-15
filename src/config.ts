@@ -1216,10 +1216,16 @@ export function loadConfig(): Config {
     polymarketRewardRequireFit: process.env.POLYMARKET_REWARD_REQUIRE_FIT !== 'false',
     polymarketRewardRequireEnabled: process.env.POLYMARKET_REWARD_REQUIRE_ENABLED === 'true',
     polymarketRewardPauseMs: parseInt(process.env.POLYMARKET_REWARD_PAUSE_MS || '180000'),
+    polymarketRewardSizeCapMultiplier: parseFloat(process.env.POLYMARKET_REWARD_SIZE_CAP_MULTIPLIER || '1.25'),
+    polymarketRewardCrowdingPenaltyStart: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_START || '4'),
+    polymarketRewardCrowdingPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_MAX || '12'),
     polymarketPostOnlyMinHitRate: parseFloat(process.env.POLYMARKET_POST_ONLY_MIN_HIT_RATE || '0.7'),
     polymarketPostOnlyMinAttempts: parseInt(process.env.POLYMARKET_POST_ONLY_MIN_ATTEMPTS || '6'),
     polymarketPostOnlyWindowMs: parseInt(process.env.POLYMARKET_POST_ONLY_WINDOW_MS || '600000'),
     polymarketPostOnlyPauseMs: parseInt(process.env.POLYMARKET_POST_ONLY_PAUSE_MS || '300000'),
+    polymarketAdversePressureThreshold: parseFloat(process.env.POLYMARKET_ADVERSE_PRESSURE_THRESHOLD || '0.18'),
+    polymarketAdverseImbalanceThreshold: parseFloat(process.env.POLYMARKET_ADVERSE_IMBALANCE_THRESHOLD || '0.55'),
+    polymarketAdverseDepthSpeedBps: parseFloat(process.env.POLYMARKET_ADVERSE_DEPTH_SPEED_BPS || '12'),
     polymarketPositionLossLimitAbs: parseFloat(process.env.POLYMARKET_POSITION_LOSS_LIMIT_ABS || '20'),
     polymarketPositionLossLimitRatio: parseFloat(process.env.POLYMARKET_POSITION_LOSS_LIMIT_RATIO || '0.2'),
     polymarketPositionLossPauseMs: parseInt(process.env.POLYMARKET_POSITION_LOSS_PAUSE_MS || '1800000'),
@@ -1272,11 +1278,29 @@ export function loadConfig(): Config {
     if ((config.polymarketRewardMinDailyRate ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_MIN_DAILY_RATE must be >= 0');
     }
+    if ((config.polymarketRewardSizeCapMultiplier ?? 0) <= 0) {
+      throw new Error('POLYMARKET_REWARD_SIZE_CAP_MULTIPLIER must be > 0');
+    }
+    if ((config.polymarketRewardCrowdingPenaltyStart ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_CROWDING_PENALTY_START must be >= 0');
+    }
+    if ((config.polymarketRewardCrowdingPenaltyMax ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_CROWDING_PENALTY_MAX must be >= 0');
+    }
     if ((config.polymarketPostOnlyMinHitRate ?? 0) <= 0 || (config.polymarketPostOnlyMinHitRate ?? 0) > 1) {
       throw new Error('POLYMARKET_POST_ONLY_MIN_HIT_RATE must be between 0 and 1');
     }
     if ((config.polymarketPostOnlyMinAttempts ?? 0) < 1) {
       throw new Error('POLYMARKET_POST_ONLY_MIN_ATTEMPTS must be >= 1');
+    }
+    if ((config.polymarketAdversePressureThreshold ?? 0) < 0 || (config.polymarketAdversePressureThreshold ?? 0) > 1) {
+      throw new Error('POLYMARKET_ADVERSE_PRESSURE_THRESHOLD must be between 0 and 1');
+    }
+    if ((config.polymarketAdverseImbalanceThreshold ?? 0) < 0 || (config.polymarketAdverseImbalanceThreshold ?? 0) > 1) {
+      throw new Error('POLYMARKET_ADVERSE_IMBALANCE_THRESHOLD must be between 0 and 1');
+    }
+    if ((config.polymarketAdverseDepthSpeedBps ?? 0) < 0) {
+      throw new Error('POLYMARKET_ADVERSE_DEPTH_SPEED_BPS must be >= 0');
     }
     if ((config.polymarketPositionLossLimitAbs ?? 0) < 0) {
       throw new Error('POLYMARKET_POSITION_LOSS_LIMIT_ABS must be >= 0');

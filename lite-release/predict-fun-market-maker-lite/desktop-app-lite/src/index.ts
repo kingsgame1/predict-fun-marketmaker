@@ -644,6 +644,8 @@ export class PolymarketMarketMakerBot {
         this.config.polymarketRewardMinDailyRate ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_MIN_DAILY_RATE,
       rewardRequireFit: this.config.polymarketRewardRequireFit !== false,
       rewardRequireEnabled: this.config.polymarketRewardRequireEnabled === true,
+      rewardCrowdingPenaltyStart: this.config.polymarketRewardCrowdingPenaltyStart ?? 4,
+      rewardCrowdingPenaltyMax: this.config.polymarketRewardCrowdingPenaltyMax ?? 12,
       rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
     };
   }
@@ -666,6 +668,8 @@ export class PolymarketMarketMakerBot {
       polymarketRewardMinDailyRate: safety.rewardMinDailyRate,
       polymarketRewardRequireFit: safety.rewardRequireFit,
       polymarketRewardRequireEnabled: safety.rewardRequireEnabled,
+      polymarketRewardCrowdingPenaltyStart: safety.rewardCrowdingPenaltyStart,
+      polymarketRewardCrowdingPenaltyMax: safety.rewardCrowdingPenaltyMax,
     };
   }
 

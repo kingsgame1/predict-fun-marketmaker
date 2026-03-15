@@ -403,6 +403,10 @@ export class MarketMaker {
       minAttempts: this.config.polymarketPostOnlyMinAttempts ?? 6,
       windowMs: this.config.polymarketPostOnlyWindowMs ?? 10 * 60 * 1000,
       pauseMs: this.config.polymarketPostOnlyPauseMs ?? 5 * 60 * 1000,
+      rewardSizeCapMultiplier: this.config.polymarketRewardSizeCapMultiplier ?? 1.25,
+      adversePressureThreshold: this.config.polymarketAdversePressureThreshold ?? 0.18,
+      adverseImbalanceThreshold: this.config.polymarketAdverseImbalanceThreshold ?? 0.55,
+      adverseDepthSpeedBps: this.config.polymarketAdverseDepthSpeedBps ?? 12,
       positionLossLimitAbs: this.config.polymarketPositionLossLimitAbs ?? 20,
       positionLossLimitRatio: this.config.polymarketPositionLossLimitRatio ?? 0.2,
       positionLossPauseMs: this.config.polymarketPositionLossPauseMs ?? 30 * 60 * 1000,
@@ -547,6 +551,22 @@ export class MarketMaker {
     return side === 'bids' ? first - second : second - first;
   }
 
+  private getLevelPrice(levels: OrderbookEntry[] | undefined, index: number, side: 'bids' | 'asks'): number | null {
+    if (!Array.isArray(levels) || levels.length <= index) {
+      return null;
+    }
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a.price || 0);
+      const bp = Number(b.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    const price = Number(sorted[index]?.price || 0);
+    if (!Number.isFinite(price) || price <= 0) {
+      return null;
+    }
+    return price;
+  }
+
   private getSupportRatio(levels: OrderbookEntry[] | undefined, side: 'bids' | 'asks'): number {
     if (!Array.isArray(levels) || levels.length < 2) {
       return 0;
@@ -652,6 +672,77 @@ export class MarketMaker {
     console.warn(
       `🛑 [PolymarketSafety] 单市场亏损熔断: token=${tokenId} pnl=${Number(position?.pnl || 0).toFixed(2)} value=${Number(position?.total_value || 0).toFixed(2)}`
     );
+  }
+
+  private getPolymarketRewardRule(market: Market): { enabled: boolean; minShares: number; maxSpread: number } {
+    const minShares = Math.max(0, Number(market.liquidity_activation?.min_shares || market.polymarket_reward_min_size || 0));
+    const maxSpread = Math.max(
+      0,
+      Number(
+        market.liquidity_activation?.max_spread ??
+          (market.liquidity_activation?.max_spread_cents
+            ? market.liquidity_activation.max_spread_cents / 100
+            : market.polymarket_reward_max_spread || 0)
+      )
+    );
+    const enabled = Boolean(market.polymarket_rewards_enabled) && minShares > 0 && maxSpread > 0;
+    return { enabled, minShares, maxSpread };
+  }
+
+  private getPolymarketRewardSizeCapShares(market: Market): number {
+    if (this.config.mmVenue !== 'polymarket') {
+      return 0;
+    }
+    const reward = this.getPolymarketRewardRule(market);
+    if (!reward.enabled) {
+      return 0;
+    }
+    const mult = Math.max(1, Number(this.getPolymarketExecutionSafetyConfig().rewardSizeCapMultiplier || 1.25));
+    return Math.max(0, Math.floor(reward.minShares * mult));
+  }
+
+  private getPolymarketAdverseSuppression(
+    market: Market,
+    orderbook: Orderbook,
+    prices: QuotePrices,
+    metrics: { depthSpeedBps?: number }
+  ): { suppressBuy: boolean; suppressSell: boolean; reason?: string } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return { suppressBuy: false, suppressSell: false };
+    }
+
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const pressure = Number(prices.pressure || 0);
+    const imbalance = Number((prices.imbalance ?? this.calculateOrderbookImbalance(orderbook)) || 0);
+    const depthSpeedBps = Number(metrics.depthSpeedBps || 0);
+    const reward = this.getPolymarketRewardRule(market);
+    const topGapTight = reward.enabled && reward.maxSpread > 0 && Number(orderbook.spread || 0) <= reward.maxSpread * 0.8;
+
+    if (
+      pressure >= cfg.adversePressureThreshold &&
+      imbalance >= cfg.adverseImbalanceThreshold &&
+      depthSpeedBps >= cfg.adverseDepthSpeedBps
+    ) {
+      return {
+        suppressBuy: false,
+        suppressSell: true,
+        reason: `上冲风险过高 pressure=${pressure.toFixed(2)} imbalance=${imbalance.toFixed(2)}${topGapTight ? ' reward-tight' : ''}`,
+      };
+    }
+
+    if (
+      pressure <= -cfg.adversePressureThreshold &&
+      imbalance <= -cfg.adverseImbalanceThreshold &&
+      depthSpeedBps >= cfg.adverseDepthSpeedBps
+    ) {
+      return {
+        suppressBuy: true,
+        suppressSell: false,
+        reason: `下杀风险过高 pressure=${pressure.toFixed(2)} imbalance=${imbalance.toFixed(2)}${topGapTight ? ' reward-tight' : ''}`,
+      };
+    }
+
+    return { suppressBuy: false, suppressSell: false };
   }
 
   async initialize(): Promise<void> {
@@ -4240,19 +4331,33 @@ export class MarketMaker {
         }
       }
     }
-    // 🎯 第二档挂单策略：基于订单簿第一档的固定金额偏移
-    // 如果启用了 MM_QUOTE_SECOND_LAYER，使用固定偏移而不是百分比偏移
+    const secondBid = this.getLevelPrice(orderbook.bids, 1, 'bids');
+    const secondAsk = this.getLevelPrice(orderbook.asks, 1, 'asks');
     const fixedCents = Math.max(0, this.config.mmTouchBufferFixedCents ?? 0);
-    if (fixedCents > 0 && this.config.mmQuoteSecondLayer) {
-      // 固定金额偏移：直接在 bestBid/bestAsk 基础上减/加固定金额
-      // 例如：bestBid=99.1, fixedCents=0.1 → 我们的买价=99.0
-      const fixedOffset = fixedCents / 100; // 转换为美元（如果价格以美元计价）
-      const maxBid = bestBid - fixedOffset;
-      const minAsk = bestAsk + fixedOffset;
-      bid = Math.min(bid, maxBid);
-      ask = Math.max(ask, minAsk);
+    if (this.config.mmQuoteSecondLayer) {
+      let usedNativeSecondLevel = false;
+      if (secondBid !== null && secondBid > 0) {
+        bid = Math.min(bid, secondBid);
+        usedNativeSecondLevel = true;
+      }
+      if (secondAsk !== null && secondAsk > 0) {
+        ask = Math.max(ask, secondAsk);
+        usedNativeSecondLevel = true;
+      }
+      if (!usedNativeSecondLevel && fixedCents > 0) {
+        const fixedOffset = fixedCents / 100;
+        const maxBid = bestBid - fixedOffset;
+        const minAsk = bestAsk + fixedOffset;
+        bid = Math.min(bid, maxBid);
+        ask = Math.max(ask, minAsk);
+      } else if (!usedNativeSecondLevel && touchBufferBps > 0) {
+        const buffer = touchBufferBps / 10000;
+        const maxBid = bestBid * (1 - buffer);
+        const minAsk = bestAsk * (1 + buffer);
+        bid = Math.min(bid, maxBid);
+        ask = Math.max(ask, minAsk);
+      }
     } else if (touchBufferBps > 0) {
-      // 百分比偏移（原有逻辑）
       const buffer = touchBufferBps / 10000;
       const maxBid = bestBid * (1 - buffer);
       const minAsk = bestAsk * (1 + buffer);
@@ -4414,6 +4519,14 @@ export class MarketMaker {
       const cap = Math.max(minShares, Math.floor(minShares * multiplier));
       shares = Math.min(shares, cap);
       if (shares < minShares) {
+        shares = minShares;
+      }
+    }
+
+    const rewardSizeCapShares = this.getPolymarketRewardSizeCapShares(market);
+    if (rewardSizeCapShares > 0) {
+      shares = Math.min(shares, rewardSizeCapShares);
+      if (minShares > 0 && shares < minShares) {
         shares = minShares;
       }
     }
@@ -5348,6 +5461,18 @@ export class MarketMaker {
     if (!suppressBuy && !suppressSell) {
       suppressBuy = prices.inventoryBias > 0.85;
       suppressSell = prices.inventoryBias < -0.85;
+    }
+
+    const polymarketAdverse = this.getPolymarketAdverseSuppression(market, orderbook, prices, metrics);
+    if (polymarketAdverse.suppressBuy) {
+      suppressBuy = true;
+    }
+    if (polymarketAdverse.suppressSell) {
+      suppressSell = true;
+    }
+    if ((polymarketAdverse.suppressBuy || polymarketAdverse.suppressSell) && polymarketAdverse.reason) {
+      console.log(`   🛡️ Polymarket adverse guard: ${polymarketAdverse.reason}`);
+      this.recordMmEvent('POLYMARKET_ADVERSE_GUARD', polymarketAdverse.reason, tokenId);
     }
 
     let placed = false;

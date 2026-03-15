@@ -55,6 +55,7 @@ interface PolymarketIncentiveSummary {
   spreadFit: number | null;
   l1SizeFit: number | null;
   l2SizeFit: number | null;
+  crowdingMultiple: number | null;
 }
 
 function slugifyQuestion(question: string): string {
@@ -633,6 +634,8 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardMinDailyRate: readNumber(env, 'POLYMARKET_REWARD_MIN_DAILY_RATE', 0),
     polymarketRewardRequireFit: env.get('POLYMARKET_REWARD_REQUIRE_FIT') !== 'false',
     polymarketRewardRequireEnabled: env.get('POLYMARKET_REWARD_REQUIRE_ENABLED') === 'true',
+    polymarketRewardCrowdingPenaltyStart: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_START', 4),
+    polymarketRewardCrowdingPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_MAX', 12),
   };
 }
 
@@ -783,6 +786,7 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
       spreadFit: null,
       l1SizeFit: null,
       l2SizeFit: null,
+      crowdingMultiple: null,
     };
   }
 
@@ -797,6 +801,7 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
   const rawSpread = getBookSpread(orderbook);
   const spreadFit = rawSpread === null ? 0 : Math.max(0, Math.min(1, 1 - rawSpread / maxSpread));
   const fitScore = Math.max(0, Math.min(1.1, 0.3 * spreadFit + 0.25 * (l1SizeFit / 1.25) + 0.45 * (l2SizeFit / 1.25)));
+  const crowdingMultiple = Math.max(l1MinShares, l2MinShares) / Math.max(1, minSize);
 
   return {
     enabled: true,
@@ -808,6 +813,7 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
     spreadFit,
     l1SizeFit,
     l2SizeFit,
+    crowdingMultiple,
   };
 }
 
@@ -977,6 +983,7 @@ async function main(): Promise<void> {
       rewardSpreadFit: toFixedOrNull(incentive.spreadFit, 3),
       rewardL1SizeFit: toFixedOrNull(incentive.l1SizeFit, 3),
       rewardL2SizeFit: toFixedOrNull(incentive.l2SizeFit, 3),
+      rewardCrowdingMultiple: toFixedOrNull(incentive.crowdingMultiple, 2),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

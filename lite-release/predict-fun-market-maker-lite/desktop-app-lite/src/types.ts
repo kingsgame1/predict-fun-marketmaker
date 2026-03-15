@@ -1032,10 +1032,16 @@ export interface Config {
   polymarketRewardRequireFit?: boolean;
   polymarketRewardRequireEnabled?: boolean;
   polymarketRewardPauseMs?: number;
+  polymarketRewardSizeCapMultiplier?: number;
+  polymarketRewardCrowdingPenaltyStart?: number;
+  polymarketRewardCrowdingPenaltyMax?: number;
   polymarketPostOnlyMinHitRate?: number;
   polymarketPostOnlyMinAttempts?: number;
   polymarketPostOnlyWindowMs?: number;
   polymarketPostOnlyPauseMs?: number;
+  polymarketAdversePressureThreshold?: number;
+  polymarketAdverseImbalanceThreshold?: number;
+  polymarketAdverseDepthSpeedBps?: number;
   polymarketPositionLossLimitAbs?: number;
   polymarketPositionLossLimitRatio?: number;
   polymarketPositionLossPauseMs?: number;
