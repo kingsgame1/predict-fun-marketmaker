@@ -1174,6 +1174,16 @@ export interface Market {
   polymarket_pattern_memory_unsafe?: number;
   polymarket_pattern_memory_learned_retreat?: number;
   polymarket_pattern_memory_learned_size?: number;
+  polymarket_pattern_memory_learned_retreat_near_touch?: number;
+  polymarket_pattern_memory_learned_retreat_refresh?: number;
+  polymarket_pattern_memory_learned_retreat_vwap?: number;
+  polymarket_pattern_memory_learned_retreat_aggressive?: number;
+  polymarket_pattern_memory_learned_retreat_unsafe?: number;
+  polymarket_pattern_memory_learned_size_near_touch?: number;
+  polymarket_pattern_memory_learned_size_refresh?: number;
+  polymarket_pattern_memory_learned_size_vwap?: number;
+  polymarket_pattern_memory_learned_size_aggressive?: number;
+  polymarket_pattern_memory_learned_size_unsafe?: number;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;

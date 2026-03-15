@@ -284,6 +284,16 @@ export class MarketSelector {
     market.polymarket_pattern_memory_unsafe = patternMemory?.reasonMix?.unsafe;
     market.polymarket_pattern_memory_learned_retreat = patternMemory?.learnedRetreat;
     market.polymarket_pattern_memory_learned_size = patternMemory?.learnedSize;
+    market.polymarket_pattern_memory_learned_retreat_near_touch = patternMemory?.learnedRetreatMix?.nearTouch;
+    market.polymarket_pattern_memory_learned_retreat_refresh = patternMemory?.learnedRetreatMix?.refresh;
+    market.polymarket_pattern_memory_learned_retreat_vwap = patternMemory?.learnedRetreatMix?.vwap;
+    market.polymarket_pattern_memory_learned_retreat_aggressive = patternMemory?.learnedRetreatMix?.aggressive;
+    market.polymarket_pattern_memory_learned_retreat_unsafe = patternMemory?.learnedRetreatMix?.unsafe;
+    market.polymarket_pattern_memory_learned_size_near_touch = patternMemory?.learnedSizeMix?.nearTouch;
+    market.polymarket_pattern_memory_learned_size_refresh = patternMemory?.learnedSizeMix?.refresh;
+    market.polymarket_pattern_memory_learned_size_vwap = patternMemory?.learnedSizeMix?.vwap;
+    market.polymarket_pattern_memory_learned_size_aggressive = patternMemory?.learnedSizeMix?.aggressive;
+    market.polymarket_pattern_memory_learned_size_unsafe = patternMemory?.learnedSizeMix?.unsafe;
     market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;

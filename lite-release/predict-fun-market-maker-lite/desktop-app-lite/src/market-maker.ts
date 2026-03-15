@@ -873,24 +873,65 @@ export class MarketMaker {
     const unsafeMix = this.clamp(Number(market.polymarket_pattern_memory_unsafe || 0), 0, 1);
     const learnedRetreat = this.clamp(Number(market.polymarket_pattern_memory_learned_retreat || 0), 0, 1);
     const learnedSize = this.clamp(Number(market.polymarket_pattern_memory_learned_size || 0), 0, 1);
+    const learnedRetreatNearTouch = this.clamp(
+      Number(market.polymarket_pattern_memory_learned_retreat_near_touch || 0),
+      0,
+      1
+    );
+    const learnedRetreatRefresh = this.clamp(
+      Number(market.polymarket_pattern_memory_learned_retreat_refresh || 0),
+      0,
+      1
+    );
+    const learnedRetreatVwap = this.clamp(Number(market.polymarket_pattern_memory_learned_retreat_vwap || 0), 0, 1);
+    const learnedRetreatAggressive = this.clamp(
+      Number(market.polymarket_pattern_memory_learned_retreat_aggressive || 0),
+      0,
+      1
+    );
+    const learnedRetreatUnsafe = this.clamp(
+      Number(market.polymarket_pattern_memory_learned_retreat_unsafe || 0),
+      0,
+      1
+    );
+    const learnedSizeNearTouch = this.clamp(Number(market.polymarket_pattern_memory_learned_size_near_touch || 0), 0, 1);
+    const learnedSizeRefresh = this.clamp(Number(market.polymarket_pattern_memory_learned_size_refresh || 0), 0, 1);
+    const learnedSizeVwap = this.clamp(Number(market.polymarket_pattern_memory_learned_size_vwap || 0), 0, 1);
+    const learnedSizeAggressive = this.clamp(
+      Number(market.polymarket_pattern_memory_learned_size_aggressive || 0),
+      0,
+      1
+    );
+    const learnedSizeUnsafe = this.clamp(Number(market.polymarket_pattern_memory_learned_size_unsafe || 0), 0, 1);
     const scaled = this.clamp((penalty / maxPenalty) * (0.65 + 0.35 * dominance) * decayFactor, 0, 1);
+    const learnedReasonBoostCap = 0.75;
+    const retreatNearTouchBoost = 1 + learnedRetreatNearTouch * learnedReasonBoostCap;
+    const retreatRefreshBoost = 1 + learnedRetreatRefresh * learnedReasonBoostCap * 0.55;
+    const retreatVwapBoost = 1 + learnedRetreatVwap * learnedReasonBoostCap * 0.8;
+    const retreatAggressiveBoost = 1 + learnedRetreatAggressive * learnedReasonBoostCap;
+    const retreatUnsafeBoost = 1 + learnedRetreatUnsafe * learnedReasonBoostCap;
+    const sizeNearTouchBoost = 1 + learnedSizeNearTouch * learnedReasonBoostCap * 0.5;
+    const sizeRefreshBoost = 1 + learnedSizeRefresh * learnedReasonBoostCap * 0.4;
+    const sizeVwapBoost = 1 + learnedSizeVwap * learnedReasonBoostCap * 0.85;
+    const sizeAggressiveBoost = 1 + learnedSizeAggressive * learnedReasonBoostCap;
+    const sizeUnsafeBoost = 1 + learnedSizeUnsafe * learnedReasonBoostCap;
     const retreatWeight = this.clamp(
       0.15 +
-        nearTouchMix * 1.05 +
-        aggressiveMix * 0.95 +
-        unsafeMix * 0.9 +
-        vwapMix * 0.45 +
-        refreshMix * 0.25,
+        nearTouchMix * 1.05 * retreatNearTouchBoost +
+        aggressiveMix * 0.95 * retreatAggressiveBoost +
+        unsafeMix * 0.9 * retreatUnsafeBoost +
+        vwapMix * 0.45 * retreatVwapBoost +
+        refreshMix * 0.25 * retreatRefreshBoost,
       0.2,
       1.6
     ) * (1 + learnedRetreat * 0.35);
     const sizeWeight = this.clamp(
       0.2 +
-        aggressiveMix * 1.1 +
-        unsafeMix * 1.05 +
-        vwapMix * 0.65 +
-        nearTouchMix * 0.35 +
-        refreshMix * 0.2,
+        aggressiveMix * 1.1 * sizeAggressiveBoost +
+        unsafeMix * 1.05 * sizeUnsafeBoost +
+        vwapMix * 0.65 * sizeVwapBoost +
+        nearTouchMix * 0.35 * sizeNearTouchBoost +
+        refreshMix * 0.2 * sizeRefreshBoost,
       0.25,
       1.7
     ) * (1 + learnedSize * 0.45);
