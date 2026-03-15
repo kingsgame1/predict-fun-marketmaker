@@ -35,10 +35,19 @@ function sortMarketsByLiquidityAndVolume(markets: Market[]): Market[] {
 function loadRecentPolymarketRiskPenalty(
   metricsPath: string | undefined,
   cwd: string,
+  pauseConfig: {
+    rewardPauseMs: number;
+    postOnlyPauseMs: number;
+    adverseFillPauseMs: number;
+    positionLossPauseMs: number;
+  },
   lookbackMs: number = 6 * 60 * 60 * 1000,
   maxPenalty: number = 16
-): Map<string, { penalty: number; reason: string }> {
-  const penalties = new Map<string, { penalty: number; reason: string }>();
+): Map<string, { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }> {
+  const penalties = new Map<
+    string,
+    { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }
+  >();
   if (!metricsPath) {
     return penalties;
   }
@@ -54,7 +63,33 @@ function loadRecentPolymarketRiskPenalty(
       markets?: Array<{ tokenId?: string; fillPenaltyBps?: number; riskThrottleFactor?: number }>;
     };
     const cutoff = Date.now() - lookbackMs;
-    const scores = new Map<string, { penalty: number; adverse: number; pauses: number; postOnly: number }>();
+    const scores = new Map<
+      string,
+      {
+        penalty: number;
+        adverse: number;
+        pauses: number;
+        postOnly: number;
+        cooldownRemainingMs: number;
+        cooldownReason: string;
+      }
+    >();
+
+    const getPauseDurationMs = (type: string, message: string): number => {
+      if (type === 'POLYMARKET_POST_ONLY_FUSE' || message.includes('polymarket-post-only')) {
+        return pauseConfig.postOnlyPauseMs;
+      }
+      if (type === 'POLYMARKET_ADVERSE_FILL' || message.includes('polymarket-adverse-fill')) {
+        return pauseConfig.adverseFillPauseMs;
+      }
+      if (message.includes('polymarket-position-loss')) {
+        return pauseConfig.positionLossPauseMs;
+      }
+      if (message.includes('polymarket-reward-gate')) {
+        return pauseConfig.rewardPauseMs;
+      }
+      return 0;
+    };
 
     for (const event of raw.events || []) {
       const tokenId = String(event.tokenId || '');
@@ -63,7 +98,14 @@ function loadRecentPolymarketRiskPenalty(
       if (!Number.isFinite(ts) || ts < cutoff) continue;
       const type = String(event.type || '');
       const message = String(event.message || '');
-      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, pauses: 0, postOnly: 0 };
+      const entry = scores.get(tokenId) || {
+        penalty: 0,
+        adverse: 0,
+        pauses: 0,
+        postOnly: 0,
+        cooldownRemainingMs: 0,
+        cooldownReason: '',
+      };
       if (type === 'POLYMARKET_ADVERSE_FILL') {
         entry.penalty += 2;
         entry.adverse += 1;
@@ -74,13 +116,28 @@ function loadRecentPolymarketRiskPenalty(
         entry.penalty += 5;
         entry.pauses += 1;
       }
+      const pauseDurationMs = getPauseDurationMs(type, message);
+      if (pauseDurationMs > 0) {
+        const remainingMs = Math.max(0, ts + pauseDurationMs - Date.now());
+        if (remainingMs > entry.cooldownRemainingMs) {
+          entry.cooldownRemainingMs = remainingMs;
+          entry.cooldownReason = message || type;
+        }
+      }
       scores.set(tokenId, entry);
     }
 
     for (const metric of raw.markets || []) {
       const tokenId = String(metric.tokenId || '');
       if (!tokenId) continue;
-      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, pauses: 0, postOnly: 0 };
+      const entry = scores.get(tokenId) || {
+        penalty: 0,
+        adverse: 0,
+        pauses: 0,
+        postOnly: 0,
+        cooldownRemainingMs: 0,
+        cooldownReason: '',
+      };
       const fillPenaltyBps = Number(metric.fillPenaltyBps || 0);
       const riskThrottleFactor = Number(metric.riskThrottleFactor || 1);
       if (Number.isFinite(fillPenaltyBps) && fillPenaltyBps > 0) {
@@ -102,6 +159,8 @@ function loadRecentPolymarketRiskPenalty(
       penalties.set(tokenId, {
         penalty,
         reason: `${reasonParts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
+        cooldownRemainingMs: entry.cooldownRemainingMs > 0 ? entry.cooldownRemainingMs : undefined,
+        cooldownReason: entry.cooldownReason || undefined,
       });
     }
   } catch (error) {
@@ -759,7 +818,13 @@ export class PolymarketMarketMakerBot {
       polymarketRecentRiskBlockPenalty: safety.recentRiskBlockPenalty,
       polymarketRecentRiskPenalty: loadRecentPolymarketRiskPenalty(
         this.config.mmMetricsPath,
-        process.cwd()
+        process.cwd(),
+        {
+          rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
+          postOnlyPauseMs: this.config.polymarketPostOnlyPauseMs ?? 30 * 60 * 1000,
+          adverseFillPauseMs: this.config.polymarketAdverseFillPauseMs ?? 45 * 60 * 1000,
+          positionLossPauseMs: this.config.polymarketPositionLossPauseMs ?? 30 * 60 * 1000,
+        }
       ),
     };
   }

@@ -21,6 +21,8 @@ interface EnvMap extends Map<string, string> {}
 interface RecentRiskPenalty {
   penalty: number;
   reason: string;
+  cooldownRemainingMs?: number;
+  cooldownReason?: string;
 }
 
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
@@ -674,7 +676,28 @@ function loadRecentPolymarketRiskPenalty(
       markets?: Array<{ tokenId?: string; fillPenaltyBps?: number; riskThrottleFactor?: number }>;
     };
     const cutoff = Date.now() - lookbackMs;
-    const scores = new Map<string, { penalty: number; adverse: number; postOnly: number; pauses: number }>();
+    const scores = new Map<
+      string,
+      {
+        penalty: number;
+        adverse: number;
+        postOnly: number;
+        pauses: number;
+        cooldownRemainingMs: number;
+        cooldownReason: string;
+      }
+    >();
+    const postOnlyPauseMs = readNumber(env, 'POLYMARKET_POST_ONLY_PAUSE_MS', 1800000);
+    const rewardPauseMs = readNumber(env, 'POLYMARKET_REWARD_PAUSE_MS', 1800000);
+    const adverseFillPauseMs = readNumber(env, 'POLYMARKET_ADVERSE_FILL_PAUSE_MS', 2700000);
+    const positionLossPauseMs = readNumber(env, 'POLYMARKET_POSITION_LOSS_PAUSE_MS', 1800000);
+    const getPauseDurationMs = (type: string, message: string): number => {
+      if (type === 'POLYMARKET_POST_ONLY_FUSE' || message.includes('polymarket-post-only')) return postOnlyPauseMs;
+      if (type === 'POLYMARKET_ADVERSE_FILL' || message.includes('polymarket-adverse-fill')) return adverseFillPauseMs;
+      if (message.includes('polymarket-position-loss')) return positionLossPauseMs;
+      if (message.includes('polymarket-reward-gate')) return rewardPauseMs;
+      return 0;
+    };
     for (const event of raw.events || []) {
       const tokenId = String(event.tokenId || '');
       if (!tokenId) continue;
@@ -682,7 +705,14 @@ function loadRecentPolymarketRiskPenalty(
       if (!Number.isFinite(ts) || ts < cutoff) continue;
       const type = String(event.type || '');
       const message = String(event.message || '');
-      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, postOnly: 0, pauses: 0 };
+      const entry = scores.get(tokenId) || {
+        penalty: 0,
+        adverse: 0,
+        postOnly: 0,
+        pauses: 0,
+        cooldownRemainingMs: 0,
+        cooldownReason: '',
+      };
       if (type === 'POLYMARKET_ADVERSE_FILL') {
         entry.penalty += 2;
         entry.adverse += 1;
@@ -692,6 +722,14 @@ function loadRecentPolymarketRiskPenalty(
       } else if (type === 'MARKET_PAUSE' && message.includes('polymarket-')) {
         entry.penalty += 5;
         entry.pauses += 1;
+      }
+      const pauseDurationMs = getPauseDurationMs(type, message);
+      if (pauseDurationMs > 0) {
+        const remainingMs = Math.max(0, ts + pauseDurationMs - Date.now());
+        if (remainingMs > entry.cooldownRemainingMs) {
+          entry.cooldownRemainingMs = remainingMs;
+          entry.cooldownReason = message || type;
+        }
       }
       scores.set(tokenId, entry);
     }
@@ -719,6 +757,8 @@ function loadRecentPolymarketRiskPenalty(
       penalties.set(tokenId, {
         penalty,
         reason: `${parts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
+        cooldownRemainingMs: entry.cooldownRemainingMs > 0 ? entry.cooldownRemainingMs : undefined,
+        cooldownReason: entry.cooldownReason || undefined,
       });
     }
   } catch (error) {
@@ -1097,6 +1137,11 @@ async function main(): Promise<void> {
       rewardFlowToQueuePerHour: toFixedOrNull(incentive.flowToQueuePerHour, 2),
       recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
       recentRiskReason: recentRiskPenalty.get(entry.market.token_id)?.reason || null,
+      recentRiskCooldownMinutes:
+        recentRiskPenalty.get(entry.market.token_id)?.cooldownRemainingMs != null
+          ? Math.max(1, Math.ceil((recentRiskPenalty.get(entry.market.token_id)?.cooldownRemainingMs || 0) / 60000))
+          : null,
+      recentRiskCooldownReason: recentRiskPenalty.get(entry.market.token_id)?.cooldownReason || null,
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

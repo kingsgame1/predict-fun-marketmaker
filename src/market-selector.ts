@@ -22,7 +22,10 @@ export interface MarketSelectorOptions {
   polymarketRewardMinQueueHours?: number;
   polymarketRewardFastFlowPenaltyMax?: number;
   polymarketRecentRiskBlockPenalty?: number;
-  polymarketRecentRiskPenalty?: Map<string, { penalty: number; reason: string }>;
+  polymarketRecentRiskPenalty?: Map<
+    string,
+    { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }
+  >;
 }
 
 interface LevelLiquidity {
@@ -64,6 +67,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function formatDurationMs(durationMs: number): string {
+  const totalMinutes = Math.max(1, Math.ceil(durationMs / 60000));
+  if (totalMinutes < 60) {
+    return `${totalMinutes}分钟`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+}
+
 export class MarketSelector {
   private minLiquidity: number;
   private minVolume24h: number;
@@ -78,7 +91,10 @@ export class MarketSelector {
   private polymarketRewardMinQueueHours: number;
   private polymarketRewardFastFlowPenaltyMax: number;
   private polymarketRecentRiskBlockPenalty: number;
-  private polymarketRecentRiskPenalty: Map<string, { penalty: number; reason: string }>;
+  private polymarketRecentRiskPenalty: Map<
+    string,
+    { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }
+  >;
 
   constructor(
     minLiquidity: number = 100,
@@ -143,6 +159,17 @@ export class MarketSelector {
       return { market, score: 0, reasons: ['Polymarket 市场当前不接受下单'] };
     }
     if (market.venue === 'polymarket') {
+      if (recentRisk?.cooldownRemainingMs && recentRisk.cooldownRemainingMs > 0) {
+        return {
+          market,
+          score: 0,
+          reasons: [
+            `近期冷却中，剩余${formatDurationMs(recentRisk.cooldownRemainingMs)}: ${
+              recentRisk.cooldownReason || recentRisk.reason
+            }`,
+          ],
+        };
+      }
       if (recentRisk && recentRisk.penalty >= this.polymarketRecentRiskBlockPenalty) {
         return {
           market,

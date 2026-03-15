@@ -179,9 +179,10 @@ POLYMARKET_POSITION_LOSS_LIMIT_ABS=25
 
 ## 命令行完整使用流程
 
-在当前目录运行：
+推荐在 Lite 目录运行命令行版：
 
 ```bash
+cd lite-release/predict-fun-market-maker-lite
 npm install
 ```
 
