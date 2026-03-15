@@ -342,6 +342,14 @@ setupPath();
 
 let win = null;
 let mmProcess = null;
+let mmRuntimeStatus = {
+  running: false,
+  venue: null,
+  lastError: '',
+  pausedMarkets: [],
+  lastPauseEvent: '',
+  lastUpdatedAt: 0,
+};
 
 // ============================================================
 // 配置文件操作
@@ -505,6 +513,7 @@ async function sanitizePolymarketConfiguredTokenIds() {
 // ============================================================
 
 function sendLog(message) {
+  updateRuntimeStatusFromLog(message);
   if (win && !win.isDestroyed()) {
     win.webContents.send('log', { ts: Date.now(), message });
   }
@@ -512,7 +521,93 @@ function sendLog(message) {
 
 function sendStatus() {
   if (win && !win.isDestroyed()) {
-    win.webContents.send('status', { running: Boolean(mmProcess) });
+    win.webContents.send('status', {
+      running: Boolean(mmProcess),
+      ...mmRuntimeStatus,
+    });
+  }
+}
+
+function resetRuntimeStatus(venue = null) {
+  mmRuntimeStatus = {
+    running: Boolean(mmProcess),
+    venue,
+    lastError: '',
+    pausedMarkets: [],
+    lastPauseEvent: '',
+    lastUpdatedAt: Date.now(),
+  };
+}
+
+function upsertPausedMarket(entry) {
+  const key = String(entry.token || entry.id || '').trim();
+  if (!key) return;
+  const next = {
+    token: key,
+    source: String(entry.source || 'risk'),
+    reason: String(entry.reason || 'paused'),
+    remaining: entry.remaining ?? '',
+  };
+  const index = mmRuntimeStatus.pausedMarkets.findIndex((item) => item.token === key);
+  if (index >= 0) {
+    mmRuntimeStatus.pausedMarkets[index] = next;
+  } else {
+    mmRuntimeStatus.pausedMarkets.unshift(next);
+    mmRuntimeStatus.pausedMarkets = mmRuntimeStatus.pausedMarkets.slice(0, 8);
+  }
+  mmRuntimeStatus.lastPauseEvent = `${next.token} ${next.reason}`;
+  mmRuntimeStatus.lastUpdatedAt = Date.now();
+}
+
+function updateRuntimeStatusFromLog(message) {
+  const text = String(message || '');
+  if (!text.includes('[MM]')) return;
+
+  if (/Fatal error:|exited code=|Error processing market/i.test(text)) {
+    mmRuntimeStatus.lastError = text.replace(/^\[MM\]\s*/u, '').trim();
+    mmRuntimeStatus.lastUpdatedAt = Date.now();
+  }
+
+  const rewardPause = text.match(/Polymarket 奖励门禁暂停\s+([A-Za-z0-9]{6,})\s+(\d+)s:\s+(.+)$/u);
+  if (rewardPause) {
+    upsertPausedMarket({
+      token: rewardPause[1],
+      source: 'reward-gate',
+      remaining: `${rewardPause[2]}s`,
+      reason: rewardPause[3],
+    });
+  }
+
+  const postOnlyPause = text.match(/Polymarket postOnly fuse\s+([A-Za-z0-9]{6,}):\s+(.+), pause\s+(\d+)s$/u);
+  if (postOnlyPause) {
+    upsertPausedMarket({
+      token: postOnlyPause[1],
+      source: 'post-only',
+      remaining: `${postOnlyPause[3]}s`,
+      reason: postOnlyPause[2],
+    });
+  }
+
+  const lossFuse = text.match(/\[PolymarketSafety\]\s+单市场亏损熔断:\s+token=([A-Za-z0-9]+)\s+(.+)$/u);
+  if (lossFuse) {
+    upsertPausedMarket({
+      token: lossFuse[1],
+      source: 'loss-fuse',
+      reason: `单市场亏损熔断 ${lossFuse[2]}`,
+    });
+  }
+
+  if (text.includes('Paused Market Reasons:')) {
+    mmRuntimeStatus.lastUpdatedAt = Date.now();
+  }
+  const pausedRow = text.match(/^\[MM\]\s+([A-Za-z0-9]{8,})\.\.\.\s+(\d+)s\s+\|\s+([^|]+)\|\s+(.+)$/u);
+  if (pausedRow) {
+    upsertPausedMarket({
+      token: pausedRow[1],
+      remaining: `${pausedRow[2]}s`,
+      source: pausedRow[3].trim(),
+      reason: pausedRow[4].trim(),
+    });
   }
 }
 
@@ -795,6 +890,7 @@ async function startMM() {
 
   const envMap = parseEnv(readEnv());
   const venue = (envMap.get('MM_VENUE') || 'predict').trim().toLowerCase();
+  resetRuntimeStatus(venue);
   if (venue === 'predict') {
     const walletStatus = await runPredictWalletStatus();
     if (!walletStatus.ok) {
@@ -854,11 +950,13 @@ async function startMM() {
     env: env,
   });
   mmProcess = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
+  mmRuntimeStatus.running = true;
   mmProcess.stdout.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.stderr.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.on('exit', (code) => {
     sendLog(`[MM] exited code=${code}`);
     mmProcess = null;
+    mmRuntimeStatus.running = false;
     sendStatus();
   });
   sendStatus();
@@ -868,6 +966,7 @@ async function startMM() {
 function stopMM() {
   if (!mmProcess) return { ok: false, message: '做市进程未运行' };
   const proc = mmProcess;
+  mmRuntimeStatus.running = false;
   const timer = setTimeout(() => {
     if (mmProcess === proc && !proc.killed) {
       sendLog('[MM] 停止超时，强制结束进程');

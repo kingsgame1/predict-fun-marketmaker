@@ -15,6 +15,10 @@ const walletPredict = document.getElementById('walletPredict');
 const walletBalance = document.getElementById('walletBalance');
 const walletAllowance = document.getElementById('walletAllowance');
 const walletWarning = document.getElementById('walletWarning');
+const riskStatus = document.getElementById('riskStatus');
+const riskUpdatedAt = document.getElementById('riskUpdatedAt');
+const riskSummary = document.getElementById('riskSummary');
+const riskList = document.getElementById('riskList');
 const api = window.liteApp;
 
 let lastRecommendations = [];
@@ -102,6 +106,47 @@ function setWalletStatusBadge(state, kind = 'idle') {
   walletStatus.textContent = `余额状态：${state}`;
   walletStatus.style.background =
     kind === 'ok' ? '#065f46' : kind === 'error' ? '#7f1d1d' : kind === 'warn' ? '#92400e' : '#334155';
+}
+
+function renderRiskState(payload) {
+  const pausedMarkets = Array.isArray(payload?.pausedMarkets) ? payload.pausedMarkets : [];
+  if (riskStatus) {
+    if (payload?.running && pausedMarkets.length > 0) {
+      riskStatus.textContent = `风控状态：${pausedMarkets.length} 个市场暂停中`;
+      riskStatus.style.background = '#92400e';
+    } else if (payload?.running) {
+      riskStatus.textContent = '风控状态：运行中';
+      riskStatus.style.background = '#065f46';
+    } else {
+      riskStatus.textContent = '风控状态：空闲';
+      riskStatus.style.background = '#334155';
+    }
+  }
+  if (riskUpdatedAt) {
+    riskUpdatedAt.textContent = `最近更新：${payload?.lastUpdatedAt ? new Date(payload.lastUpdatedAt).toLocaleTimeString() : '--'}`;
+  }
+  if (riskSummary) {
+    if (payload?.lastError) {
+      riskSummary.textContent = `最近异常：${payload.lastError}`;
+    } else if (pausedMarkets.length > 0) {
+      riskSummary.textContent = `最近暂停：${payload?.lastPauseEvent || '已记录风险暂停事件'}`;
+    } else {
+      riskSummary.textContent = '当前暂无暂停市场。';
+    }
+  }
+  if (!riskList) return;
+  riskList.innerHTML = pausedMarkets
+    .map(
+      (item) => `
+        <div class="wallet-card">
+          <div class="wallet-title">${escapeHtml(item.token || '--')}</div>
+          <div class="wallet-value">${escapeHtml(item.source || 'risk')}</div>
+          <div class="hint">${escapeHtml(item.reason || 'paused')}</div>
+          <div class="hint">${escapeHtml(item.remaining || '--')}</div>
+        </div>
+      `
+    )
+    .join('');
 }
 
 function renderPredictWalletStatus(payload) {
@@ -311,6 +356,7 @@ async function refreshStatus() {
   const s = await api.status();
   status.textContent = s.running ? '运行中' : '未运行';
   status.style.background = s.running ? '#065f46' : '#334155';
+  renderRiskState(s);
 }
 
 async function scanMarkets() {
@@ -538,7 +584,13 @@ if (!api) {
     }
     pushLog(message);
   });
-  api.onStatus(() => refreshStatus());
+  api.onStatus((payload) => {
+    if (status) {
+      status.textContent = payload?.running ? '运行中' : '未运行';
+      status.style.background = payload?.running ? '#065f46' : '#334155';
+    }
+    renderRiskState(payload || {});
+  });
 }
 
 pushLog('UI 已加载，可开始操作。');
