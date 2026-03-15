@@ -57,6 +57,9 @@ export interface MarketSelectorOptions {
       reason: string;
       dominance?: number;
       dominantReason?: string;
+      ageMs?: number;
+      ttlRemainingMs?: number;
+      decayFactor?: number;
     }
   >;
   polymarketPatternMemoryBlockPenalty?: number;
@@ -167,6 +170,9 @@ export class MarketSelector {
       reason: string;
       dominance?: number;
       dominantReason?: string;
+      ageMs?: number;
+      ttlRemainingMs?: number;
+      decayFactor?: number;
     }
   >;
   private polymarketPatternMemoryBlockPenalty: number;
@@ -258,6 +264,9 @@ export class MarketSelector {
     market.polymarket_pattern_memory_reason = patternMemory?.reason;
     market.polymarket_pattern_memory_dominance = patternMemory?.dominance;
     market.polymarket_pattern_memory_dominant_reason = patternMemory?.dominantReason;
+    market.polymarket_pattern_memory_age_ms = patternMemory?.ageMs;
+    market.polymarket_pattern_memory_ttl_remaining_ms = patternMemory?.ttlRemainingMs;
+    market.polymarket_pattern_memory_decay_factor = patternMemory?.decayFactor;
     market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
@@ -471,7 +480,11 @@ export class MarketSelector {
     }
     if (patternMemory && patternMemory.penalty > 0) {
       score -= patternMemory.penalty;
-      reasons.push(`长期撤单模式，降权: ${patternMemory.reason}`);
+      reasons.push(
+        `长期撤单模式，降权: ${patternMemory.reason}${
+          patternMemory.ttlRemainingMs ? `（剩余约${formatDurationMs(patternMemory.ttlRemainingMs)}）` : ''
+        }`
+      );
     }
     if (hourRisk.penalty > 0) {
       score -= hourRisk.penalty;

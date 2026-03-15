@@ -367,6 +367,9 @@ function loadPolymarketPatternMemory(
     reason: string;
     dominance?: number;
     dominantReason?: string;
+    ageMs?: number;
+    ttlRemainingMs?: number;
+    decayFactor?: number;
   }
 > {
   const penalties = new Map<
@@ -376,6 +379,9 @@ function loadPolymarketPatternMemory(
       reason: string;
       dominance?: number;
       dominantReason?: string;
+      ageMs?: number;
+      ttlRemainingMs?: number;
+      decayFactor?: number;
     }
   >();
   const memoryPath = resolvePolymarketPatternMemoryPath(metricsPath, cwd);
@@ -403,6 +409,9 @@ function loadPolymarketPatternMemory(
       if (!Number.isFinite(updatedAt) || now - updatedAt > ttlMs) continue;
       const penalty = Math.min(maxPenalty, Math.max(0, Number(entry.penalty || 0)));
       if (penalty <= 0) continue;
+      const ageMs = Math.max(0, now - updatedAt);
+      const ttlRemainingMs = Math.max(0, updatedAt + ttlMs - now);
+      const decayFactor = ttlMs > 0 ? Math.max(0, Math.min(1, 1 - ageMs / ttlMs)) : 1;
       const dominance = Math.max(0, Math.min(1, Number(entry.dominance || 0)));
       const dominantReason = String(entry.dominantReason || '');
       const reasonLabel =
@@ -422,6 +431,9 @@ function loadPolymarketPatternMemory(
         reason: `长期撤单模式: ${reasonLabel} ${(dominance * 100).toFixed(0)}% (-${penalty.toFixed(1)})`,
         dominance: dominance > 0 ? dominance : undefined,
         dominantReason: dominantReason || undefined,
+        ageMs,
+        ttlRemainingMs,
+        decayFactor,
       });
     }
   } catch (error) {

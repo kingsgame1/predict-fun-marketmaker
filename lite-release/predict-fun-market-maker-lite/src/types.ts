@@ -1066,6 +1066,8 @@ export interface Config {
   polymarketPatternMemoryMaxPenalty?: number;
   polymarketPatternMemoryBlockPenalty?: number;
   polymarketPatternMemoryTtlMs?: number;
+  polymarketPatternMemoryRetreatMaxBps?: number;
+  polymarketPatternMemorySizeFactorMin?: number;
   polymarketAdverseFillWindowMs?: number;
   polymarketAdverseFillPauseMs?: number;
   polymarketAdverseFillScoreThreshold?: number;
@@ -1162,6 +1164,9 @@ export interface Market {
   polymarket_pattern_memory_reason?: string;
   polymarket_pattern_memory_dominance?: number;
   polymarket_pattern_memory_dominant_reason?: string;
+  polymarket_pattern_memory_age_ms?: number;
+  polymarket_pattern_memory_ttl_remaining_ms?: number;
+  polymarket_pattern_memory_decay_factor?: number;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;

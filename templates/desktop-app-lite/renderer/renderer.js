@@ -15,6 +15,10 @@ const walletPredict = document.getElementById('walletPredict');
 const walletBalance = document.getElementById('walletBalance');
 const walletAllowance = document.getElementById('walletAllowance');
 const walletWarning = document.getElementById('walletWarning');
+const riskStatus = document.getElementById('riskStatus');
+const riskUpdatedAt = document.getElementById('riskUpdatedAt');
+const riskSummary = document.getElementById('riskSummary');
+const riskList = document.getElementById('riskList');
 const api = window.liteApp;
 
 let lastRecommendations = [];
@@ -102,6 +106,47 @@ function setWalletStatusBadge(state, kind = 'idle') {
   walletStatus.textContent = `余额状态：${state}`;
   walletStatus.style.background =
     kind === 'ok' ? '#065f46' : kind === 'error' ? '#7f1d1d' : kind === 'warn' ? '#92400e' : '#334155';
+}
+
+function renderRiskState(payload) {
+  const pausedMarkets = Array.isArray(payload?.pausedMarkets) ? payload.pausedMarkets : [];
+  if (riskStatus) {
+    if (payload?.running && pausedMarkets.length > 0) {
+      riskStatus.textContent = `风控状态：${pausedMarkets.length} 个市场暂停中`;
+      riskStatus.style.background = '#92400e';
+    } else if (payload?.running) {
+      riskStatus.textContent = '风控状态：运行中';
+      riskStatus.style.background = '#065f46';
+    } else {
+      riskStatus.textContent = '风控状态：空闲';
+      riskStatus.style.background = '#334155';
+    }
+  }
+  if (riskUpdatedAt) {
+    riskUpdatedAt.textContent = `最近更新：${payload?.lastUpdatedAt ? new Date(payload.lastUpdatedAt).toLocaleTimeString() : '--'}`;
+  }
+  if (riskSummary) {
+    if (payload?.lastError) {
+      riskSummary.textContent = `最近异常：${payload.lastError}`;
+    } else if (pausedMarkets.length > 0) {
+      riskSummary.textContent = `最近暂停：${payload?.lastPauseEvent || '已记录风险暂停事件'}`;
+    } else {
+      riskSummary.textContent = '当前暂无暂停市场。';
+    }
+  }
+  if (!riskList) return;
+  riskList.innerHTML = pausedMarkets
+    .map(
+      (item) => `
+        <div class="wallet-card">
+          <div class="wallet-title">${escapeHtml(item.token || '--')}</div>
+          <div class="wallet-value">${escapeHtml(item.source || 'risk')}</div>
+          <div class="hint">${escapeHtml(item.reason || 'paused')}</div>
+          <div class="hint">${escapeHtml(item.remaining || '--')}</div>
+        </div>
+      `
+    )
+    .join('');
 }
 
 function renderPredictWalletStatus(payload) {
@@ -221,46 +266,28 @@ function renderMarketCards(items, selected = new Set()) {
     const scoreText = item.score == null ? '--' : formatNum(item.score, 2);
     const bid2Price = item.bid2Price == null ? '--' : formatNum(item.bid2Price, 4);
     const ask2Price = item.ask2Price == null ? '--' : formatNum(item.ask2Price, 4);
-
-    const liquidityPanels = [];
-    if (item.l1UsableUsd != null && Number(item.l1UsableUsd) > 0) {
-      liquidityPanels.push(`
-        <div class="metric-panel">
-          <div class="metric-label">一档可挂</div>
-          <div class="metric-value">$${formatNum(item.l1UsableUsd, 2)}</div>
-          <div class="metric-subvalue">买一 ${item.bid1Shares == null ? '--' : formatNum(item.bid1Shares, 2)} / 卖一 ${item.ask1Shares == null ? '--' : formatNum(item.ask1Shares, 2)}</div>
-        </div>
-      `);
-    }
-    if (item.l2UsableUsd != null && Number(item.l2UsableUsd) > 0) {
-      liquidityPanels.push(`
-        <div class="metric-panel">
-          <div class="metric-label">二档可挂</div>
-          <div class="metric-value">$${formatNum(item.l2UsableUsd, 2)}</div>
-          <div class="metric-subvalue">买二 ${item.bid2Shares == null ? '--' : formatNum(item.bid2Shares, 2)} / 卖二 ${item.ask2Shares == null ? '--' : formatNum(item.ask2Shares, 2)}</div>
-        </div>
-      `);
-    }
-
-    const statsPanels = [];
-    if (item.liquidity24h != null && Number(item.liquidity24h) > 0) {
-      statsPanels.push(`
-        <div class="metric-panel">
-          <div class="metric-label">24h 流动性</div>
-          <div class="metric-value">$${formatNum(item.liquidity24h, 0)}</div>
-          <div class="metric-subvalue">用于判断市场整体资金承载能力</div>
-        </div>
-      `);
-    }
-    if (item.volume24h != null && Number(item.volume24h) > 0) {
-      statsPanels.push(`
-        <div class="metric-panel">
-          <div class="metric-label">24h 交易量</div>
-          <div class="metric-value">$${formatNum(item.volume24h, 0)}</div>
-          <div class="metric-subvalue">用于判断当天活跃度，不单独决定是否推荐</div>
-        </div>
-      `);
-    }
+    const riskPenalty = item.recentRiskPenalty == null ? null : Number(item.recentRiskPenalty);
+    const cooldownMinutes = item.recentRiskCooldownMinutes == null ? null : Number(item.recentRiskCooldownMinutes);
+    const hourRiskPenalty = item.hourRiskPenalty == null ? null : Number(item.hourRiskPenalty);
+    const patternMemoryPenalty = item.patternMemoryPenalty == null ? null : Number(item.patternMemoryPenalty);
+    const patternMemoryTtlHours = item.patternMemoryTtlHours == null ? null : Number(item.patternMemoryTtlHours);
+    const patternMemoryDecayFactor = item.patternMemoryDecayFactor == null ? null : Number(item.patternMemoryDecayFactor);
+    const riskChip =
+      riskPenalty && riskPenalty > 0
+        ? `<span class="status-chip" style="background:#7f1d1d;border-color:#b91c1c;">近期风险 -${escapeHtml(formatNum(riskPenalty, 1))}</span>`
+        : '';
+    const cooldownChip =
+      cooldownMinutes && cooldownMinutes > 0
+        ? `<span class="status-chip" style="background:#78350f;border-color:#d97706;">冷却 ${escapeHtml(formatNum(cooldownMinutes, 0))}m</span>`
+        : '';
+    const hourRiskChip =
+      hourRiskPenalty && hourRiskPenalty > 0
+        ? `<span class="status-chip" style="background:#312e81;border-color:#6366f1;">时段风险 -${escapeHtml(formatNum(hourRiskPenalty, 1))}</span>`
+        : '';
+    const patternMemoryChip =
+      patternMemoryPenalty && patternMemoryPenalty > 0
+        ? `<span class="status-chip" style="background:#3f1d7a;border-color:#8b5cf6;">长期模式 -${escapeHtml(formatNum(patternMemoryPenalty, 1))}${patternMemoryTtlHours && patternMemoryTtlHours > 0 ? ` / ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h` : ''}</span>`
+        : '';
 
     const incentivePanels = [];
     if (item.rewardEnabled) {
@@ -269,7 +296,14 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-label">流动性激励</div>
           <div class="metric-value">日速率 ${item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)}</div>
           <div class="metric-subvalue">最小单边 ${item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)} 股 / 最大奖励价差 ${item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)}¢</div>
-          <div class="metric-subvalue">激励适配度 ${item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)}</div>
+          <div class="metric-subvalue">激励适配度 ${item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)} / 排队倍数 ${item.rewardCrowdingMultiple == null ? '--' : `${formatNum(item.rewardCrowdingMultiple, 2)}x`}</div>
+          <div class="metric-subvalue">最低双边资金 ${item.rewardCapitalEstimateUsd == null ? '--' : `$${formatNum(item.rewardCapitalEstimateUsd, 2)}`} / 毛效率 ${item.rewardEfficiency == null ? '--' : `${formatPct(Number(item.rewardEfficiency) * 100, 2)}/日`}</div>
+          <div class="metric-subvalue">净效率 ${item.rewardNetEfficiency == null ? '--' : `${formatPct(Number(item.rewardNetEfficiency) * 100, 2)}/日`} / 有效净效率 ${item.rewardEffectiveNetEfficiency == null ? '--' : `${formatPct(Number(item.rewardEffectiveNetEfficiency) * 100, 2)}/日`}</div>
+          <div class="metric-subvalue">净日奖励 ${item.rewardNetDailyRate == null ? '--' : `$${formatNum(item.rewardNetDailyRate, 2)}`} / 有效净日奖励 ${item.rewardEffectiveNetDailyRate == null ? '--' : `$${formatNum(item.rewardEffectiveNetDailyRate, 2)}`}</div>
+          <div class="metric-subvalue">估算成本 ${item.rewardEstimatedCostBps == null ? '--' : `${formatNum(item.rewardEstimatedCostBps, 2)}bps`} / 风险缩放 ${item.rewardRiskThrottleFactor == null ? '--' : `${formatNum(item.rewardRiskThrottleFactor, 3)}x`} / 时段系数 ${item.rewardHourRiskFactor == null ? '--' : `${formatNum(item.rewardHourRiskFactor, 3)}x`}</div>
+          <div class="metric-subvalue">撤单率 ${item.recentCancelRate == null ? '--' : `${formatPct(Number(item.recentCancelRate) * 100, 0)}`} / 平均撤单寿命 ${item.recentAvgCancelLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgCancelLifetimeMs) / 60000, 1)}m`} / 平均成交寿命 ${item.recentAvgFillLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgFillLifetimeMs) / 60000, 1)}m`}</div>
+          <div class="metric-subvalue">队列耗时 ${item.rewardQueueHours == null ? '--' : `${formatNum(item.rewardQueueHours, 2)}h`} / 流速倍率 ${item.rewardFlowToQueuePerHour == null ? '--' : `${formatNum(item.rewardFlowToQueuePerHour, 2)}x/h`}</div>
+          ${item.patternMemoryReason ? `<div class="metric-subvalue">长期模式 ${escapeHtml(item.patternMemoryReason)}${item.patternMemoryDominantReason ? ` / 主导撤单 ${escapeHtml(item.patternMemoryDominantReason)}` : ""}${item.patternMemoryDominance == null ? "" : ` / 主导度 ${escapeHtml(formatPct(Number(item.patternMemoryDominance) * 100, 0))}`}${patternMemoryDecayFactor == null ? "" : ` / 衰减系数 ${escapeHtml(formatNum(patternMemoryDecayFactor, 3))}x`}${patternMemoryTtlHours == null ? "" : ` / 剩余 ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h`}</div>` : ""}
         </div>
       `);
     }
@@ -281,6 +315,10 @@ function renderMarketCards(items, selected = new Set()) {
             <span class="rank-chip">#${escapeHtml(item.rank)}</span>
             <span class="score-chip">Score ${escapeHtml(scoreText)}</span>
             <span class="status-chip">${escapeHtml(item.activeStatus || '未应用')}</span>
+            ${riskChip}
+            ${cooldownChip}
+            ${hourRiskChip}
+            ${patternMemoryChip}
           </div>
           <h3 class="market-card-title">${escapeHtml(item.question || '--')}</h3>
         </div>
@@ -320,8 +358,6 @@ function renderMarketCards(items, selected = new Set()) {
         <span class="metric-chip">价差 ${item.spreadPct == null ? '--' : formatPct(item.spreadPct, 2)}</span>
         <span class="metric-chip">断层 ${gap}</span>
       </div>
-      ${liquidityPanels.length ? `<div class="market-liquidity-row">${liquidityPanels.join('')}</div>` : ''}
-      ${statsPanels.length ? `<div class="market-stats-row">${statsPanels.join('')}</div>` : ''}
       ${incentivePanels.length ? `<div class="market-stats-row">${incentivePanels.join('')}</div>` : ''}
       <div class="market-quality-row">
         <span class="metric-chip">对称度 ${escapeHtml(symmetry)}</span>
@@ -330,6 +366,9 @@ function renderMarketCards(items, selected = new Set()) {
         <span class="quote-chip ask">L2双边 $${item.l2NotionalUsd == null ? '--' : formatNum(item.l2NotionalUsd, 2)}</span>
       </div>
       <div class="market-reasons">${reasons.length ? reasons.map((reason) => `<span class="reason-chip">${escapeHtml(reason)}</span>`).join('') : '<span class="reason-chip">暂无推荐说明</span>'}</div>
+      ${item.recentRiskReason ? `<div class="market-token">风险记忆: ${escapeHtml(item.recentRiskReason)}</div>` : ''}
+      ${item.recentRiskCooldownReason ? `<div class="market-token">冷却原因: ${escapeHtml(item.recentRiskCooldownReason)}</div>` : ''}
+      ${item.hourRiskReason ? `<div class="market-token">时段风险: ${escapeHtml(item.hourRiskReason)}</div>` : ''}
       <div class="market-token">Token: ${escapeHtml(item.tokenId)}</div>
     `;
     marketCardGrid.appendChild(card);
@@ -353,6 +392,7 @@ async function refreshStatus() {
   const s = await api.status();
   status.textContent = s.running ? '运行中' : '未运行';
   status.style.background = s.running ? '#065f46' : '#334155';
+  renderRiskState(s);
 }
 
 async function scanMarkets() {
@@ -580,7 +620,13 @@ if (!api) {
     }
     pushLog(message);
   });
-  api.onStatus(() => refreshStatus());
+  api.onStatus((payload) => {
+    if (status) {
+      status.textContent = payload?.running ? '运行中' : '未运行';
+      status.style.background = payload?.running ? '#065f46' : '#334155';
+    }
+    renderRiskState(payload || {});
+  });
 }
 
 pushLog('UI 已加载，可开始操作。');
@@ -611,7 +657,7 @@ Object.entries(LINKS).forEach(([id, url]) => {
     }
     const incentivePanels = [];
     if (item.rewardEnabled) {
-      incentivePanels.push('\n        <div class="metric-panel incentive-panel">\n          <div class="metric-label">流动性激励</div>\n          <div class="metric-value">日速率 ' + (item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)) + '</div>\n          <div class="metric-subvalue">最小单边 ' + (item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)) + ' 股 / 最大奖励价差 ' + (item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)) + '¢</div>\n          <div class="metric-subvalue">激励适配度 ' + (item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)) + '</div>\n        </div>\n      ');
+      incentivePanels.push('\n        <div class="metric-panel incentive-panel">\n          <div class="metric-label">流动性激励</div>\n          <div class="metric-value">日速率 ' + (item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)) + '</div>\n          <div class="metric-subvalue">最小单边 ' + (item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)) + ' 股 / 最大奖励价差 ' + (item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)) + '¢</div>\n          <div class="metric-subvalue">激励适配度 ' + (item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)) + ' / 排队倍数 ' + (item.rewardCrowdingMultiple == null ? '--' : formatNum(item.rewardCrowdingMultiple, 2) + 'x') + '</div>\n          <div class="metric-subvalue">最低双边资金 ' + (item.rewardCapitalEstimateUsd == null ? '--' : '$' + formatNum(item.rewardCapitalEstimateUsd, 2)) + ' / 毛效率 ' + (item.rewardEfficiency == null ? '--' : formatPct(Number(item.rewardEfficiency) * 100, 2) + '/日') + '</div>\n          <div class="metric-subvalue">净效率 ' + (item.rewardNetEfficiency == null ? '--' : formatPct(Number(item.rewardNetEfficiency) * 100, 2) + '/日') + ' / 有效净效率 ' + (item.rewardEffectiveNetEfficiency == null ? '--' : formatPct(Number(item.rewardEffectiveNetEfficiency) * 100, 2) + '/日') + '</div>\n          <div class=\"metric-subvalue\">净日奖励 ' + (item.rewardNetDailyRate == null ? '--' : '$' + formatNum(item.rewardNetDailyRate, 2)) + ' / 有效净日奖励 ' + (item.rewardEffectiveNetDailyRate == null ? '--' : '$' + formatNum(item.rewardEffectiveNetDailyRate, 2)) + '</div>\n          <div class=\"metric-subvalue\">估算成本 ' + (item.rewardEstimatedCostBps == null ? '--' : formatNum(item.rewardEstimatedCostBps, 2) + 'bps') + ' / 风险缩放 ' + (item.rewardRiskThrottleFactor == null ? '--' : formatNum(item.rewardRiskThrottleFactor, 3) + 'x') + ' / 时段系数 ' + (item.rewardHourRiskFactor == null ? '--' : formatNum(item.rewardHourRiskFactor, 3) + 'x') + '</div>\n          <div class="metric-subvalue">队列耗时 ' + (item.rewardQueueHours == null ? '--' : formatNum(item.rewardQueueHours, 2) + 'h') + ' / 流速倍率 ' + (item.rewardFlowToQueuePerHour == null ? '--' : formatNum(item.rewardFlowToQueuePerHour, 2) + 'x/h') + '</div>\n        </div>\n      ');
     }
 
     card.innerHTML = `

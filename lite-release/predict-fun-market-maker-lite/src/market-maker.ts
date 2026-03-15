@@ -456,6 +456,9 @@ export class MarketMaker {
       positionLossLimitAbs: this.config.polymarketPositionLossLimitAbs ?? 20,
       positionLossLimitRatio: this.config.polymarketPositionLossLimitRatio ?? 0.2,
       positionLossPauseMs: this.config.polymarketPositionLossPauseMs ?? 30 * 60 * 1000,
+      patternMemoryMaxPenalty: this.config.polymarketPatternMemoryMaxPenalty ?? 8,
+      patternMemoryRetreatMaxBps: this.config.polymarketPatternMemoryRetreatMaxBps ?? 8,
+      patternMemorySizeFactorMin: this.config.polymarketPatternMemorySizeFactorMin ?? 0.7,
     };
   }
 
@@ -769,6 +772,15 @@ export class MarketMaker {
       const shrinkFactor = 1 - (1 - minFactor) * penaltyRatio;
       shares = Math.max(1, Math.floor(shares * shrinkFactor));
     }
+    const patternPenalty = Number(market.polymarket_pattern_memory_penalty || 0);
+    const patternBlockPenalty = Math.max(1, Number(this.config.polymarketPatternMemoryBlockPenalty || 6));
+    const patternMinFactor = this.clamp(Number(this.config.polymarketPatternMemorySizeFactorMin || 0.7), 0.1, 1);
+    if (patternPenalty > 0) {
+      const penaltyRatio = this.clamp(patternPenalty / patternBlockPenalty, 0, 1);
+      const decayFactor = this.clamp(Number(market.polymarket_pattern_memory_decay_factor || 1), 0.15, 1);
+      const shrinkFactor = 1 - (1 - patternMinFactor) * penaltyRatio * decayFactor;
+      shares = Math.max(1, Math.floor(shares * shrinkFactor));
+    }
     const hourRiskPenalty = Number(market.polymarket_hour_risk_penalty || 0);
     const hourBlockPenalty = Math.max(1, Number(this.config.polymarketHourRiskBlockPenalty || 6));
     const hourMinFactor = this.clamp(Number(this.config.polymarketHourRiskSizeFactorMin || 0.55), 0.1, 1);
@@ -830,7 +842,45 @@ export class MarketMaker {
         ? ((cfg.rewardMinQueueHours - queueHours) / Math.max(cfg.rewardMinQueueHours, 0.01)) *
           cfg.rewardFastFlowRetreatMaxBps
         : 0;
-    return this.clamp(crowdingExtra + fastFlowExtra, 0, cfg.rewardQueueRetreatMaxBps + cfg.rewardFastFlowRetreatMaxBps);
+    const patternPenalty = Number(market.polymarket_pattern_memory_penalty || 0);
+    const patternBlockPenalty = Math.max(1, Number(this.config.polymarketPatternMemoryBlockPenalty || 6));
+    const patternRatio = this.clamp(patternPenalty / patternBlockPenalty, 0, 1);
+    const patternDecayFactor = this.clamp(Number(market.polymarket_pattern_memory_decay_factor || 1), 0.15, 1);
+    const patternExtra = patternRatio * Number(cfg.patternMemoryRetreatMaxBps || 0) * patternDecayFactor;
+    return this.clamp(
+      crowdingExtra + fastFlowExtra + patternExtra,
+      0,
+      cfg.rewardQueueRetreatMaxBps + cfg.rewardFastFlowRetreatMaxBps + Number(cfg.patternMemoryRetreatMaxBps || 0)
+    );
+  }
+
+  private getPolymarketPatternMemoryAdjustment(market: Market): { retreatBps: number; sizeFactor: number; reason: string } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return { retreatBps: 0, sizeFactor: 1, reason: '' };
+    }
+    const penalty = Number(market.polymarket_pattern_memory_penalty || 0);
+    if (!(penalty > 0)) {
+      return { retreatBps: 0, sizeFactor: 1, reason: '' };
+    }
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const maxPenalty = Math.max(1, Number(cfg.patternMemoryMaxPenalty || 8));
+    const dominance = this.clamp(Number(market.polymarket_pattern_memory_dominance || 0.5), 0, 1);
+    const decayFactor = this.clamp(Number(market.polymarket_pattern_memory_decay_factor || 1), 0.15, 1);
+    const scaled = this.clamp((penalty / maxPenalty) * (0.65 + 0.35 * dominance) * decayFactor, 0, 1);
+    const retreatBps = Number(cfg.patternMemoryRetreatMaxBps || 0) * scaled;
+    const sizeMin = this.clamp(Number(cfg.patternMemorySizeFactorMin || 0.7), 0.1, 1);
+    const sizeFactor = 1 - (1 - sizeMin) * scaled;
+    const dominantReason = String(
+      market.polymarket_pattern_memory_dominant_reason || market.polymarket_pattern_memory_reason || '长期撤单模式'
+    );
+    const ttlRemainingHours = market.polymarket_pattern_memory_ttl_remaining_ms
+      ? Math.max(1, Math.ceil(Number(market.polymarket_pattern_memory_ttl_remaining_ms) / 3600000))
+      : null;
+    return {
+      retreatBps,
+      sizeFactor: this.clamp(sizeFactor, sizeMin, 1),
+      reason: `${dominantReason}${ttlRemainingHours ? ` 剩余约${ttlRemainingHours}h` : ''}`,
+    };
   }
 
   private getPolymarketPostOnlyHitRate(tokenId: string): number | null {
@@ -5057,6 +5107,10 @@ export class MarketMaker {
     if (cancelReasonAdjustment.retreatBps > 0) {
       touchBufferBps += cancelReasonAdjustment.retreatBps;
     }
+    const patternMemoryAdjustment = this.getPolymarketPatternMemoryAdjustment(market);
+    if (patternMemoryAdjustment.retreatBps > 0) {
+      touchBufferBps += patternMemoryAdjustment.retreatBps;
+    }
     const secondBid = this.getLevelPrice(orderbook.bids, 1, 'bids');
     const secondAsk = this.getLevelPrice(orderbook.asks, 1, 'asks');
     const fixedCents = Math.max(0, this.config.mmTouchBufferFixedCents ?? 0);
@@ -5260,6 +5314,10 @@ export class MarketMaker {
     const cancelReasonAdjustment = this.getPolymarketCancelReasonAdjustment(market.token_id, market);
     if (cancelReasonAdjustment.sizeFactor < 1) {
       shares = Math.max(1, Math.floor(shares * cancelReasonAdjustment.sizeFactor));
+    }
+    const patternMemoryAdjustment = this.getPolymarketPatternMemoryAdjustment(market);
+    if (patternMemoryAdjustment.sizeFactor < 1) {
+      shares = Math.max(1, Math.floor(shares * patternMemoryAdjustment.sizeFactor));
     }
 
     if (depthCap > 0) {

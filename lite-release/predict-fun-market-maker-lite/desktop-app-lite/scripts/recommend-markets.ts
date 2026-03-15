@@ -48,6 +48,9 @@ interface PatternMemoryPenalty {
   reason: string;
   dominance?: number;
   dominantReason?: string;
+  ageMs?: number;
+  ttlRemainingMs?: number;
+  decayFactor?: number;
 }
 
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
@@ -713,11 +716,17 @@ function loadPolymarketPatternMemory(
       if (!Number.isFinite(updatedAt) || updatedAt < cutoff) continue;
       const penalty = Math.max(0, Math.min(maxPenalty, Number(market.penalty || 0)));
       if (!(penalty > 0)) continue;
+      const remainingMs = Math.max(0, updatedAt + ttlMs - Date.now());
+      const ageMs = Math.max(0, Date.now() - updatedAt);
+      const decayFactor = ttlMs > 0 ? Math.max(0, Math.min(1, 1 - ageMs / ttlMs)) : 1;
       penalties.set(tokenId, {
         penalty,
         reason: String(market.reason || market.dominantReason || '长期撤单模式风险'),
         dominance: Number.isFinite(Number(market.dominance)) ? Number(market.dominance) : undefined,
         dominantReason: market.dominantReason ? String(market.dominantReason) : undefined,
+        ageMs,
+        ttlRemainingMs: remainingMs,
+        decayFactor,
       });
     }
   } catch {
@@ -1497,6 +1506,21 @@ async function main(): Promise<void> {
       patternMemoryReason: patternMemoryPenalty.get(entry.market.token_id)?.reason || null,
       patternMemoryDominance: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.dominance ?? null, 3),
       patternMemoryDominantReason: patternMemoryPenalty.get(entry.market.token_id)?.dominantReason || null,
+      patternMemoryAgeHours:
+        toFixedOrNull(
+          patternMemoryPenalty.get(entry.market.token_id)?.ageMs != null
+            ? Number(patternMemoryPenalty.get(entry.market.token_id)?.ageMs) / 3600000
+            : null,
+          1
+        ),
+      patternMemoryTtlHours:
+        toFixedOrNull(
+          patternMemoryPenalty.get(entry.market.token_id)?.ttlRemainingMs != null
+            ? Number(patternMemoryPenalty.get(entry.market.token_id)?.ttlRemainingMs) / 3600000
+            : null,
+          1
+        ),
+      patternMemoryDecayFactor: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.decayFactor ?? null, 3),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))
