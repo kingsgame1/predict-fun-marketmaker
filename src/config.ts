@@ -1225,6 +1225,10 @@ export function loadConfig(): Config {
     polymarketRewardFastFlowPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX || '8'),
     polymarketRecentRiskBlockPenalty: parseFloat(process.env.POLYMARKET_RECENT_RISK_BLOCK_PENALTY || '12'),
     polymarketRecentRiskSizeFactorMin: parseFloat(process.env.POLYMARKET_RECENT_RISK_SIZE_FACTOR_MIN || '0.45'),
+    polymarketHourRiskLookbackDays: parseInt(process.env.POLYMARKET_HOUR_RISK_LOOKBACK_DAYS || '7'),
+    polymarketHourRiskPenaltyMax: parseFloat(process.env.POLYMARKET_HOUR_RISK_PENALTY_MAX || '8'),
+    polymarketHourRiskBlockPenalty: parseFloat(process.env.POLYMARKET_HOUR_RISK_BLOCK_PENALTY || '6'),
+    polymarketHourRiskSizeFactorMin: parseFloat(process.env.POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN || '0.55'),
     polymarketRewardQueueRetreatStart: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_START || '3'),
     polymarketRewardQueueRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_MAX_BPS || '12'),
     polymarketRewardFastFlowRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_RETREAT_MAX_BPS || '8'),
@@ -1317,6 +1321,18 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketRecentRiskSizeFactorMin ?? 0) <= 0 || (config.polymarketRecentRiskSizeFactorMin ?? 0) > 1) {
       throw new Error('POLYMARKET_RECENT_RISK_SIZE_FACTOR_MIN must be within (0, 1]');
+    }
+    if ((config.polymarketHourRiskLookbackDays ?? 0) <= 0) {
+      throw new Error('POLYMARKET_HOUR_RISK_LOOKBACK_DAYS must be > 0');
+    }
+    if ((config.polymarketHourRiskPenaltyMax ?? 0) < 0) {
+      throw new Error('POLYMARKET_HOUR_RISK_PENALTY_MAX must be >= 0');
+    }
+    if ((config.polymarketHourRiskBlockPenalty ?? 0) < 0) {
+      throw new Error('POLYMARKET_HOUR_RISK_BLOCK_PENALTY must be >= 0');
+    }
+    if ((config.polymarketHourRiskSizeFactorMin ?? 0) <= 0 || (config.polymarketHourRiskSizeFactorMin ?? 0) > 1) {
+      throw new Error('POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN must be within (0, 1]');
     }
     if ((config.polymarketRewardQueueRetreatStart ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_QUEUE_RETREAT_START must be >= 0');

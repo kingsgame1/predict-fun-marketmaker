@@ -170,6 +170,69 @@ function loadRecentPolymarketRiskPenalty(
   return penalties;
 }
 
+function loadPolymarketHourRiskPenalty(
+  metricsPath: string | undefined,
+  cwd: string,
+  lookbackDays: number = 7,
+  maxPenalty: number = 8
+): { penalty: number; reason: string; hour: number } {
+  const currentHour = new Date().getHours();
+  if (!metricsPath) {
+    return { penalty: 0, reason: '', hour: currentHour };
+  }
+
+  try {
+    const resolved = path.isAbsolute(metricsPath) ? metricsPath : path.resolve(cwd, metricsPath);
+    if (!fs.existsSync(resolved)) {
+      return { penalty: 0, reason: '', hour: currentHour };
+    }
+    const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
+      events?: Array<{ ts?: number; type?: string; tokenId?: string; message?: string }>;
+    };
+    const cutoff = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
+    let penalty = 0;
+    let adverse = 0;
+    let postOnly = 0;
+    let pauses = 0;
+
+    for (const event of raw.events || []) {
+      const ts = Number(event.ts || 0);
+      if (!Number.isFinite(ts) || ts < cutoff) continue;
+      const date = new Date(ts);
+      if (date.getHours() !== currentHour) continue;
+      const type = String(event.type || '');
+      const message = String(event.message || '');
+      if (type === 'POLYMARKET_ADVERSE_FILL') {
+        penalty += 1.5;
+        adverse += 1;
+      } else if (type === 'POLYMARKET_POST_ONLY_FUSE') {
+        penalty += 2;
+        postOnly += 1;
+      } else if (type === 'MARKET_PAUSE' && message.includes('polymarket-')) {
+        penalty += 1.25;
+        pauses += 1;
+      }
+    }
+
+    const bounded = Math.min(maxPenalty, penalty);
+    if (bounded <= 0) {
+      return { penalty: 0, reason: '', hour: currentHour };
+    }
+    const parts: string[] = [];
+    if (adverse > 0) parts.push(`不利成交${adverse}次`);
+    if (postOnly > 0) parts.push(`postOnly熔断${postOnly}次`);
+    if (pauses > 0) parts.push(`风控暂停${pauses}次`);
+    return {
+      penalty: bounded,
+      reason: `${currentHour}点时段近期偏危险: ${parts.join(' / ') || '风险偏高'} (-${bounded.toFixed(1)})`,
+      hour: currentHour,
+    };
+  } catch (error) {
+    console.warn('⚠️ 读取 Polymarket 分时段风险失败，忽略:', error);
+    return { penalty: 0, reason: '', hour: currentHour };
+  }
+}
+
 async function populateOrderbooksWithConcurrency(
   markets: Market[],
   concurrency: number,
@@ -791,6 +854,9 @@ export class PolymarketMarketMakerBot {
       rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
       rewardFastFlowPenaltyMax: this.config.polymarketRewardFastFlowPenaltyMax ?? 8,
       recentRiskBlockPenalty: this.config.polymarketRecentRiskBlockPenalty ?? 12,
+      hourRiskPenaltyMax: this.config.polymarketHourRiskPenaltyMax ?? 8,
+      hourRiskBlockPenalty: this.config.polymarketHourRiskBlockPenalty ?? 6,
+      hourRiskLookbackDays: this.config.polymarketHourRiskLookbackDays ?? 7,
       rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
     };
   }
@@ -808,6 +874,22 @@ export class PolymarketMarketMakerBot {
 
   private getPolymarketSelectorOptions() {
     const safety = this.getPolymarketSafetyConfig();
+    const recentRiskPenalty = loadRecentPolymarketRiskPenalty(
+      this.config.mmMetricsPath,
+      process.cwd(),
+      {
+        rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
+        postOnlyPauseMs: this.config.polymarketPostOnlyPauseMs ?? 30 * 60 * 1000,
+        adverseFillPauseMs: this.config.polymarketAdverseFillPauseMs ?? 45 * 60 * 1000,
+        positionLossPauseMs: this.config.polymarketPositionLossPauseMs ?? 30 * 60 * 1000,
+      }
+    );
+    const hourRiskPenalty = loadPolymarketHourRiskPenalty(
+      this.config.mmMetricsPath,
+      process.cwd(),
+      safety.hourRiskLookbackDays,
+      safety.hourRiskPenaltyMax
+    );
     return {
       polymarketRewardMinFitScore: safety.rewardMinFitScore,
       polymarketRewardMinDailyRate: safety.rewardMinDailyRate,
@@ -820,16 +902,9 @@ export class PolymarketMarketMakerBot {
       polymarketRewardMinQueueHours: safety.rewardMinQueueHours,
       polymarketRewardFastFlowPenaltyMax: safety.rewardFastFlowPenaltyMax,
       polymarketRecentRiskBlockPenalty: safety.recentRiskBlockPenalty,
-      polymarketRecentRiskPenalty: loadRecentPolymarketRiskPenalty(
-        this.config.mmMetricsPath,
-        process.cwd(),
-        {
-          rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
-          postOnlyPauseMs: this.config.polymarketPostOnlyPauseMs ?? 30 * 60 * 1000,
-          adverseFillPauseMs: this.config.polymarketAdverseFillPauseMs ?? 45 * 60 * 1000,
-          positionLossPauseMs: this.config.polymarketPositionLossPauseMs ?? 30 * 60 * 1000,
-        }
-      ),
+      polymarketRecentRiskPenalty: recentRiskPenalty,
+      polymarketHourRiskPenalty: hourRiskPenalty,
+      polymarketHourRiskBlockPenalty: safety.hourRiskBlockPenalty,
     };
   }
 
@@ -856,6 +931,15 @@ export class PolymarketMarketMakerBot {
     }
     if (profile.enabled && profile.crowdingMultiple > safety.rewardMaxQueueMultiple) {
       return { skip: true, reason: `奖励队列过厚 ${profile.crowdingMultiple.toFixed(1)}x` };
+    }
+    const hourRisk = loadPolymarketHourRiskPenalty(
+      this.config.mmMetricsPath,
+      process.cwd(),
+      safety.hourRiskLookbackDays,
+      safety.hourRiskPenaltyMax
+    );
+    if (hourRisk.penalty >= safety.hourRiskBlockPenalty) {
+      return { skip: true, reason: hourRisk.reason };
     }
     return { skip: false };
   }

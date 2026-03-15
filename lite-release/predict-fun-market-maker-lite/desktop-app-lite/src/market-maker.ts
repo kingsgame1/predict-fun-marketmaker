@@ -735,6 +735,14 @@ export class MarketMaker {
       const shrinkFactor = 1 - (1 - minFactor) * penaltyRatio;
       shares = Math.max(1, Math.floor(shares * shrinkFactor));
     }
+    const hourRiskPenalty = Number(market.polymarket_hour_risk_penalty || 0);
+    const hourBlockPenalty = Math.max(1, Number(this.config.polymarketHourRiskBlockPenalty || 6));
+    const hourMinFactor = this.clamp(Number(this.config.polymarketHourRiskSizeFactorMin || 0.55), 0.1, 1);
+    if (hourRiskPenalty > 0) {
+      const penaltyRatio = this.clamp(hourRiskPenalty / hourBlockPenalty, 0, 1);
+      const shrinkFactor = 1 - (1 - hourMinFactor) * penaltyRatio;
+      shares = Math.max(1, Math.floor(shares * shrinkFactor));
+    }
     return shares;
   }
 

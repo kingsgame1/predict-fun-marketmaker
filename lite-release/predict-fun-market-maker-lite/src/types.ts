@@ -1041,6 +1041,10 @@ export interface Config {
   polymarketRewardFastFlowPenaltyMax?: number;
   polymarketRecentRiskBlockPenalty?: number;
   polymarketRecentRiskSizeFactorMin?: number;
+  polymarketHourRiskLookbackDays?: number;
+  polymarketHourRiskPenaltyMax?: number;
+  polymarketHourRiskBlockPenalty?: number;
+  polymarketHourRiskSizeFactorMin?: number;
   polymarketRewardQueueRetreatStart?: number;
   polymarketRewardQueueRetreatMaxBps?: number;
   polymarketRewardFastFlowRetreatMaxBps?: number;
@@ -1118,6 +1122,8 @@ export interface Market {
   polymarket_recent_risk_reason?: string;
   polymarket_recent_risk_cooldown_remaining_ms?: number;
   polymarket_recent_risk_cooldown_reason?: string;
+  polymarket_hour_risk_penalty?: number;
+  polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;
   polymarket_tick_size?: number;
   polymarket_enable_order_book?: boolean;

@@ -28,6 +28,8 @@ export interface MarketSelectorOptions {
     string,
     { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }
   >;
+  polymarketHourRiskPenalty?: { penalty: number; reason: string; hour: number };
+  polymarketHourRiskBlockPenalty?: number;
 }
 
 interface LevelLiquidity {
@@ -99,6 +101,8 @@ export class MarketSelector {
     string,
     { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }
   >;
+  private polymarketHourRiskPenalty: { penalty: number; reason: string; hour: number };
+  private polymarketHourRiskBlockPenalty: number;
 
   constructor(
     minLiquidity: number = 100,
@@ -123,6 +127,8 @@ export class MarketSelector {
     this.polymarketRewardFastFlowPenaltyMax = options.polymarketRewardFastFlowPenaltyMax ?? 8;
     this.polymarketRecentRiskBlockPenalty = options.polymarketRecentRiskBlockPenalty ?? 12;
     this.polymarketRecentRiskPenalty = options.polymarketRecentRiskPenalty ?? new Map();
+    this.polymarketHourRiskPenalty = options.polymarketHourRiskPenalty ?? { penalty: 0, reason: '', hour: new Date().getHours() };
+    this.polymarketHourRiskBlockPenalty = options.polymarketHourRiskBlockPenalty ?? 6;
   }
 
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
@@ -157,11 +163,14 @@ export class MarketSelector {
     const mid = Number(orderbook.mid_price || 0);
     const rewardProfile = this.getPolymarketRewardProfile(market, orderbook);
     const recentRisk = this.polymarketRecentRiskPenalty.get(market.token_id);
+    const hourRisk = this.polymarketHourRiskPenalty;
 
     market.polymarket_recent_risk_penalty = recentRisk?.penalty;
     market.polymarket_recent_risk_reason = recentRisk?.reason;
     market.polymarket_recent_risk_cooldown_remaining_ms = recentRisk?.cooldownRemainingMs;
     market.polymarket_recent_risk_cooldown_reason = recentRisk?.cooldownReason;
+    market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
+    market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
 
     if (market.venue === 'polymarket' && market.polymarket_enable_order_book === false) {
       return { market, score: 0, reasons: ['Polymarket 市场未启用 orderbook'] };
@@ -179,6 +188,13 @@ export class MarketSelector {
               recentRisk.cooldownReason || recentRisk.reason
             }`,
           ],
+        };
+      }
+      if (hourRisk.penalty >= this.polymarketHourRiskBlockPenalty) {
+        return {
+          market,
+          score: 0,
+          reasons: [hourRisk.reason],
         };
       }
       if (recentRisk && recentRisk.penalty >= this.polymarketRecentRiskBlockPenalty) {
@@ -337,6 +353,10 @@ export class MarketSelector {
     if (recentRisk && recentRisk.penalty > 0) {
       score -= recentRisk.penalty;
       reasons.push(`近期风险记忆，降权: ${recentRisk.reason}`);
+    }
+    if (hourRisk.penalty > 0) {
+      score -= hourRisk.penalty;
+      reasons.push(`分时段风险，降权: ${hourRisk.reason}`);
     }
 
     reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);

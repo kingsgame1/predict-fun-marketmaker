@@ -25,6 +25,12 @@ interface RecentRiskPenalty {
   cooldownReason?: string;
 }
 
+interface HourRiskPenalty {
+  penalty: number;
+  reason: string;
+  hour: number;
+}
+
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
 const PREDICT_SAFE_MAX_SPREAD = 0.06;
 const PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
@@ -652,6 +658,7 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardMinQueueHours: readNumber(env, 'POLYMARKET_REWARD_MIN_QUEUE_HOURS', 0.75),
     polymarketRewardFastFlowPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX', 8),
     polymarketRecentRiskBlockPenalty: readNumber(env, 'POLYMARKET_RECENT_RISK_BLOCK_PENALTY', 12),
+    polymarketHourRiskBlockPenalty: readNumber(env, 'POLYMARKET_HOUR_RISK_BLOCK_PENALTY', 6),
   };
 }
 
@@ -767,6 +774,68 @@ function loadRecentPolymarketRiskPenalty(
     console.error('[Polymarket] 读取近期风险记忆失败，已忽略:', error);
   }
   return penalties;
+}
+
+function loadPolymarketHourRiskPenalty(
+  env: EnvMap,
+  envPath: string,
+  lookbackDays: number = 7,
+  maxPenalty: number = 8
+): HourRiskPenalty {
+  const currentHour = new Date().getHours();
+  const metricsPath = env.get('MM_METRICS_PATH');
+  if (!metricsPath) {
+    return { penalty: 0, reason: '', hour: currentHour };
+  }
+  try {
+    const resolved = path.isAbsolute(metricsPath)
+      ? metricsPath
+      : path.resolve(path.dirname(envPath), metricsPath);
+    if (!fs.existsSync(resolved)) {
+      return { penalty: 0, reason: '', hour: currentHour };
+    }
+    const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
+      events?: Array<{ ts?: number; type?: string; message?: string }>;
+    };
+    const cutoff = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
+    let penalty = 0;
+    let adverse = 0;
+    let postOnly = 0;
+    let pauses = 0;
+    for (const event of raw.events || []) {
+      const ts = Number(event.ts || 0);
+      if (!Number.isFinite(ts) || ts < cutoff) continue;
+      if (new Date(ts).getHours() !== currentHour) continue;
+      const type = String(event.type || '');
+      const message = String(event.message || '');
+      if (type === 'POLYMARKET_ADVERSE_FILL') {
+        penalty += 1.5;
+        adverse += 1;
+      } else if (type === 'POLYMARKET_POST_ONLY_FUSE') {
+        penalty += 2;
+        postOnly += 1;
+      } else if (type === 'MARKET_PAUSE' && message.includes('polymarket-')) {
+        penalty += 1.25;
+        pauses += 1;
+      }
+    }
+    const bounded = Math.min(maxPenalty, penalty);
+    if (bounded <= 0) {
+      return { penalty: 0, reason: '', hour: currentHour };
+    }
+    const parts: string[] = [];
+    if (adverse > 0) parts.push(`不利成交${adverse}次`);
+    if (postOnly > 0) parts.push(`postOnly熔断${postOnly}次`);
+    if (pauses > 0) parts.push(`风控暂停${pauses}次`);
+    return {
+      penalty: bounded,
+      reason: `${currentHour}点时段近期偏危险: ${parts.join(' / ') || '风险偏高'} (-${bounded.toFixed(1)})`,
+      hour: currentHour,
+    };
+  } catch (error) {
+    console.error('[Polymarket] 读取分时段风险失败，已忽略:', error);
+    return { penalty: 0, reason: '', hour: currentHour };
+  }
 }
 
 function getSelectorConfig(env: EnvMap, venue: 'predict' | 'polymarket'): [number, number, number, number] {
@@ -1001,7 +1070,14 @@ async function main(): Promise<void> {
   const predictSafety = getPredictSafetyConfig(env);
   const polymarketSelectorOptions = getPolymarketSelectorOptions(env);
   const recentRiskPenalty = loadRecentPolymarketRiskPenalty(env, args.envPath);
+  const hourRiskPenalty = loadPolymarketHourRiskPenalty(
+    env,
+    args.envPath,
+    readNumber(env, 'POLYMARKET_HOUR_RISK_LOOKBACK_DAYS', 7),
+    readNumber(env, 'POLYMARKET_HOUR_RISK_PENALTY_MAX', 8)
+  );
   polymarketSelectorOptions.polymarketRecentRiskPenalty = recentRiskPenalty;
+  polymarketSelectorOptions.polymarketHourRiskPenalty = hourRiskPenalty;
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
   const selector = new MarketSelector(
     minLiquidity,
@@ -1144,6 +1220,9 @@ async function main(): Promise<void> {
           ? Math.max(1, Math.ceil((recentRiskPenalty.get(entry.market.token_id)?.cooldownRemainingMs || 0) / 60000))
           : null,
       recentRiskCooldownReason: recentRiskPenalty.get(entry.market.token_id)?.cooldownReason || null,
+      hourRiskPenalty: toFixedOrNull(hourRiskPenalty.penalty || null, 1),
+      hourRiskReason: hourRiskPenalty.reason || null,
+      hourRiskHour: Number.isFinite(hourRiskPenalty.hour) ? hourRiskPenalty.hour : null,
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

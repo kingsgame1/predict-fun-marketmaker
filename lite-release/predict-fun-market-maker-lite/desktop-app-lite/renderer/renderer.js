@@ -268,6 +268,7 @@ function renderMarketCards(items, selected = new Set()) {
     const ask2Price = item.ask2Price == null ? '--' : formatNum(item.ask2Price, 4);
     const riskPenalty = item.recentRiskPenalty == null ? null : Number(item.recentRiskPenalty);
     const cooldownMinutes = item.recentRiskCooldownMinutes == null ? null : Number(item.recentRiskCooldownMinutes);
+    const hourRiskPenalty = item.hourRiskPenalty == null ? null : Number(item.hourRiskPenalty);
     const riskChip =
       riskPenalty && riskPenalty > 0
         ? `<span class="status-chip" style="background:#7f1d1d;border-color:#b91c1c;">近期风险 -${escapeHtml(formatNum(riskPenalty, 1))}</span>`
@@ -275,6 +276,10 @@ function renderMarketCards(items, selected = new Set()) {
     const cooldownChip =
       cooldownMinutes && cooldownMinutes > 0
         ? `<span class="status-chip" style="background:#78350f;border-color:#d97706;">冷却 ${escapeHtml(formatNum(cooldownMinutes, 0))}m</span>`
+        : '';
+    const hourRiskChip =
+      hourRiskPenalty && hourRiskPenalty > 0
+        ? `<span class="status-chip" style="background:#312e81;border-color:#6366f1;">时段风险 -${escapeHtml(formatNum(hourRiskPenalty, 1))}</span>`
         : '';
 
     const incentivePanels = [];
@@ -300,6 +305,7 @@ function renderMarketCards(items, selected = new Set()) {
             <span class="status-chip">${escapeHtml(item.activeStatus || '未应用')}</span>
             ${riskChip}
             ${cooldownChip}
+            ${hourRiskChip}
           </div>
           <h3 class="market-card-title">${escapeHtml(item.question || '--')}</h3>
         </div>
@@ -349,6 +355,7 @@ function renderMarketCards(items, selected = new Set()) {
       <div class="market-reasons">${reasons.length ? reasons.map((reason) => `<span class="reason-chip">${escapeHtml(reason)}</span>`).join('') : '<span class="reason-chip">暂无推荐说明</span>'}</div>
       ${item.recentRiskReason ? `<div class="market-token">风险记忆: ${escapeHtml(item.recentRiskReason)}</div>` : ''}
       ${item.recentRiskCooldownReason ? `<div class="market-token">冷却原因: ${escapeHtml(item.recentRiskCooldownReason)}</div>` : ''}
+      ${item.hourRiskReason ? `<div class="market-token">时段风险: ${escapeHtml(item.hourRiskReason)}</div>` : ''}
       <div class="market-token">Token: ${escapeHtml(item.tokenId)}</div>
     `;
     marketCardGrid.appendChild(card);
