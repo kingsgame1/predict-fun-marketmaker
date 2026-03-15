@@ -23,6 +23,8 @@ interface RecentRiskPenalty {
   reason: string;
   cooldownRemainingMs?: number;
   cooldownReason?: string;
+  fillPenaltyBps?: number;
+  riskThrottleFactor?: number;
 }
 
 interface HourRiskPenalty {
@@ -71,6 +73,10 @@ interface PolymarketIncentiveSummary {
   crowdingMultiple: number | null;
   capitalEstimateUsd: number | null;
   efficiency: number | null;
+  netEfficiency: number | null;
+  netDailyRate: number | null;
+  estimatedCostBps: number | null;
+  riskThrottleFactor: number | null;
   queueHours: number | null;
   flowToQueuePerHour: number | null;
 }
@@ -650,6 +656,8 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardMinFitScore: readNumber(env, 'POLYMARKET_REWARD_MIN_FIT_SCORE', 0.6),
     polymarketRewardMinDailyRate: readNumber(env, 'POLYMARKET_REWARD_MIN_DAILY_RATE', 0),
     polymarketRewardMinEfficiency: readNumber(env, 'POLYMARKET_REWARD_MIN_EFFICIENCY', 0.0015),
+    polymarketRewardMinNetEfficiency: readNumber(env, 'POLYMARKET_REWARD_MIN_NET_EFFICIENCY', 0.0008),
+    polymarketRewardNetCostBpsMultiplier: readNumber(env, 'POLYMARKET_REWARD_NET_COST_BPS_MULTIPLIER', 1),
     polymarketRewardRequireFit: env.get('POLYMARKET_REWARD_REQUIRE_FIT') !== 'false',
     polymarketRewardRequireEnabled: env.get('POLYMARKET_REWARD_REQUIRE_ENABLED') === 'true',
     polymarketRewardMaxQueueMultiple: readNumber(env, 'POLYMARKET_REWARD_MAX_QUEUE_MULTIPLE', 12),
@@ -694,6 +702,8 @@ function loadRecentPolymarketRiskPenalty(
         pauses: number;
         cooldownRemainingMs: number;
         cooldownReason: string;
+        fillPenaltyBps: number;
+        riskThrottleFactor: number;
       }
     >();
     const postOnlyPauseMs = readNumber(env, 'POLYMARKET_POST_ONLY_PAUSE_MS', 1800000);
@@ -721,6 +731,8 @@ function loadRecentPolymarketRiskPenalty(
         pauses: 0,
         cooldownRemainingMs: 0,
         cooldownReason: '',
+        fillPenaltyBps: 0,
+        riskThrottleFactor: 1,
       };
       if (type === 'POLYMARKET_ADVERSE_FILL') {
         entry.penalty += 2;
@@ -745,14 +757,25 @@ function loadRecentPolymarketRiskPenalty(
     for (const metric of raw.markets || []) {
       const tokenId = String(metric.tokenId || '');
       if (!tokenId) continue;
-      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, postOnly: 0, pauses: 0 };
+      const entry = scores.get(tokenId) || {
+        penalty: 0,
+        adverse: 0,
+        postOnly: 0,
+        pauses: 0,
+        cooldownRemainingMs: 0,
+        cooldownReason: '',
+        fillPenaltyBps: 0,
+        riskThrottleFactor: 1,
+      };
       const fillPenaltyBps = Number(metric.fillPenaltyBps || 0);
       const riskThrottleFactor = Number(metric.riskThrottleFactor || 1);
       if (Number.isFinite(fillPenaltyBps) && fillPenaltyBps > 0) {
         entry.penalty += Math.min(4, fillPenaltyBps / 6);
+        entry.fillPenaltyBps = Math.max(entry.fillPenaltyBps, fillPenaltyBps);
       }
       if (Number.isFinite(riskThrottleFactor) && riskThrottleFactor > 0 && riskThrottleFactor < 1) {
         entry.penalty += Math.min(4, (1 - riskThrottleFactor) * 6);
+        entry.riskThrottleFactor = Math.min(entry.riskThrottleFactor, riskThrottleFactor);
       }
       scores.set(tokenId, entry);
     }
@@ -768,6 +791,8 @@ function loadRecentPolymarketRiskPenalty(
         reason: `${parts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
         cooldownRemainingMs: entry.cooldownRemainingMs > 0 ? entry.cooldownRemainingMs : undefined,
         cooldownReason: entry.cooldownReason || undefined,
+        fillPenaltyBps: entry.fillPenaltyBps > 0 ? entry.fillPenaltyBps : undefined,
+        riskThrottleFactor: entry.riskThrottleFactor > 0 && entry.riskThrottleFactor < 1 ? entry.riskThrottleFactor : undefined,
       });
     }
   } catch (error) {
@@ -988,6 +1013,10 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
       crowdingMultiple: null,
       capitalEstimateUsd: null,
       efficiency: null,
+      netEfficiency: null,
+      netDailyRate: null,
+      estimatedCostBps: null,
+      riskThrottleFactor: null,
       queueHours: null,
       flowToQueuePerHour: null,
     };
@@ -1008,6 +1037,10 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
   const midPrice = toFiniteNumber(orderbook?.mid_price);
   const capitalEstimateUsd = midPrice > 0 ? minSize * midPrice * 2 : null;
   const efficiency = capitalEstimateUsd && capitalEstimateUsd > 0 ? dailyRate / capitalEstimateUsd : null;
+  const netEfficiency = toFiniteNumber(market.polymarket_reward_net_efficiency);
+  const netDailyRate = toFiniteNumber(market.polymarket_reward_net_daily_rate);
+  const estimatedCostBps = toFiniteNumber(market.polymarket_reward_estimated_cost_bps);
+  const riskThrottleFactor = toFiniteNumber(market.polymarket_recent_risk_throttle_factor) || 1;
   const queueAheadShares = l1MinShares + l2MinShares;
   const volume24h = toFiniteNumber(market.volume_24h);
   const hourlyTurnoverShares = midPrice > 0 ? volume24h / midPrice / 24 : 0;
@@ -1028,6 +1061,10 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
     crowdingMultiple,
     capitalEstimateUsd,
     efficiency,
+    netEfficiency: netEfficiency > 0 ? netEfficiency : efficiency,
+    netDailyRate: netDailyRate > 0 ? netDailyRate : dailyRate,
+    estimatedCostBps,
+    riskThrottleFactor,
     queueHours,
     flowToQueuePerHour,
   };
@@ -1211,9 +1248,15 @@ async function main(): Promise<void> {
       rewardCrowdingMultiple: toFixedOrNull(incentive.crowdingMultiple, 2),
       rewardCapitalEstimateUsd: toFixedOrNull(incentive.capitalEstimateUsd, 2),
       rewardEfficiency: toFixedOrNull(incentive.efficiency, 4),
+      rewardNetEfficiency: toFixedOrNull(incentive.netEfficiency, 4),
+      rewardNetDailyRate: toFixedOrNull(incentive.netDailyRate, 2),
+      rewardEstimatedCostBps: toFixedOrNull(incentive.estimatedCostBps, 2),
+      rewardRiskThrottleFactor: toFixedOrNull(incentive.riskThrottleFactor, 3),
       rewardQueueHours: toFixedOrNull(incentive.queueHours, 2),
       rewardFlowToQueuePerHour: toFixedOrNull(incentive.flowToQueuePerHour, 2),
       recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
+      recentFillPenaltyBps: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.fillPenaltyBps ?? null, 2),
+      recentRiskThrottleFactor: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.riskThrottleFactor ?? null, 3),
       recentRiskReason: recentRiskPenalty.get(entry.market.token_id)?.reason || null,
       recentRiskCooldownMinutes:
         recentRiskPenalty.get(entry.market.token_id)?.cooldownRemainingMs != null

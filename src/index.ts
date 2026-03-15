@@ -43,10 +43,27 @@ function loadRecentPolymarketRiskPenalty(
   },
   lookbackMs: number = 6 * 60 * 60 * 1000,
   maxPenalty: number = 16
-): Map<string, { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }> {
+): Map<
+  string,
+  {
+    penalty: number;
+    reason: string;
+    cooldownRemainingMs?: number;
+    cooldownReason?: string;
+    fillPenaltyBps?: number;
+    riskThrottleFactor?: number;
+  }
+> {
   const penalties = new Map<
     string,
-    { penalty: number; reason: string; cooldownRemainingMs?: number; cooldownReason?: string }
+    {
+      penalty: number;
+      reason: string;
+      cooldownRemainingMs?: number;
+      cooldownReason?: string;
+      fillPenaltyBps?: number;
+      riskThrottleFactor?: number;
+    }
   >();
   if (!metricsPath) {
     return penalties;
@@ -72,6 +89,8 @@ function loadRecentPolymarketRiskPenalty(
         postOnly: number;
         cooldownRemainingMs: number;
         cooldownReason: string;
+        fillPenaltyBps: number;
+        riskThrottleFactor: number;
       }
     >();
 
@@ -105,6 +124,8 @@ function loadRecentPolymarketRiskPenalty(
         postOnly: 0,
         cooldownRemainingMs: 0,
         cooldownReason: '',
+        fillPenaltyBps: 0,
+        riskThrottleFactor: 1,
       };
       if (type === 'POLYMARKET_ADVERSE_FILL') {
         entry.penalty += 2;
@@ -137,14 +158,18 @@ function loadRecentPolymarketRiskPenalty(
         postOnly: 0,
         cooldownRemainingMs: 0,
         cooldownReason: '',
+        fillPenaltyBps: 0,
+        riskThrottleFactor: 1,
       };
       const fillPenaltyBps = Number(metric.fillPenaltyBps || 0);
       const riskThrottleFactor = Number(metric.riskThrottleFactor || 1);
       if (Number.isFinite(fillPenaltyBps) && fillPenaltyBps > 0) {
         entry.penalty += Math.min(4, fillPenaltyBps / 6);
+        entry.fillPenaltyBps = Math.max(entry.fillPenaltyBps, fillPenaltyBps);
       }
       if (Number.isFinite(riskThrottleFactor) && riskThrottleFactor > 0 && riskThrottleFactor < 1) {
         entry.penalty += Math.min(4, (1 - riskThrottleFactor) * 6);
+        entry.riskThrottleFactor = Math.min(entry.riskThrottleFactor, riskThrottleFactor);
       }
       scores.set(tokenId, entry);
     }
@@ -161,6 +186,8 @@ function loadRecentPolymarketRiskPenalty(
         reason: `${reasonParts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
         cooldownRemainingMs: entry.cooldownRemainingMs > 0 ? entry.cooldownRemainingMs : undefined,
         cooldownReason: entry.cooldownReason || undefined,
+        fillPenaltyBps: entry.fillPenaltyBps > 0 ? entry.fillPenaltyBps : undefined,
+        riskThrottleFactor: entry.riskThrottleFactor > 0 && entry.riskThrottleFactor < 1 ? entry.riskThrottleFactor : undefined,
       });
     }
   } catch (error) {
@@ -846,6 +873,8 @@ export class PolymarketMarketMakerBot {
       rewardMinDailyRate:
         this.config.polymarketRewardMinDailyRate ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_MIN_DAILY_RATE,
       rewardMinEfficiency: this.config.polymarketRewardMinEfficiency ?? 0.0015,
+      rewardMinNetEfficiency: this.config.polymarketRewardMinNetEfficiency ?? 0.0008,
+      rewardNetCostBpsMultiplier: this.config.polymarketRewardNetCostBpsMultiplier ?? 1,
       rewardRequireFit: this.config.polymarketRewardRequireFit !== false,
       rewardRequireEnabled: this.config.polymarketRewardRequireEnabled === true,
       rewardMaxQueueMultiple: this.config.polymarketRewardMaxQueueMultiple ?? 12,
@@ -894,6 +923,8 @@ export class PolymarketMarketMakerBot {
       polymarketRewardMinFitScore: safety.rewardMinFitScore,
       polymarketRewardMinDailyRate: safety.rewardMinDailyRate,
       polymarketRewardMinEfficiency: safety.rewardMinEfficiency,
+      polymarketRewardMinNetEfficiency: safety.rewardMinNetEfficiency,
+      polymarketRewardNetCostBpsMultiplier: safety.rewardNetCostBpsMultiplier,
       polymarketRewardRequireFit: safety.rewardRequireFit,
       polymarketRewardRequireEnabled: safety.rewardRequireEnabled,
       polymarketRewardMaxQueueMultiple: safety.rewardMaxQueueMultiple,
@@ -925,6 +956,9 @@ export class PolymarketMarketMakerBot {
     }
     if (profile.enabled && profile.efficiency < safety.rewardMinEfficiency) {
       return { skip: true, reason: `激励效率不足 ${(profile.efficiency * 100).toFixed(2)}%/日` };
+    }
+    if (profile.enabled && profile.netEfficiency < safety.rewardMinNetEfficiency) {
+      return { skip: true, reason: `激励净效率不足 ${(profile.netEfficiency * 100).toFixed(2)}%/日` };
     }
     if (profile.enabled && safety.rewardRequireFit && profile.fitScore < safety.rewardMinFitScore) {
       return { skip: true, reason: `激励适配度不足 ${(profile.fitScore * 100).toFixed(0)}%` };

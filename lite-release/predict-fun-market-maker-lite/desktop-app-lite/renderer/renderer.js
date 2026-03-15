@@ -290,7 +290,9 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-value">日速率 ${item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)}</div>
           <div class="metric-subvalue">最小单边 ${item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)} 股 / 最大奖励价差 ${item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)}¢</div>
           <div class="metric-subvalue">激励适配度 ${item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)} / 排队倍数 ${item.rewardCrowdingMultiple == null ? '--' : `${formatNum(item.rewardCrowdingMultiple, 2)}x`}</div>
-          <div class="metric-subvalue">最低双边资金 ${item.rewardCapitalEstimateUsd == null ? '--' : `$${formatNum(item.rewardCapitalEstimateUsd, 2)}`} / 奖励效率 ${item.rewardEfficiency == null ? '--' : `${formatPct(Number(item.rewardEfficiency) * 100, 2)}/日`}</div>
+          <div class="metric-subvalue">最低双边资金 ${item.rewardCapitalEstimateUsd == null ? '--' : `$${formatNum(item.rewardCapitalEstimateUsd, 2)}`} / 毛效率 ${item.rewardEfficiency == null ? '--' : `${formatPct(Number(item.rewardEfficiency) * 100, 2)}/日`}</div>
+          <div class="metric-subvalue">净效率 ${item.rewardNetEfficiency == null ? '--' : `${formatPct(Number(item.rewardNetEfficiency) * 100, 2)}/日`} / 净日奖励 ${item.rewardNetDailyRate == null ? '--' : `$${formatNum(item.rewardNetDailyRate, 2)}`}</div>
+          <div class="metric-subvalue">估算成本 ${item.rewardEstimatedCostBps == null ? '--' : `${formatNum(item.rewardEstimatedCostBps, 2)}bps`} / 风险缩放 ${item.rewardRiskThrottleFactor == null ? '--' : `${formatNum(item.rewardRiskThrottleFactor, 3)}x`}</div>
           <div class="metric-subvalue">队列耗时 ${item.rewardQueueHours == null ? '--' : `${formatNum(item.rewardQueueHours, 2)}h`} / 流速倍率 ${item.rewardFlowToQueuePerHour == null ? '--' : `${formatNum(item.rewardFlowToQueuePerHour, 2)}x/h`}</div>
         </div>
       `);

@@ -1214,10 +1214,13 @@ export function loadConfig(): Config {
     polymarketRewardMinFitScore: parseFloat(process.env.POLYMARKET_REWARD_MIN_FIT_SCORE || '0.6'),
     polymarketRewardMinDailyRate: parseFloat(process.env.POLYMARKET_REWARD_MIN_DAILY_RATE || '0'),
     polymarketRewardMinEfficiency: parseFloat(process.env.POLYMARKET_REWARD_MIN_EFFICIENCY || '0.0015'),
+    polymarketRewardMinNetEfficiency: parseFloat(process.env.POLYMARKET_REWARD_MIN_NET_EFFICIENCY || '0.0008'),
+    polymarketRewardNetCostBpsMultiplier: parseFloat(process.env.POLYMARKET_REWARD_NET_COST_BPS_MULTIPLIER || '1'),
     polymarketRewardRequireFit: process.env.POLYMARKET_REWARD_REQUIRE_FIT !== 'false',
     polymarketRewardRequireEnabled: process.env.POLYMARKET_REWARD_REQUIRE_ENABLED === 'true',
     polymarketRewardPauseMs: parseInt(process.env.POLYMARKET_REWARD_PAUSE_MS || '180000'),
     polymarketRewardSizeCapMultiplier: parseFloat(process.env.POLYMARKET_REWARD_SIZE_CAP_MULTIPLIER || '1.25'),
+    polymarketRewardNetSizeFactorMin: parseFloat(process.env.POLYMARKET_REWARD_NET_SIZE_FACTOR_MIN || '0.5'),
     polymarketRewardMaxQueueMultiple: parseFloat(process.env.POLYMARKET_REWARD_MAX_QUEUE_MULTIPLE || '12'),
     polymarketRewardCrowdingPenaltyStart: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_START || '4'),
     polymarketRewardCrowdingPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_MAX || '12'),
@@ -1298,8 +1301,17 @@ export function loadConfig(): Config {
     if ((config.polymarketRewardMinEfficiency ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_MIN_EFFICIENCY must be >= 0');
     }
+    if ((config.polymarketRewardMinNetEfficiency ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_MIN_NET_EFFICIENCY must be >= 0');
+    }
+    if ((config.polymarketRewardNetCostBpsMultiplier ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_NET_COST_BPS_MULTIPLIER must be >= 0');
+    }
     if ((config.polymarketRewardSizeCapMultiplier ?? 0) <= 0) {
       throw new Error('POLYMARKET_REWARD_SIZE_CAP_MULTIPLIER must be > 0');
+    }
+    if ((config.polymarketRewardNetSizeFactorMin ?? 0) <= 0 || (config.polymarketRewardNetSizeFactorMin ?? 0) > 1) {
+      throw new Error('POLYMARKET_REWARD_NET_SIZE_FACTOR_MIN must be within (0, 1]');
     }
     if ((config.polymarketRewardMaxQueueMultiple ?? 0) <= 0) {
       throw new Error('POLYMARKET_REWARD_MAX_QUEUE_MULTIPLE must be > 0');

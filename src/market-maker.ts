@@ -408,6 +408,8 @@ export class MarketMaker {
       windowMs: this.config.polymarketPostOnlyWindowMs ?? 10 * 60 * 1000,
       pauseMs: this.config.polymarketPostOnlyPauseMs ?? 5 * 60 * 1000,
       rewardSizeCapMultiplier: this.config.polymarketRewardSizeCapMultiplier ?? 1.25,
+      rewardMinNetEfficiency: this.config.polymarketRewardMinNetEfficiency ?? 0.0008,
+      rewardNetSizeFactorMin: this.config.polymarketRewardNetSizeFactorMin ?? 0.5,
       rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
       rewardQueueRetreatStart: this.config.polymarketRewardQueueRetreatStart ?? 3,
       rewardQueueRetreatMaxBps: this.config.polymarketRewardQueueRetreatMaxBps ?? 12,
@@ -742,6 +744,16 @@ export class MarketMaker {
       const penaltyRatio = this.clamp(hourRiskPenalty / hourBlockPenalty, 0, 1);
       const shrinkFactor = 1 - (1 - hourMinFactor) * penaltyRatio;
       shares = Math.max(1, Math.floor(shares * shrinkFactor));
+    }
+    const netEfficiency = Number(market.polymarket_reward_net_efficiency || 0);
+    if (netEfficiency > 0 && Number.isFinite(netEfficiency)) {
+      const minNetEfficiency = Math.max(0, Number(this.config.polymarketRewardMinNetEfficiency || 0.0008));
+      const netMinFactor = this.clamp(Number(this.config.polymarketRewardNetSizeFactorMin || 0.5), 0.1, 1);
+      if (netEfficiency < minNetEfficiency * 2) {
+        const ratio = this.clamp(netEfficiency / Math.max(minNetEfficiency * 2, 1e-9), 0, 1);
+        const shrinkFactor = netMinFactor + (1 - netMinFactor) * ratio;
+        shares = Math.max(1, Math.floor(shares * shrinkFactor));
+      }
     }
     return shares;
   }
