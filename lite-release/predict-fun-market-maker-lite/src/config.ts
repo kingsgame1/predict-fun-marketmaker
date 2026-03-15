@@ -1249,6 +1249,15 @@ export function loadConfig(): Config {
     polymarketCancelReasonSizeFactorMin: parseFloat(
       process.env.POLYMARKET_CANCEL_REASON_SIZE_FACTOR_MIN || '0.55'
     ),
+    polymarketCancelPatternFuseMinCount: parseInt(
+      process.env.POLYMARKET_CANCEL_PATTERN_FUSE_MIN_COUNT || '6'
+    ),
+    polymarketCancelPatternFuseDominance: parseFloat(
+      process.env.POLYMARKET_CANCEL_PATTERN_FUSE_DOMINANCE || '0.7'
+    ),
+    polymarketCancelPatternFusePauseMs: parseInt(
+      process.env.POLYMARKET_CANCEL_PATTERN_FUSE_PAUSE_MS || '1200000'
+    ),
     polymarketAdverseFillWindowMs: parseInt(process.env.POLYMARKET_ADVERSE_FILL_WINDOW_MS || '1200000'),
     polymarketAdverseFillPauseMs: parseInt(process.env.POLYMARKET_ADVERSE_FILL_PAUSE_MS || '2700000'),
     polymarketAdverseFillScoreThreshold: parseFloat(process.env.POLYMARKET_ADVERSE_FILL_SCORE_THRESHOLD || '3.5'),
@@ -1398,6 +1407,18 @@ export function loadConfig(): Config {
       (config.polymarketCancelReasonSizeFactorMin ?? 0) > 1
     ) {
       throw new Error('POLYMARKET_CANCEL_REASON_SIZE_FACTOR_MIN must be within (0, 1]');
+    }
+    if ((config.polymarketCancelPatternFuseMinCount ?? 0) < 0) {
+      throw new Error('POLYMARKET_CANCEL_PATTERN_FUSE_MIN_COUNT must be >= 0');
+    }
+    if (
+      (config.polymarketCancelPatternFuseDominance ?? 0) < 0 ||
+      (config.polymarketCancelPatternFuseDominance ?? 0) > 1
+    ) {
+      throw new Error('POLYMARKET_CANCEL_PATTERN_FUSE_DOMINANCE must be within [0, 1]');
+    }
+    if ((config.polymarketCancelPatternFusePauseMs ?? 0) < 0) {
+      throw new Error('POLYMARKET_CANCEL_PATTERN_FUSE_PAUSE_MS must be >= 0');
     }
     if ((config.polymarketAdverseFillWindowMs ?? 0) < 0) {
       throw new Error('POLYMARKET_ADVERSE_FILL_WINDOW_MS must be >= 0');

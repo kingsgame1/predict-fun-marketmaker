@@ -443,6 +443,9 @@ export class MarketMaker {
       cancelReasonDominanceThreshold: this.config.polymarketCancelReasonDominanceThreshold ?? 0.45,
       cancelReasonRetreatMaxBps: this.config.polymarketCancelReasonRetreatMaxBps ?? 10,
       cancelReasonSizeFactorMin: this.config.polymarketCancelReasonSizeFactorMin ?? 0.55,
+      cancelPatternFuseMinCount: this.config.polymarketCancelPatternFuseMinCount ?? 6,
+      cancelPatternFuseDominance: this.config.polymarketCancelPatternFuseDominance ?? 0.7,
+      cancelPatternFusePauseMs: this.config.polymarketCancelPatternFusePauseMs ?? 20 * 60 * 1000,
       adverseFillWindowMs: this.config.polymarketAdverseFillWindowMs ?? 20 * 60 * 1000,
       adverseFillPauseMs: this.config.polymarketAdverseFillPauseMs ?? 45 * 60 * 1000,
       adverseFillScoreThreshold: this.config.polymarketAdverseFillScoreThreshold ?? 3.5,
@@ -2417,6 +2420,61 @@ export class MarketMaker {
       sizeFactor: this.clamp(sizeFactor, cfg.cancelReasonSizeFactorMin, 1),
       reason: `${labelMap[dominant]} ${(rawDominance * 100).toFixed(0)}%`,
     };
+  }
+
+  private async maybeTripPolymarketCancelPatternFuse(tokenId: string, market: Market): Promise<boolean> {
+    if (this.config.mmVenue !== 'polymarket') {
+      return false;
+    }
+    const live = this.getPolymarketCancelReasonSnapshot(tokenId);
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    if (live.total < Math.max(0, cfg.cancelPatternFuseMinCount)) {
+      return false;
+    }
+    const candidates = [
+      ['aggressive', live.aggressive],
+      ['unsafe', live.unsafe],
+      ['nearTouch', live.nearTouch],
+    ] as const;
+    const [dominant, count] = candidates.reduce((best, entry) => (entry[1] > best[1] ? entry : best), ['nearTouch', 0] as const);
+    const dominance = count / Math.max(1, live.total);
+    if (dominance < this.clamp(cfg.cancelPatternFuseDominance, 0, 1)) {
+      return false;
+    }
+    const source =
+      dominant === 'aggressive'
+        ? 'polymarket-cancel-pattern-aggressive'
+        : dominant === 'unsafe'
+          ? 'polymarket-cancel-pattern-unsafe'
+          : 'polymarket-cancel-pattern-near-touch';
+    const label =
+      dominant === 'aggressive'
+        ? '激进走势撤单主导'
+        : dominant === 'unsafe'
+          ? '不安全盘口撤单主导'
+          : '近触撤单主导';
+    await this.enforceMarketPause(
+      tokenId,
+      Math.max(1000, cfg.cancelPatternFusePauseMs),
+      `${label} ${(dominance * 100).toFixed(0)}%`,
+      source,
+      true
+    );
+    this.recordMmEvent(
+      'POLYMARKET_CANCEL_PATTERN_FUSE',
+      `${label}, total=${live.total}, dominance=${(dominance * 100).toFixed(0)}%`,
+      tokenId
+    );
+    this.polymarketCancelReasonState.set(tokenId, {
+      windowStart: Date.now(),
+      nearTouch: 0,
+      refresh: 0,
+      vwap: 0,
+      aggressive: 0,
+      unsafe: 0,
+      other: 0,
+    });
+    return true;
   }
 
   private allowCancel(tokenId: string, isPanic: boolean): boolean {
@@ -5634,6 +5692,9 @@ export class MarketMaker {
         if (risk.cancel || shouldReprice) {
           if (this.config.mmVenue === 'polymarket') {
             this.recordPolymarketCancelReason(tokenId, risk.reason || (shouldReprice ? 'reprice' : 'other'));
+            if (await this.maybeTripPolymarketCancelPatternFuse(tokenId, market)) {
+              continue;
+            }
           }
           if (!this.allowCancel(tokenId, risk.panic)) {
             this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
@@ -5769,6 +5830,9 @@ export class MarketMaker {
         if (risk.cancel || shouldReprice) {
           if (this.config.mmVenue === 'polymarket') {
             this.recordPolymarketCancelReason(tokenId, risk.reason || (shouldReprice ? 'reprice' : 'other'));
+            if (await this.maybeTripPolymarketCancelPatternFuse(tokenId, market)) {
+              continue;
+            }
           }
           if (!this.allowCancel(tokenId, risk.panic)) {
             this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);

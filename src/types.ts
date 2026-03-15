@@ -1059,6 +1059,9 @@ export interface Config {
   polymarketCancelReasonDominanceThreshold?: number;
   polymarketCancelReasonRetreatMaxBps?: number;
   polymarketCancelReasonSizeFactorMin?: number;
+  polymarketCancelPatternFuseMinCount?: number;
+  polymarketCancelPatternFuseDominance?: number;
+  polymarketCancelPatternFusePauseMs?: number;
   polymarketAdverseFillWindowMs?: number;
   polymarketAdverseFillPauseMs?: number;
   polymarketAdverseFillScoreThreshold?: number;
