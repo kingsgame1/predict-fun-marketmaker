@@ -18,6 +18,11 @@ interface Args {
 
 interface EnvMap extends Map<string, string> {}
 
+interface RecentRiskPenalty {
+  penalty: number;
+  reason: string;
+}
+
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
 const PREDICT_SAFE_MAX_SPREAD = 0.06;
 const PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
@@ -640,7 +645,85 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardRequireEnabled: env.get('POLYMARKET_REWARD_REQUIRE_ENABLED') === 'true',
     polymarketRewardCrowdingPenaltyStart: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_START', 4),
     polymarketRewardCrowdingPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_MAX', 12),
+    polymarketRewardMinQueueHours: readNumber(env, 'POLYMARKET_REWARD_MIN_QUEUE_HOURS', 0.75),
+    polymarketRewardFastFlowPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX', 8),
   };
+}
+
+function loadRecentPolymarketRiskPenalty(
+  env: EnvMap,
+  envPath: string,
+  lookbackMs: number = 6 * 60 * 60 * 1000,
+  maxPenalty: number = 16
+): Map<string, RecentRiskPenalty> {
+  const penalties = new Map<string, RecentRiskPenalty>();
+  const metricsPath = env.get('MM_METRICS_PATH');
+  if (!metricsPath) {
+    return penalties;
+  }
+  try {
+    const resolved = path.isAbsolute(metricsPath)
+      ? metricsPath
+      : path.resolve(path.dirname(envPath), metricsPath);
+    if (!fs.existsSync(resolved)) {
+      return penalties;
+    }
+    const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
+      events?: Array<{ ts?: number; type?: string; tokenId?: string; message?: string }>;
+      markets?: Array<{ tokenId?: string; fillPenaltyBps?: number; riskThrottleFactor?: number }>;
+    };
+    const cutoff = Date.now() - lookbackMs;
+    const scores = new Map<string, { penalty: number; adverse: number; postOnly: number; pauses: number }>();
+    for (const event of raw.events || []) {
+      const tokenId = String(event.tokenId || '');
+      if (!tokenId) continue;
+      const ts = Number(event.ts || 0);
+      if (!Number.isFinite(ts) || ts < cutoff) continue;
+      const type = String(event.type || '');
+      const message = String(event.message || '');
+      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, postOnly: 0, pauses: 0 };
+      if (type === 'POLYMARKET_ADVERSE_FILL') {
+        entry.penalty += 2;
+        entry.adverse += 1;
+      } else if (type === 'POLYMARKET_POST_ONLY_FUSE') {
+        entry.penalty += 4;
+        entry.postOnly += 1;
+      } else if (type === 'MARKET_PAUSE' && message.includes('polymarket-')) {
+        entry.penalty += 5;
+        entry.pauses += 1;
+      }
+      scores.set(tokenId, entry);
+    }
+    for (const metric of raw.markets || []) {
+      const tokenId = String(metric.tokenId || '');
+      if (!tokenId) continue;
+      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, postOnly: 0, pauses: 0 };
+      const fillPenaltyBps = Number(metric.fillPenaltyBps || 0);
+      const riskThrottleFactor = Number(metric.riskThrottleFactor || 1);
+      if (Number.isFinite(fillPenaltyBps) && fillPenaltyBps > 0) {
+        entry.penalty += Math.min(4, fillPenaltyBps / 6);
+      }
+      if (Number.isFinite(riskThrottleFactor) && riskThrottleFactor > 0 && riskThrottleFactor < 1) {
+        entry.penalty += Math.min(4, (1 - riskThrottleFactor) * 6);
+      }
+      scores.set(tokenId, entry);
+    }
+    for (const [tokenId, entry] of scores) {
+      const penalty = Math.min(maxPenalty, entry.penalty);
+      if (penalty <= 0) continue;
+      const parts: string[] = [];
+      if (entry.adverse > 0) parts.push(`不利成交${entry.adverse}次`);
+      if (entry.postOnly > 0) parts.push(`postOnly熔断${entry.postOnly}次`);
+      if (entry.pauses > 0) parts.push(`风控暂停${entry.pauses}次`);
+      penalties.set(tokenId, {
+        penalty,
+        reason: `${parts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
+      });
+    }
+  } catch (error) {
+    console.error('[Polymarket] 读取近期风险记忆失败，已忽略:', error);
+  }
+  return penalties;
 }
 
 function getSelectorConfig(env: EnvMap, venue: 'predict' | 'polymarket'): [number, number, number, number] {
@@ -874,6 +957,7 @@ async function main(): Promise<void> {
   const env = parseEnv(envText);
   const predictSafety = getPredictSafetyConfig(env);
   const polymarketSelectorOptions = getPolymarketSelectorOptions(env);
+  polymarketSelectorOptions.polymarketRecentRiskPenalty = loadRecentPolymarketRiskPenalty(env, args.envPath);
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
   const selector = new MarketSelector(
     minLiquidity,

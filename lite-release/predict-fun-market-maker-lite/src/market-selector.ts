@@ -21,6 +21,7 @@ export interface MarketSelectorOptions {
   polymarketRewardCrowdingPenaltyMax?: number;
   polymarketRewardMinQueueHours?: number;
   polymarketRewardFastFlowPenaltyMax?: number;
+  polymarketRecentRiskPenalty?: Map<string, { penalty: number; reason: string }>;
 }
 
 interface LevelLiquidity {
@@ -75,6 +76,7 @@ export class MarketSelector {
   private polymarketRewardCrowdingPenaltyMax: number;
   private polymarketRewardMinQueueHours: number;
   private polymarketRewardFastFlowPenaltyMax: number;
+  private polymarketRecentRiskPenalty: Map<string, { penalty: number; reason: string }>;
 
   constructor(
     minLiquidity: number = 100,
@@ -95,6 +97,7 @@ export class MarketSelector {
     this.polymarketRewardCrowdingPenaltyMax = options.polymarketRewardCrowdingPenaltyMax ?? 12;
     this.polymarketRewardMinQueueHours = options.polymarketRewardMinQueueHours ?? 0.75;
     this.polymarketRewardFastFlowPenaltyMax = options.polymarketRewardFastFlowPenaltyMax ?? 8;
+    this.polymarketRecentRiskPenalty = options.polymarketRecentRiskPenalty ?? new Map();
   }
 
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
@@ -128,6 +131,7 @@ export class MarketSelector {
     const symmetry = this.getBookSymmetry(orderbook);
     const mid = Number(orderbook.mid_price || 0);
     const rewardProfile = this.getPolymarketRewardProfile(market, orderbook);
+    const recentRisk = this.polymarketRecentRiskPenalty.get(market.token_id);
 
     if (market.venue === 'polymarket' && market.polymarket_enable_order_book === false) {
       return { market, score: 0, reasons: ['Polymarket 市场未启用 orderbook'] };
@@ -261,6 +265,10 @@ export class MarketSelector {
           `成交流速过快，降权: 队列约 ${rewardProfile.queueHours.toFixed(2)}h / ${rewardProfile.flowToQueuePerHour.toFixed(2)}x每小时`
         );
       }
+    }
+    if (recentRisk && recentRisk.penalty > 0) {
+      score -= recentRisk.penalty;
+      reasons.push(`近期风险记忆，降权: ${recentRisk.reason}`);
     }
 
     reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);

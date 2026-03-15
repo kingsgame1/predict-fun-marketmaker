@@ -3,6 +3,8 @@
  * Main entry point
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { Wallet } from 'ethers';
 import { loadConfig, printConfig } from './config.js';
 import { PredictAPI } from './api/client.js';
@@ -28,6 +30,85 @@ function sortMarketsByLiquidityAndVolume(markets: Market[]): Market[] {
   };
 
   return [...markets].sort((a, b) => scoreMarket(b) - scoreMarket(a));
+}
+
+function loadRecentPolymarketRiskPenalty(
+  metricsPath: string | undefined,
+  cwd: string,
+  lookbackMs: number = 6 * 60 * 60 * 1000,
+  maxPenalty: number = 16
+): Map<string, { penalty: number; reason: string }> {
+  const penalties = new Map<string, { penalty: number; reason: string }>();
+  if (!metricsPath) {
+    return penalties;
+  }
+
+  try {
+    const resolved = path.isAbsolute(metricsPath) ? metricsPath : path.resolve(cwd, metricsPath);
+    if (!fs.existsSync(resolved)) {
+      return penalties;
+    }
+    const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
+      ts?: number;
+      events?: Array<{ ts?: number; type?: string; tokenId?: string; message?: string }>;
+      markets?: Array<{ tokenId?: string; fillPenaltyBps?: number; riskThrottleFactor?: number }>;
+    };
+    const cutoff = Date.now() - lookbackMs;
+    const scores = new Map<string, { penalty: number; adverse: number; pauses: number; postOnly: number }>();
+
+    for (const event of raw.events || []) {
+      const tokenId = String(event.tokenId || '');
+      if (!tokenId) continue;
+      const ts = Number(event.ts || 0);
+      if (!Number.isFinite(ts) || ts < cutoff) continue;
+      const type = String(event.type || '');
+      const message = String(event.message || '');
+      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, pauses: 0, postOnly: 0 };
+      if (type === 'POLYMARKET_ADVERSE_FILL') {
+        entry.penalty += 2;
+        entry.adverse += 1;
+      } else if (type === 'POLYMARKET_POST_ONLY_FUSE') {
+        entry.penalty += 4;
+        entry.postOnly += 1;
+      } else if (type === 'MARKET_PAUSE' && message.includes('polymarket-')) {
+        entry.penalty += 5;
+        entry.pauses += 1;
+      }
+      scores.set(tokenId, entry);
+    }
+
+    for (const metric of raw.markets || []) {
+      const tokenId = String(metric.tokenId || '');
+      if (!tokenId) continue;
+      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, pauses: 0, postOnly: 0 };
+      const fillPenaltyBps = Number(metric.fillPenaltyBps || 0);
+      const riskThrottleFactor = Number(metric.riskThrottleFactor || 1);
+      if (Number.isFinite(fillPenaltyBps) && fillPenaltyBps > 0) {
+        entry.penalty += Math.min(4, fillPenaltyBps / 6);
+      }
+      if (Number.isFinite(riskThrottleFactor) && riskThrottleFactor > 0 && riskThrottleFactor < 1) {
+        entry.penalty += Math.min(4, (1 - riskThrottleFactor) * 6);
+      }
+      scores.set(tokenId, entry);
+    }
+
+    for (const [tokenId, entry] of scores) {
+      const penalty = Math.min(maxPenalty, entry.penalty);
+      if (penalty <= 0) continue;
+      const reasonParts: string[] = [];
+      if (entry.adverse > 0) reasonParts.push(`不利成交${entry.adverse}次`);
+      if (entry.postOnly > 0) reasonParts.push(`postOnly熔断${entry.postOnly}次`);
+      if (entry.pauses > 0) reasonParts.push(`风控暂停${entry.pauses}次`);
+      penalties.set(tokenId, {
+        penalty,
+        reason: `${reasonParts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
+      });
+    }
+  } catch (error) {
+    console.warn('⚠️ 读取近期风险记忆失败，忽略:', error);
+  }
+
+  return penalties;
 }
 
 async function populateOrderbooksWithConcurrency(
@@ -674,6 +755,10 @@ export class PolymarketMarketMakerBot {
       polymarketRewardCrowdingPenaltyMax: safety.rewardCrowdingPenaltyMax,
       polymarketRewardMinQueueHours: safety.rewardMinQueueHours,
       polymarketRewardFastFlowPenaltyMax: safety.rewardFastFlowPenaltyMax,
+      polymarketRecentRiskPenalty: loadRecentPolymarketRiskPenalty(
+        this.config.mmMetricsPath,
+        process.cwd()
+      ),
     };
   }
 
