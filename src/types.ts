@@ -1040,6 +1040,10 @@ export interface Config {
   polymarketRewardQueueRetreatStart?: number;
   polymarketRewardQueueRetreatMaxBps?: number;
   polymarketRewardFastFlowRetreatMaxBps?: number;
+  polymarketAdverseFillWindowMs?: number;
+  polymarketAdverseFillPauseMs?: number;
+  polymarketAdverseFillScoreThreshold?: number;
+  polymarketAdverseFillPnlPenalty?: number;
   polymarketPostOnlyMinHitRate?: number;
   polymarketPostOnlyMinAttempts?: number;
   polymarketPostOnlyWindowMs?: number;

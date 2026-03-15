@@ -259,6 +259,10 @@ export class MarketMaker {
     string,
     { attempts: number; accepted: number; rejected: number; windowStart: number }
   > = new Map();
+  private polymarketAdverseFillState: Map<
+    string,
+    { score: number; count: number; windowStart: number; lastAt: number }
+  > = new Map();
 
   // ===== Phase 1: 增强模块字段 =====
   // 为每个市场维护独立的估算器
@@ -408,6 +412,10 @@ export class MarketMaker {
       rewardQueueRetreatStart: this.config.polymarketRewardQueueRetreatStart ?? 3,
       rewardQueueRetreatMaxBps: this.config.polymarketRewardQueueRetreatMaxBps ?? 12,
       rewardFastFlowRetreatMaxBps: this.config.polymarketRewardFastFlowRetreatMaxBps ?? 8,
+      adverseFillWindowMs: this.config.polymarketAdverseFillWindowMs ?? 20 * 60 * 1000,
+      adverseFillPauseMs: this.config.polymarketAdverseFillPauseMs ?? 45 * 60 * 1000,
+      adverseFillScoreThreshold: this.config.polymarketAdverseFillScoreThreshold ?? 3.5,
+      adverseFillPnlPenalty: this.config.polymarketAdverseFillPnlPenalty ?? 1.25,
       adversePressureThreshold: this.config.polymarketAdversePressureThreshold ?? 0.18,
       adverseImbalanceThreshold: this.config.polymarketAdverseImbalanceThreshold ?? 0.55,
       adverseDepthSpeedBps: this.config.polymarketAdverseDepthSpeedBps ?? 12,
@@ -760,6 +768,68 @@ export class MarketMaker {
           cfg.rewardFastFlowRetreatMaxBps
         : 0;
     return this.clamp(crowdingExtra + fastFlowExtra, 0, cfg.rewardQueueRetreatMaxBps + cfg.rewardFastFlowRetreatMaxBps);
+  }
+
+  private getPolymarketPostOnlyHitRate(tokenId: string): number | null {
+    const stats = this.polymarketPostOnlyStats.get(tokenId);
+    if (!stats || stats.attempts <= 0) {
+      return null;
+    }
+    return stats.accepted / Math.max(1, stats.attempts);
+  }
+
+  private async recordPolymarketAdverseFill(
+    tokenId: string,
+    market: Market | undefined,
+    filledShares: number,
+    position: Position | undefined
+  ): Promise<void> {
+    if (this.config.mmVenue !== 'polymarket' || !market || !Number.isFinite(filledShares) || filledShares <= 0) {
+      return;
+    }
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const now = Date.now();
+    const existing = this.polymarketAdverseFillState.get(tokenId);
+    const shouldReset = !existing || now - existing.windowStart > cfg.adverseFillWindowMs;
+    const state = shouldReset
+      ? { score: 0, count: 0, windowStart: now, lastAt: now }
+      : existing;
+
+    const reward = this.getPolymarketRewardRule(market);
+    const sizeRef = reward.enabled ? reward.minShares : Math.max(1, this.getEffectiveOrderSize());
+    let increment = this.clamp(filledShares / Math.max(1, sizeRef), 0.5, 2.5);
+    const pnl = Number(position?.pnl || position?.value || 0);
+    if (Number.isFinite(pnl) && pnl < 0) {
+      increment += Math.max(0, cfg.adverseFillPnlPenalty);
+    }
+    const postOnlyHitRate = this.getPolymarketPostOnlyHitRate(tokenId);
+    if (postOnlyHitRate !== null && postOnlyHitRate < cfg.minHitRate + 0.1) {
+      increment += 0.5;
+    }
+
+    state.score += increment;
+    state.count += 1;
+    state.lastAt = now;
+    this.polymarketAdverseFillState.set(tokenId, state);
+
+    this.recordMmEvent(
+      'POLYMARKET_ADVERSE_FILL',
+      `score=${state.score.toFixed(2)} count=${state.count} fill=${filledShares.toFixed(2)} pnl=${pnl.toFixed(2)}`,
+      tokenId
+    );
+
+    if (state.score < cfg.adverseFillScoreThreshold) {
+      return;
+    }
+
+    const reason = `连续不利成交 score=${state.score.toFixed(2)} count=${state.count}`;
+    await this.enforceMarketPause(tokenId, cfg.adverseFillPauseMs, reason, 'polymarket-adverse-fill', true);
+    console.warn(`🛑 [PolymarketSafety] ${reason}，已撤单并暂停 ${Math.round(cfg.adverseFillPauseMs / 60000)} 分钟`);
+    state.score = 0;
+    state.count = 0;
+    state.windowStart = now;
+    state.lastAt = now;
+    this.polymarketAdverseFillState.set(tokenId, state);
   }
 
   private getPolymarketAdverseSuppression(
@@ -6244,6 +6314,8 @@ export class MarketMaker {
         this.recordAutoTuneEvent(tokenId, 'FILLED');
         if (this.config.mmVenue === 'predict') {
           await this.triggerPredictFillCircuitBreaker(tokenId, '检测到成交');
+        } else if (this.config.mmVenue === 'polymarket') {
+          await this.recordPolymarketAdverseFill(tokenId, this.marketByToken.get(tokenId), absDelta, position);
         }
         const fillCount = this.recordFillBurst(tokenId);
         const fillLimit = Math.max(1, this.config.mmFillBurstLimit ?? 0);
