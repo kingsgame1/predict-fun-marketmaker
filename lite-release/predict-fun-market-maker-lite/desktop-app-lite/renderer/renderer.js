@@ -274,7 +274,8 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-label">流动性激励</div>
           <div class="metric-value">日速率 ${item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)}</div>
           <div class="metric-subvalue">最小单边 ${item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)} 股 / 最大奖励价差 ${item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)}¢</div>
-          <div class="metric-subvalue">激励适配度 ${item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)}</div>
+          <div class="metric-subvalue">激励适配度 ${item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)} / 排队倍数 ${item.rewardCrowdingMultiple == null ? '--' : `${formatNum(item.rewardCrowdingMultiple, 2)}x`}</div>
+          <div class="metric-subvalue">最低双边资金 ${item.rewardCapitalEstimateUsd == null ? '--' : `$${formatNum(item.rewardCapitalEstimateUsd, 2)}`} / 奖励效率 ${item.rewardEfficiency == null ? '--' : `${formatPct(Number(item.rewardEfficiency) * 100, 2)}/日`}</div>
         </div>
       `);
     }
@@ -621,7 +622,7 @@ Object.entries(LINKS).forEach(([id, url]) => {
     }
     const incentivePanels = [];
     if (item.rewardEnabled) {
-      incentivePanels.push('\n        <div class="metric-panel incentive-panel">\n          <div class="metric-label">流动性激励</div>\n          <div class="metric-value">日速率 ' + (item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)) + '</div>\n          <div class="metric-subvalue">最小单边 ' + (item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)) + ' 股 / 最大奖励价差 ' + (item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)) + '¢</div>\n          <div class="metric-subvalue">激励适配度 ' + (item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)) + '</div>\n        </div>\n      ');
+      incentivePanels.push('\n        <div class="metric-panel incentive-panel">\n          <div class="metric-label">流动性激励</div>\n          <div class="metric-value">日速率 ' + (item.rewardDailyRate == null ? '--' : formatNum(item.rewardDailyRate, 0)) + '</div>\n          <div class="metric-subvalue">最小单边 ' + (item.rewardMinSize == null ? '--' : formatNum(item.rewardMinSize, 0)) + ' 股 / 最大奖励价差 ' + (item.rewardMaxSpreadCents == null ? '--' : formatNum(item.rewardMaxSpreadCents, 2)) + '¢</div>\n          <div class="metric-subvalue">激励适配度 ' + (item.rewardFitScore == null ? '--' : formatPct(Number(item.rewardFitScore) * 100, 0)) + ' / 排队倍数 ' + (item.rewardCrowdingMultiple == null ? '--' : formatNum(item.rewardCrowdingMultiple, 2) + 'x') + '</div>\n          <div class="metric-subvalue">最低双边资金 ' + (item.rewardCapitalEstimateUsd == null ? '--' : '$' + formatNum(item.rewardCapitalEstimateUsd, 2)) + ' / 奖励效率 ' + (item.rewardEfficiency == null ? '--' : formatPct(Number(item.rewardEfficiency) * 100, 2) + '/日') + '</div>\n        </div>\n      ');
     }
 
     card.innerHTML = `

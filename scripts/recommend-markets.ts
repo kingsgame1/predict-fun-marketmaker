@@ -56,6 +56,8 @@ interface PolymarketIncentiveSummary {
   l1SizeFit: number | null;
   l2SizeFit: number | null;
   crowdingMultiple: number | null;
+  capitalEstimateUsd: number | null;
+  efficiency: number | null;
 }
 
 function slugifyQuestion(question: string): string {
@@ -787,6 +789,8 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
       l1SizeFit: null,
       l2SizeFit: null,
       crowdingMultiple: null,
+      capitalEstimateUsd: null,
+      efficiency: null,
     };
   }
 
@@ -801,7 +805,10 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
   const rawSpread = getBookSpread(orderbook);
   const spreadFit = rawSpread === null ? 0 : Math.max(0, Math.min(1, 1 - rawSpread / maxSpread));
   const fitScore = Math.max(0, Math.min(1.1, 0.3 * spreadFit + 0.25 * (l1SizeFit / 1.25) + 0.45 * (l2SizeFit / 1.25)));
-  const crowdingMultiple = Math.max(l1MinShares, l2MinShares) / Math.max(1, minSize);
+  const crowdingMultiple = (l1MinShares + l2MinShares) / Math.max(1, minSize);
+  const midPrice = toFiniteNumber(orderbook?.mid_price);
+  const capitalEstimateUsd = midPrice > 0 ? minSize * midPrice * 2 : null;
+  const efficiency = capitalEstimateUsd && capitalEstimateUsd > 0 ? dailyRate / capitalEstimateUsd : null;
 
   return {
     enabled: true,
@@ -814,6 +821,8 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
     l1SizeFit,
     l2SizeFit,
     crowdingMultiple,
+    capitalEstimateUsd,
+    efficiency,
   };
 }
 
@@ -984,6 +993,8 @@ async function main(): Promise<void> {
       rewardL1SizeFit: toFixedOrNull(incentive.l1SizeFit, 3),
       rewardL2SizeFit: toFixedOrNull(incentive.l2SizeFit, 3),
       rewardCrowdingMultiple: toFixedOrNull(incentive.crowdingMultiple, 2),
+      rewardCapitalEstimateUsd: toFixedOrNull(incentive.capitalEstimateUsd, 2),
+      rewardEfficiency: toFixedOrNull(incentive.efficiency, 4),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

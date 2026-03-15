@@ -46,6 +46,9 @@ interface PolymarketRewardProfile {
   bonus: number;
   crowdingMultiple: number;
   crowdingPenalty: number;
+  capitalEstimateUsd: number;
+  efficiency: number;
+  efficiencyBonus: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -237,6 +240,10 @@ export class MarketSelector {
           `奖励队列过厚，降权: ${rewardProfile.crowdingMultiple.toFixed(1)}x min-size`
         );
       }
+      if (rewardProfile.efficiencyBonus > 0) {
+        score += rewardProfile.efficiencyBonus;
+        reasons.push(`激励效率: ${(rewardProfile.efficiency * 100).toFixed(2)}%/最小资金`);
+      }
     }
 
     reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);
@@ -282,6 +289,9 @@ export class MarketSelector {
         bonus: 0,
         crowdingMultiple: 0,
         crowdingPenalty: 0,
+        capitalEstimateUsd: 0,
+        efficiency: 0,
+        efficiencyBonus: 0,
       };
     }
 
@@ -290,8 +300,14 @@ export class MarketSelector {
     const spreadFit = spread > 0 ? clamp(1 - spread / maxSpread, 0, 1) : 0;
     const fitScore = clamp(0.3 * spreadFit + 0.25 * (l1SizeFit / 1.25) + 0.45 * (l2SizeFit / 1.25), 0, 1.1);
     const rewardStrength = Math.min(20, Math.log10(dailyRate + 1) * 4.5);
+    const midPrice = Number(orderbook.mid_price || 0);
+    const capitalEstimateUsd = midPrice > 0 ? minSize * midPrice * 2 : 0;
+    const efficiency = capitalEstimateUsd > 0 ? dailyRate / capitalEstimateUsd : 0;
+    const efficiencyBonus = efficiency > 0 ? Math.min(6, Math.log10(efficiency * 100 + 1) * 4) : 0;
     const bonus = rewardStrength * (0.35 + 0.65 * fitScore);
-    const crowdingMultiple = Math.max(l1MinShares, l2MinShares) / Math.max(1, minSize);
+    // For a second-layer quoting strategy, the practical queue ahead is the
+    // first level plus the resting size already sitting on level two.
+    const crowdingMultiple = (l1MinShares + l2MinShares) / Math.max(1, minSize);
     const crowdingPenalty = clamp(
       Math.max(0, crowdingMultiple - this.polymarketRewardCrowdingPenaltyStart) * 1.6,
       0,
@@ -312,6 +328,9 @@ export class MarketSelector {
       bonus,
       crowdingMultiple,
       crowdingPenalty,
+      capitalEstimateUsd,
+      efficiency,
+      efficiencyBonus,
     };
   }
 

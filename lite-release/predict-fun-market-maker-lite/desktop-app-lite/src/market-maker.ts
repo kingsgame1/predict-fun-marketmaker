@@ -733,7 +733,9 @@ export class MarketMaker {
     const ask2Shares = this.getLevelShares(orderbook.asks, 1, 'asks') || 0;
     const l1MinShares = bid1Shares > 0 && ask1Shares > 0 ? Math.min(bid1Shares, ask1Shares) : 0;
     const l2MinShares = bid2Shares > 0 && ask2Shares > 0 ? Math.min(bid2Shares, ask2Shares) : 0;
-    return Math.max(l1MinShares, l2MinShares) / Math.max(1, reward.minShares);
+    // We quote around level two, so queue pressure is the size already ahead on
+    // level one plus the existing queue at level two.
+    return (l1MinShares + l2MinShares) / Math.max(1, reward.minShares);
   }
 
   private getPolymarketRewardQueueRetreatBps(market: Market, orderbook: Orderbook): number {
