@@ -1036,6 +1036,9 @@ export interface Config {
   polymarketPostOnlyMinAttempts?: number;
   polymarketPostOnlyWindowMs?: number;
   polymarketPostOnlyPauseMs?: number;
+  polymarketPositionLossLimitAbs?: number;
+  polymarketPositionLossLimitRatio?: number;
+  polymarketPositionLossPauseMs?: number;
   opinionOpenApiUrl?: string;
   opinionApiKey?: string;
   opinionMaxMarkets?: number;

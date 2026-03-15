@@ -254,6 +254,7 @@ export class MarketMaker {
   private pointsReportInterval = 5 * 60 * 1000; // 5分钟报告一次
   private pointsOrderbookCache: Map<string, Orderbook> = new Map();
   private predictBuyInsufficientUntil: Map<string, number> = new Map();
+  private pauseReasons: Map<string, { reason: string; source: string; until: number }> = new Map();
   private polymarketPostOnlyStats: Map<
     string,
     { attempts: number; accepted: number; rejected: number; windowStart: number }
@@ -354,6 +355,26 @@ export class MarketMaker {
     return Math.max(0, until - Date.now());
   }
 
+  private setPauseReason(tokenId: string, pauseMs: number, reason: string, source = 'risk'): void {
+    const until = Date.now() + Math.max(0, pauseMs);
+    this.pauseUntil.set(tokenId, until);
+    this.pauseReasons.set(tokenId, { reason, source, until });
+  }
+
+  public async enforceMarketPause(
+    tokenId: string,
+    pauseMs: number,
+    reason: string,
+    source = 'external',
+    cancelOpenOrders = true
+  ): Promise<void> {
+    if (cancelOpenOrders) {
+      await this.cancelOrdersForMarket(tokenId);
+    }
+    this.setPauseReason(tokenId, pauseMs, reason, source);
+    this.recordMmEvent('MARKET_PAUSE', `${source}: ${reason}`, tokenId);
+  }
+
   private getPredictSpreadSafetyThreshold(): number {
     return this.config.mmVenue === 'predict'
       ? (this.config.predictSafeMaxSpread ?? 0.06)
@@ -382,6 +403,9 @@ export class MarketMaker {
       minAttempts: this.config.polymarketPostOnlyMinAttempts ?? 6,
       windowMs: this.config.polymarketPostOnlyWindowMs ?? 10 * 60 * 1000,
       pauseMs: this.config.polymarketPostOnlyPauseMs ?? 5 * 60 * 1000,
+      positionLossLimitAbs: this.config.polymarketPositionLossLimitAbs ?? 20,
+      positionLossLimitRatio: this.config.polymarketPositionLossLimitRatio ?? 0.2,
+      positionLossPauseMs: this.config.polymarketPositionLossPauseMs ?? 30 * 60 * 1000,
     };
   }
 
@@ -432,7 +456,7 @@ export class MarketMaker {
       return false;
     }
     const pauseMs = Math.max(1000, Number(config.pauseMs || 0));
-    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    this.setPauseReason(tokenId, pauseMs, 'postOnly 命中率过低', 'polymarket-post-only');
     this.recordMmEvent(
       'POLYMARKET_POST_ONLY_FUSE',
       `postOnly hit rate ${(hitRate * 100).toFixed(0)}% < ${(config.minHitRate * 100).toFixed(0)}%, attempts=${stats.attempts}`,
@@ -546,7 +570,7 @@ export class MarketMaker {
     }
     await this.cancelOrdersForMarket(tokenId);
     const pauseMs = this.getPredictSafetyConfig().unsafeBookPauseMs;
-    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    this.setPauseReason(tokenId, pauseMs, reason, 'predict-unsafe-book');
     console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(pauseMs / 60000)} 分钟: ${tokenId}`);
   }
 
@@ -556,7 +580,7 @@ export class MarketMaker {
     }
     await this.cancelOrdersForMarket(tokenId);
     const pauseMs = this.getPredictSafetyConfig().fillPauseMs;
-    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    this.setPauseReason(tokenId, pauseMs, reason, 'predict-fill-fuse');
     console.warn(`🛑 [PredictSafety] ${reason}，已撤单并暂停 ${Math.round(pauseMs / 60000)} 分钟: ${tokenId}`);
   }
 
@@ -594,9 +618,39 @@ export class MarketMaker {
     }
     await this.cancelOrdersForMarket(tokenId);
     const pauseMs = this.getPredictSafetyConfig().positionLossPauseMs;
-    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    this.setPauseReason(tokenId, pauseMs, '单市场亏损熔断', 'predict-loss-fuse');
     console.warn(
       `🛑 [PredictSafety] 单市场亏损熔断: token=${tokenId} pnl=${Number(position?.pnl || 0).toFixed(2)} value=${Number(position?.total_value || 0).toFixed(2)}`
+    );
+  }
+
+  private shouldTripPolymarketLossFuse(position: Position | undefined): boolean {
+    if (this.config.mmVenue !== 'polymarket' || !position) {
+      return false;
+    }
+    const pnl = Number(position.pnl || position.value || 0);
+    const value = Math.abs(Number(position.total_value || position.value || 0));
+    const safety = this.getPolymarketExecutionSafetyConfig();
+    if (!Number.isFinite(pnl) || pnl >= 0) {
+      return false;
+    }
+    if (pnl <= -safety.positionLossLimitAbs) {
+      return true;
+    }
+    if (value > 0 && Math.abs(pnl) / value >= safety.positionLossLimitRatio) {
+      return true;
+    }
+    return false;
+  }
+
+  private async triggerPolymarketLossFuse(tokenId: string, position: Position | undefined): Promise<void> {
+    if (this.config.mmVenue !== 'polymarket') {
+      return;
+    }
+    const pauseMs = this.getPolymarketExecutionSafetyConfig().positionLossPauseMs;
+    await this.enforceMarketPause(tokenId, pauseMs, '单市场亏损熔断', 'polymarket-loss-fuse', true);
+    console.warn(
+      `🛑 [PolymarketSafety] 单市场亏损熔断: token=${tokenId} pnl=${Number(position?.pnl || 0).toFixed(2)} value=${Number(position?.total_value || 0).toFixed(2)}`
     );
   }
 
@@ -1132,7 +1186,7 @@ export class MarketMaker {
 
   private pauseForVolatility(tokenId: string): void {
     const pauseMs = this.config.pauseAfterVolatilityMs ?? 8000;
-    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    this.setPauseReason(tokenId, pauseMs, '波动过高', 'volatility');
   }
 
   private parseShares(entry?: OrderbookEntry): number {
@@ -4576,6 +4630,10 @@ export class MarketMaker {
       await this.triggerPredictLossFuse(market.token_id, livePosition);
       return;
     }
+    if (this.shouldTripPolymarketLossFuse(livePosition)) {
+      await this.triggerPolymarketLossFuse(market.token_id, livePosition);
+      return;
+    }
 
     // ===== 统一做市商策略（整合所有优点） =====
     if (this.unifiedMarketMakerStrategy.isEnabled()) {
@@ -6336,12 +6394,18 @@ export class MarketMaker {
   }
 
   printStatus(): void {
+    const now = Date.now();
+    const activePauses = Array.from(this.pauseUntil.entries())
+      .filter(([, until]) => until > now)
+      .sort((a, b) => a[1] - b[1]);
+
     console.log('\n📊 Market Maker Status:');
     console.log('─'.repeat(80));
     console.log(`Trading Halted: ${this.tradingHalted ? 'YES' : 'NO'}`);
     console.log(`Open Orders: ${this.openOrders.size}`);
     console.log(`Positions: ${this.positions.size}`);
     console.log(`Session PnL: ${this.sessionPnL.toFixed(2)}`);
+    console.log(`Paused Markets: ${activePauses.length}`);
 
     // 积分效率报告
     const pointsStats = pointsManager.getStats();
@@ -6355,6 +6419,17 @@ export class MarketMaker {
         console.log(`  ${tokenId}:`);
         console.log(`    YES: ${position.yes_amount.toFixed(2)} | NO: ${position.no_amount.toFixed(2)}`);
         console.log(`    Value: $${position.total_value.toFixed(2)} | PnL: $${position.pnl.toFixed(2)}`);
+      }
+    }
+
+    if (activePauses.length > 0) {
+      console.log('\nPaused Market Reasons:');
+      for (const [tokenId, until] of activePauses.slice(0, 5)) {
+        const reason = this.pauseReasons.get(tokenId);
+        const remainingSec = Math.max(1, Math.ceil((until - now) / 1000));
+        console.log(
+          `  ${tokenId.slice(0, 12)}... ${remainingSec}s | ${reason?.source || 'unknown'} | ${reason?.reason || 'paused'}`
+        );
       }
     }
 
@@ -7140,6 +7215,7 @@ export class MarketMaker {
       this.actionLockUntil,
       this.cooldownUntil,
       this.pauseUntil,
+      this.pauseReasons,
       this.lastHedgeAt,
       this.lastIcebergAt,
       this.lastFillAt,

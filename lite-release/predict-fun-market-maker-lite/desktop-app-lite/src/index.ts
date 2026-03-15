@@ -652,9 +652,10 @@ export class PolymarketMarketMakerBot {
     return (this.rewardPauseUntil.get(tokenId) ?? 0) > Date.now();
   }
 
-  private pauseRewardMarket(tokenId: string, reason: string): void {
+  private async pauseRewardMarket(tokenId: string, reason: string): Promise<void> {
     const pauseMs = Math.max(1000, Number(this.getPolymarketSafetyConfig().rewardPauseMs || 0));
     this.rewardPauseUntil.set(tokenId, Date.now() + pauseMs);
+    await this.marketMaker.enforceMarketPause(tokenId, pauseMs, reason, 'polymarket-reward-gate', true);
     console.log(`⏸️ Polymarket 奖励门禁暂停 ${tokenId.slice(0, 8)} ${Math.round(pauseMs / 1000)}s: ${reason}`);
   }
 
@@ -973,8 +974,7 @@ export class PolymarketMarketMakerBot {
             if (!orderbook) continue;
             const rewardGate = this.evaluateRewardGate(market, orderbook);
             if (rewardGate.skip) {
-              await this.marketMaker.cancelOrdersForMarket(market.token_id);
-              this.pauseRewardMarket(market.token_id, rewardGate.reason || 'reward gate');
+              await this.pauseRewardMarket(market.token_id, rewardGate.reason || 'reward gate');
               continue;
             }
             await this.marketMaker.placeMMOrders(market, orderbook);

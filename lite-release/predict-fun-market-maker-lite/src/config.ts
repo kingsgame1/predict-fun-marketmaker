@@ -1220,6 +1220,9 @@ export function loadConfig(): Config {
     polymarketPostOnlyMinAttempts: parseInt(process.env.POLYMARKET_POST_ONLY_MIN_ATTEMPTS || '6'),
     polymarketPostOnlyWindowMs: parseInt(process.env.POLYMARKET_POST_ONLY_WINDOW_MS || '600000'),
     polymarketPostOnlyPauseMs: parseInt(process.env.POLYMARKET_POST_ONLY_PAUSE_MS || '300000'),
+    polymarketPositionLossLimitAbs: parseFloat(process.env.POLYMARKET_POSITION_LOSS_LIMIT_ABS || '20'),
+    polymarketPositionLossLimitRatio: parseFloat(process.env.POLYMARKET_POSITION_LOSS_LIMIT_RATIO || '0.2'),
+    polymarketPositionLossPauseMs: parseInt(process.env.POLYMARKET_POSITION_LOSS_PAUSE_MS || '1800000'),
     opinionOpenApiUrl: process.env.OPINION_OPENAPI_URL || 'https://proxy.opinion.trade:8443/openapi',
     opinionApiKey: process.env.OPINION_API_KEY,
     opinionMaxMarkets: parseInt(process.env.OPINION_MAX_MARKETS || '30'),
@@ -1274,6 +1277,12 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketPostOnlyMinAttempts ?? 0) < 1) {
       throw new Error('POLYMARKET_POST_ONLY_MIN_ATTEMPTS must be >= 1');
+    }
+    if ((config.polymarketPositionLossLimitAbs ?? 0) < 0) {
+      throw new Error('POLYMARKET_POSITION_LOSS_LIMIT_ABS must be >= 0');
+    }
+    if ((config.polymarketPositionLossLimitRatio ?? 0) < 0 || (config.polymarketPositionLossLimitRatio ?? 0) > 1) {
+      throw new Error('POLYMARKET_POSITION_LOSS_LIMIT_RATIO must be between 0 and 1');
     }
   } else {
     if (!hasPrivateKey) {
