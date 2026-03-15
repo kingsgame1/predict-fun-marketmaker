@@ -1221,6 +1221,7 @@ export function loadConfig(): Config {
     polymarketRewardCrowdingPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_MAX || '12'),
     polymarketRewardMinQueueHours: parseFloat(process.env.POLYMARKET_REWARD_MIN_QUEUE_HOURS || '0.75'),
     polymarketRewardFastFlowPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX || '8'),
+    polymarketRecentRiskBlockPenalty: parseFloat(process.env.POLYMARKET_RECENT_RISK_BLOCK_PENALTY || '12'),
     polymarketRewardQueueRetreatStart: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_START || '3'),
     polymarketRewardQueueRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_MAX_BPS || '12'),
     polymarketRewardFastFlowRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_RETREAT_MAX_BPS || '8'),
@@ -1301,6 +1302,9 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketRewardFastFlowPenaltyMax ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX must be >= 0');
+    }
+    if ((config.polymarketRecentRiskBlockPenalty ?? 0) < 0) {
+      throw new Error('POLYMARKET_RECENT_RISK_BLOCK_PENALTY must be >= 0');
     }
     if ((config.polymarketRewardQueueRetreatStart ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_QUEUE_RETREAT_START must be >= 0');

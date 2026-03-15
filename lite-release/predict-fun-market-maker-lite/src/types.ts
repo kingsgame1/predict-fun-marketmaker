@@ -1037,6 +1037,7 @@ export interface Config {
   polymarketRewardCrowdingPenaltyMax?: number;
   polymarketRewardMinQueueHours?: number;
   polymarketRewardFastFlowPenaltyMax?: number;
+  polymarketRecentRiskBlockPenalty?: number;
   polymarketRewardQueueRetreatStart?: number;
   polymarketRewardQueueRetreatMaxBps?: number;
   polymarketRewardFastFlowRetreatMaxBps?: number;

@@ -729,6 +729,7 @@ export class PolymarketMarketMakerBot {
       rewardCrowdingPenaltyMax: this.config.polymarketRewardCrowdingPenaltyMax ?? 12,
       rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
       rewardFastFlowPenaltyMax: this.config.polymarketRewardFastFlowPenaltyMax ?? 8,
+      recentRiskBlockPenalty: this.config.polymarketRecentRiskBlockPenalty ?? 12,
       rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
     };
   }
@@ -755,6 +756,7 @@ export class PolymarketMarketMakerBot {
       polymarketRewardCrowdingPenaltyMax: safety.rewardCrowdingPenaltyMax,
       polymarketRewardMinQueueHours: safety.rewardMinQueueHours,
       polymarketRewardFastFlowPenaltyMax: safety.rewardFastFlowPenaltyMax,
+      polymarketRecentRiskBlockPenalty: safety.recentRiskBlockPenalty,
       polymarketRecentRiskPenalty: loadRecentPolymarketRiskPenalty(
         this.config.mmMetricsPath,
         process.cwd()

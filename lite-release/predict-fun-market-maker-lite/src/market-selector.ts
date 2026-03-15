@@ -21,6 +21,7 @@ export interface MarketSelectorOptions {
   polymarketRewardCrowdingPenaltyMax?: number;
   polymarketRewardMinQueueHours?: number;
   polymarketRewardFastFlowPenaltyMax?: number;
+  polymarketRecentRiskBlockPenalty?: number;
   polymarketRecentRiskPenalty?: Map<string, { penalty: number; reason: string }>;
 }
 
@@ -76,6 +77,7 @@ export class MarketSelector {
   private polymarketRewardCrowdingPenaltyMax: number;
   private polymarketRewardMinQueueHours: number;
   private polymarketRewardFastFlowPenaltyMax: number;
+  private polymarketRecentRiskBlockPenalty: number;
   private polymarketRecentRiskPenalty: Map<string, { penalty: number; reason: string }>;
 
   constructor(
@@ -97,6 +99,7 @@ export class MarketSelector {
     this.polymarketRewardCrowdingPenaltyMax = options.polymarketRewardCrowdingPenaltyMax ?? 12;
     this.polymarketRewardMinQueueHours = options.polymarketRewardMinQueueHours ?? 0.75;
     this.polymarketRewardFastFlowPenaltyMax = options.polymarketRewardFastFlowPenaltyMax ?? 8;
+    this.polymarketRecentRiskBlockPenalty = options.polymarketRecentRiskBlockPenalty ?? 12;
     this.polymarketRecentRiskPenalty = options.polymarketRecentRiskPenalty ?? new Map();
   }
 
@@ -140,6 +143,13 @@ export class MarketSelector {
       return { market, score: 0, reasons: ['Polymarket 市场当前不接受下单'] };
     }
     if (market.venue === 'polymarket') {
+      if (recentRisk && recentRisk.penalty >= this.polymarketRecentRiskBlockPenalty) {
+        return {
+          market,
+          score: 0,
+          reasons: [`近期风险过高，暂不推荐: ${recentRisk.reason}`],
+        };
+      }
       if (this.polymarketRewardRequireEnabled && !rewardProfile.enabled) {
         return { market, score: 0, reasons: ['Polymarket 市场无流动性激励，不纳入当前策略'] };
       }

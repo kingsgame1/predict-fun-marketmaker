@@ -647,6 +647,7 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardCrowdingPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_MAX', 12),
     polymarketRewardMinQueueHours: readNumber(env, 'POLYMARKET_REWARD_MIN_QUEUE_HOURS', 0.75),
     polymarketRewardFastFlowPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX', 8),
+    polymarketRecentRiskBlockPenalty: readNumber(env, 'POLYMARKET_RECENT_RISK_BLOCK_PENALTY', 12),
   };
 }
 
@@ -957,7 +958,8 @@ async function main(): Promise<void> {
   const env = parseEnv(envText);
   const predictSafety = getPredictSafetyConfig(env);
   const polymarketSelectorOptions = getPolymarketSelectorOptions(env);
-  polymarketSelectorOptions.polymarketRecentRiskPenalty = loadRecentPolymarketRiskPenalty(env, args.envPath);
+  const recentRiskPenalty = loadRecentPolymarketRiskPenalty(env, args.envPath);
+  polymarketSelectorOptions.polymarketRecentRiskPenalty = recentRiskPenalty;
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
   const selector = new MarketSelector(
     minLiquidity,
@@ -1093,6 +1095,8 @@ async function main(): Promise<void> {
       rewardEfficiency: toFixedOrNull(incentive.efficiency, 4),
       rewardQueueHours: toFixedOrNull(incentive.queueHours, 2),
       rewardFlowToQueuePerHour: toFixedOrNull(incentive.flowToQueuePerHour, 2),
+      recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
+      recentRiskReason: recentRiskPenalty.get(entry.market.token_id)?.reason || null,
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))
