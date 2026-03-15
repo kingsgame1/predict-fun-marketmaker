@@ -39,6 +39,7 @@ export interface MarketSelectorOptions {
   >;
   polymarketHourRiskPenalty?: { penalty: number; reason: string; hour: number };
   polymarketHourRiskBlockPenalty?: number;
+  polymarketHourRiskSizeFactorMin?: number;
 }
 
 interface LevelLiquidity {
@@ -70,8 +71,11 @@ interface PolymarketRewardProfile {
   efficiency: number;
   netEfficiency: number;
   netDailyRate: number;
+  effectiveNetEfficiency: number;
+  effectiveNetDailyRate: number;
   estimatedCostBps: number;
   riskThrottleFactor: number;
+  hourRiskFactor: number;
   efficiencyBonus: number;
   queueAheadShares: number;
   hourlyTurnoverShares: number;
@@ -125,6 +129,7 @@ export class MarketSelector {
   >;
   private polymarketHourRiskPenalty: { penalty: number; reason: string; hour: number };
   private polymarketHourRiskBlockPenalty: number;
+  private polymarketHourRiskSizeFactorMin: number;
 
   constructor(
     minLiquidity: number = 100,
@@ -153,6 +158,7 @@ export class MarketSelector {
     this.polymarketRecentRiskPenalty = options.polymarketRecentRiskPenalty ?? new Map();
     this.polymarketHourRiskPenalty = options.polymarketHourRiskPenalty ?? { penalty: 0, reason: '', hour: new Date().getHours() };
     this.polymarketHourRiskBlockPenalty = options.polymarketHourRiskBlockPenalty ?? 6;
+    this.polymarketHourRiskSizeFactorMin = options.polymarketHourRiskSizeFactorMin ?? 0.55;
   }
 
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
@@ -200,6 +206,8 @@ export class MarketSelector {
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
     market.polymarket_reward_net_efficiency = rewardProfile.enabled ? rewardProfile.netEfficiency : undefined;
     market.polymarket_reward_net_daily_rate = rewardProfile.enabled ? rewardProfile.netDailyRate : undefined;
+    market.polymarket_reward_effective_net_efficiency = rewardProfile.enabled ? rewardProfile.effectiveNetEfficiency : undefined;
+    market.polymarket_reward_effective_net_daily_rate = rewardProfile.enabled ? rewardProfile.effectiveNetDailyRate : undefined;
     market.polymarket_reward_estimated_cost_bps = rewardProfile.enabled ? rewardProfile.estimatedCostBps : undefined;
 
     if (market.venue === 'polymarket' && market.polymarket_enable_order_book === false) {
@@ -255,12 +263,12 @@ export class MarketSelector {
           ],
         };
       }
-      if (rewardProfile.enabled && rewardProfile.netEfficiency < this.polymarketRewardMinNetEfficiency) {
+      if (rewardProfile.enabled && rewardProfile.effectiveNetEfficiency < this.polymarketRewardMinNetEfficiency) {
         return {
           market,
           score: 0,
           reasons: [
-            `激励净效率不足: ${(rewardProfile.netEfficiency * 100).toFixed(2)}%/日 < ${(
+            `激励有效净效率不足: ${(rewardProfile.effectiveNetEfficiency * 100).toFixed(2)}%/日 < ${(
               this.polymarketRewardMinNetEfficiency * 100
             ).toFixed(2)}%/日`,
           ],
@@ -383,7 +391,7 @@ export class MarketSelector {
       if (rewardProfile.efficiencyBonus > 0) {
         score += rewardProfile.efficiencyBonus;
         reasons.push(
-          `激励净效率: ${(rewardProfile.netEfficiency * 100).toFixed(2)}%/日 (毛 ${(rewardProfile.efficiency * 100).toFixed(2)}%，成本 ${rewardProfile.estimatedCostBps.toFixed(1)}bps)`
+          `激励有效净效率: ${(rewardProfile.effectiveNetEfficiency * 100).toFixed(2)}%/日 (净 ${(rewardProfile.netEfficiency * 100).toFixed(2)}%，时段系数 ${rewardProfile.hourRiskFactor.toFixed(2)}x)`
         );
       }
       if (rewardProfile.fastFlowPenalty > 0 && Number.isFinite(rewardProfile.queueHours)) {
@@ -449,8 +457,11 @@ export class MarketSelector {
         efficiency: 0,
         netEfficiency: 0,
         netDailyRate: 0,
+        effectiveNetEfficiency: 0,
+        effectiveNetDailyRate: 0,
         estimatedCostBps: 0,
         riskThrottleFactor: 1,
+        hourRiskFactor: 1,
         efficiencyBonus: 0,
         queueAheadShares: 0,
         hourlyTurnoverShares: 0,
@@ -473,7 +484,17 @@ export class MarketSelector {
     const estimatedCostBps = fillPenaltyBps * this.polymarketRewardNetCostBpsMultiplier;
     const netEfficiency = Math.max(0, efficiency - estimatedCostBps / 10000) * riskThrottleFactor;
     const netDailyRate = netEfficiency * capitalEstimateUsd;
-    const efficiencyBonus = netEfficiency > 0 ? Math.min(6, Math.log10(netEfficiency * 100 + 1) * 4) : 0;
+    const hourPenaltyRatio = this.polymarketHourRiskPenalty.penalty > 0
+      ? clamp(
+          this.polymarketHourRiskPenalty.penalty / Math.max(this.polymarketHourRiskBlockPenalty, 1),
+          0,
+          1
+        )
+      : 0;
+    const hourRiskFactor = 1 - (1 - this.polymarketHourRiskSizeFactorMin) * hourPenaltyRatio;
+    const effectiveNetEfficiency = netEfficiency * hourRiskFactor;
+    const effectiveNetDailyRate = effectiveNetEfficiency * capitalEstimateUsd;
+    const efficiencyBonus = effectiveNetEfficiency > 0 ? Math.min(6, Math.log10(effectiveNetEfficiency * 100 + 1) * 4) : 0;
     const bonus = rewardStrength * (0.35 + 0.65 * fitScore);
     // For a second-layer quoting strategy, the practical queue ahead is the
     // first level plus the resting size already sitting on level two.
@@ -517,8 +538,11 @@ export class MarketSelector {
       efficiency,
       netEfficiency,
       netDailyRate,
+      effectiveNetEfficiency,
+      effectiveNetDailyRate,
       estimatedCostBps,
       riskThrottleFactor,
+      hourRiskFactor,
       efficiencyBonus,
       queueAheadShares,
       hourlyTurnoverShares,

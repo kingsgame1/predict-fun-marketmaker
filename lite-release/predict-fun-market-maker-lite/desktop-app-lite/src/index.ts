@@ -886,6 +886,7 @@ export class PolymarketMarketMakerBot {
       hourRiskPenaltyMax: this.config.polymarketHourRiskPenaltyMax ?? 8,
       hourRiskBlockPenalty: this.config.polymarketHourRiskBlockPenalty ?? 6,
       hourRiskLookbackDays: this.config.polymarketHourRiskLookbackDays ?? 7,
+      hourRiskSizeFactorMin: this.config.polymarketHourRiskSizeFactorMin ?? 0.55,
       rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
     };
   }
@@ -936,6 +937,7 @@ export class PolymarketMarketMakerBot {
       polymarketRecentRiskPenalty: recentRiskPenalty,
       polymarketHourRiskPenalty: hourRiskPenalty,
       polymarketHourRiskBlockPenalty: safety.hourRiskBlockPenalty,
+      polymarketHourRiskSizeFactorMin: safety.hourRiskSizeFactorMin,
     };
   }
 
@@ -957,8 +959,8 @@ export class PolymarketMarketMakerBot {
     if (profile.enabled && profile.efficiency < safety.rewardMinEfficiency) {
       return { skip: true, reason: `激励效率不足 ${(profile.efficiency * 100).toFixed(2)}%/日` };
     }
-    if (profile.enabled && profile.netEfficiency < safety.rewardMinNetEfficiency) {
-      return { skip: true, reason: `激励净效率不足 ${(profile.netEfficiency * 100).toFixed(2)}%/日` };
+    if (profile.enabled && profile.effectiveNetEfficiency < safety.rewardMinNetEfficiency) {
+      return { skip: true, reason: `激励有效净效率不足 ${(profile.effectiveNetEfficiency * 100).toFixed(2)}%/日` };
     }
     if (profile.enabled && safety.rewardRequireFit && profile.fitScore < safety.rewardMinFitScore) {
       return { skip: true, reason: `激励适配度不足 ${(profile.fitScore * 100).toFixed(0)}%` };

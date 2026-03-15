@@ -745,7 +745,9 @@ export class MarketMaker {
       const shrinkFactor = 1 - (1 - hourMinFactor) * penaltyRatio;
       shares = Math.max(1, Math.floor(shares * shrinkFactor));
     }
-    const netEfficiency = Number(market.polymarket_reward_net_efficiency || 0);
+    const netEfficiency = Number(
+      market.polymarket_reward_effective_net_efficiency || market.polymarket_reward_net_efficiency || 0
+    );
     if (netEfficiency > 0 && Number.isFinite(netEfficiency)) {
       const minNetEfficiency = Math.max(0, Number(this.config.polymarketRewardMinNetEfficiency || 0.0008));
       const netMinFactor = this.clamp(Number(this.config.polymarketRewardNetSizeFactorMin || 0.5), 0.1, 1);

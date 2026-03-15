@@ -1124,6 +1124,8 @@ export interface Market {
   polymarket_reward_efficiency?: number;
   polymarket_reward_net_efficiency?: number;
   polymarket_reward_net_daily_rate?: number;
+  polymarket_reward_effective_net_efficiency?: number;
+  polymarket_reward_effective_net_daily_rate?: number;
   polymarket_reward_estimated_cost_bps?: number;
   polymarket_recent_risk_penalty?: number;
   polymarket_recent_risk_reason?: string;

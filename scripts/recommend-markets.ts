@@ -75,8 +75,11 @@ interface PolymarketIncentiveSummary {
   efficiency: number | null;
   netEfficiency: number | null;
   netDailyRate: number | null;
+  effectiveNetEfficiency: number | null;
+  effectiveNetDailyRate: number | null;
   estimatedCostBps: number | null;
   riskThrottleFactor: number | null;
+  hourRiskFactor: number | null;
   queueHours: number | null;
   flowToQueuePerHour: number | null;
 }
@@ -667,6 +670,7 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardFastFlowPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX', 8),
     polymarketRecentRiskBlockPenalty: readNumber(env, 'POLYMARKET_RECENT_RISK_BLOCK_PENALTY', 12),
     polymarketHourRiskBlockPenalty: readNumber(env, 'POLYMARKET_HOUR_RISK_BLOCK_PENALTY', 6),
+    polymarketHourRiskSizeFactorMin: readNumber(env, 'POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN', 0.55),
   };
 }
 
@@ -1015,8 +1019,11 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
       efficiency: null,
       netEfficiency: null,
       netDailyRate: null,
+      effectiveNetEfficiency: null,
+      effectiveNetDailyRate: null,
       estimatedCostBps: null,
       riskThrottleFactor: null,
+      hourRiskFactor: null,
       queueHours: null,
       flowToQueuePerHour: null,
     };
@@ -1039,8 +1046,12 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
   const efficiency = capitalEstimateUsd && capitalEstimateUsd > 0 ? dailyRate / capitalEstimateUsd : null;
   const netEfficiency = toFiniteNumber(market.polymarket_reward_net_efficiency);
   const netDailyRate = toFiniteNumber(market.polymarket_reward_net_daily_rate);
+  const effectiveNetEfficiency = toFiniteNumber(market.polymarket_reward_effective_net_efficiency);
+  const effectiveNetDailyRate = toFiniteNumber(market.polymarket_reward_effective_net_daily_rate);
   const estimatedCostBps = toFiniteNumber(market.polymarket_reward_estimated_cost_bps);
   const riskThrottleFactor = toFiniteNumber(market.polymarket_recent_risk_throttle_factor) || 1;
+  const hourRiskFactor =
+    netEfficiency > 0 && effectiveNetEfficiency > 0 ? Math.max(0, Math.min(1, effectiveNetEfficiency / netEfficiency)) : 1;
   const queueAheadShares = l1MinShares + l2MinShares;
   const volume24h = toFiniteNumber(market.volume_24h);
   const hourlyTurnoverShares = midPrice > 0 ? volume24h / midPrice / 24 : 0;
@@ -1063,8 +1074,11 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
     efficiency,
     netEfficiency: netEfficiency > 0 ? netEfficiency : efficiency,
     netDailyRate: netDailyRate > 0 ? netDailyRate : dailyRate,
+    effectiveNetEfficiency: effectiveNetEfficiency > 0 ? effectiveNetEfficiency : netEfficiency > 0 ? netEfficiency : efficiency,
+    effectiveNetDailyRate: effectiveNetDailyRate > 0 ? effectiveNetDailyRate : netDailyRate > 0 ? netDailyRate : dailyRate,
     estimatedCostBps,
     riskThrottleFactor,
+    hourRiskFactor,
     queueHours,
     flowToQueuePerHour,
   };
@@ -1250,8 +1264,11 @@ async function main(): Promise<void> {
       rewardEfficiency: toFixedOrNull(incentive.efficiency, 4),
       rewardNetEfficiency: toFixedOrNull(incentive.netEfficiency, 4),
       rewardNetDailyRate: toFixedOrNull(incentive.netDailyRate, 2),
+      rewardEffectiveNetEfficiency: toFixedOrNull(incentive.effectiveNetEfficiency, 4),
+      rewardEffectiveNetDailyRate: toFixedOrNull(incentive.effectiveNetDailyRate, 2),
       rewardEstimatedCostBps: toFixedOrNull(incentive.estimatedCostBps, 2),
       rewardRiskThrottleFactor: toFixedOrNull(incentive.riskThrottleFactor, 3),
+      rewardHourRiskFactor: toFixedOrNull(incentive.hourRiskFactor, 3),
       rewardQueueHours: toFixedOrNull(incentive.queueHours, 2),
       rewardFlowToQueuePerHour: toFixedOrNull(incentive.flowToQueuePerHour, 2),
       recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
