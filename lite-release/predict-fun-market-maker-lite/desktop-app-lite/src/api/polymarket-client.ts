@@ -178,6 +178,9 @@ function buildOrderbook(tokenId: string, payload: any): Orderbook {
 export class PolymarketAPI implements MakerApi {
   private config: PolymarketConfig;
   private client: ClobClient;
+  private signerAddress: string;
+  private funderAddress: string;
+  private signatureType: number;
   private cachedMarkets: Market[] = [];
   private cacheTimestamp = 0;
   private tokenIndex = new Map<string, Market>();
@@ -194,6 +197,9 @@ export class PolymarketAPI implements MakerApi {
     const signer = new Wallet(normalized);
     const funderAddress = String(config.funderAddress || '').trim() || signer.address;
     const signatureType = Number.isFinite(Number(config.signatureType)) ? Number(config.signatureType) : 0;
+    this.signerAddress = signer.address;
+    this.funderAddress = funderAddress;
+    this.signatureType = signatureType;
 
     this.client = new ClobClient(
       config.clobUrl.replace(/\/+$/g, ''),
@@ -243,6 +249,27 @@ export class PolymarketAPI implements MakerApi {
     } catch {
       return false;
     }
+  }
+
+  async runTradingPreflight(ownerAddress?: string): Promise<{
+    signerAddress: string;
+    funderAddress: string;
+    signatureType: number;
+    openOrderQueryOk: boolean;
+    openOrderCount: number;
+    credsReady: boolean;
+  }> {
+    await this.ensureApiCreds();
+    const makerAddress = String(ownerAddress || this.funderAddress).trim() || this.funderAddress;
+    const orders = await this.getOrders(makerAddress);
+    return {
+      signerAddress: this.signerAddress,
+      funderAddress: makerAddress,
+      signatureType: this.signatureType,
+      openOrderQueryOk: true,
+      openOrderCount: orders.length,
+      credsReady: this.credsReady,
+    };
   }
 
   private async loadGammaMarkets(): Promise<GammaMarket[]> {

@@ -627,6 +627,15 @@ function getPredictSafetyConfig(env: EnvMap): PredictSafetyConfig {
   };
 }
 
+function getPolymarketSelectorOptions(env: EnvMap) {
+  return {
+    polymarketRewardMinFitScore: readNumber(env, 'POLYMARKET_REWARD_MIN_FIT_SCORE', 0.6),
+    polymarketRewardMinDailyRate: readNumber(env, 'POLYMARKET_REWARD_MIN_DAILY_RATE', 0),
+    polymarketRewardRequireFit: env.get('POLYMARKET_REWARD_REQUIRE_FIT') !== 'false',
+    polymarketRewardRequireEnabled: env.get('POLYMARKET_REWARD_REQUIRE_ENABLED') === 'true',
+  };
+}
+
 function getSelectorConfig(env: EnvMap, venue: 'predict' | 'polymarket'): [number, number, number, number] {
   const predictSafety = getPredictSafetyConfig(env);
   const defaults =
@@ -837,8 +846,15 @@ async function main(): Promise<void> {
   const envText = fs.readFileSync(args.envPath, 'utf8');
   const env = parseEnv(envText);
   const predictSafety = getPredictSafetyConfig(env);
+  const polymarketSelectorOptions = getPolymarketSelectorOptions(env);
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
-  const selector = new MarketSelector(minLiquidity, minVolume24h, maxSpread, minOrders);
+  const selector = new MarketSelector(
+    minLiquidity,
+    minVolume24h,
+    maxSpread,
+    minOrders,
+    args.venue === 'polymarket' ? polymarketSelectorOptions : {}
+  );
 
   const { markets, orderbooks, api: linkApi } =
     args.venue === 'polymarket'
@@ -847,7 +863,7 @@ async function main(): Promise<void> {
 
   let scored = selector.selectMarkets(markets, orderbooks);
   if (scored.length === 0 && args.venue === 'predict' && markets.length > 0 && orderbooks.size > 0) {
-    const relaxedSelector = new MarketSelector(0, 0, predictSafety.maxSpread, 0);
+    const relaxedSelector = new MarketSelector(0, 0, predictSafety.maxSpread, 0, {});
     const relaxedScored = relaxedSelector.selectMarkets(markets, orderbooks);
     if (relaxedScored.length > 0) {
       console.error(

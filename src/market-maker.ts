@@ -254,6 +254,10 @@ export class MarketMaker {
   private pointsReportInterval = 5 * 60 * 1000; // 5分钟报告一次
   private pointsOrderbookCache: Map<string, Orderbook> = new Map();
   private predictBuyInsufficientUntil: Map<string, number> = new Map();
+  private polymarketPostOnlyStats: Map<
+    string,
+    { attempts: number; accepted: number; rejected: number; windowStart: number }
+  > = new Map();
 
   // ===== Phase 1: 增强模块字段 =====
   // 为每个市场维护独立的估算器
@@ -370,6 +374,75 @@ export class MarketMaker {
       positionLossLimitRatio: this.config.predictPositionLossLimitRatio ?? MarketMaker.PREDICT_POSITION_LOSS_LIMIT_RATIO,
       positionLossPauseMs: this.config.predictPositionLossPauseMs ?? MarketMaker.PREDICT_POSITION_LOSS_PAUSE_MS,
     };
+  }
+
+  private getPolymarketExecutionSafetyConfig() {
+    return {
+      minHitRate: this.config.polymarketPostOnlyMinHitRate ?? 0.7,
+      minAttempts: this.config.polymarketPostOnlyMinAttempts ?? 6,
+      windowMs: this.config.polymarketPostOnlyWindowMs ?? 10 * 60 * 1000,
+      pauseMs: this.config.polymarketPostOnlyPauseMs ?? 5 * 60 * 1000,
+    };
+  }
+
+  private isPolymarketPostOnlyOrder(payload: any): boolean {
+    return this.config.mmVenue === 'polymarket' && payload?.postOnly === true;
+  }
+
+  private isPolymarketPostOnlyReject(message: string): boolean {
+    const normalized = String(message || '').toLowerCase();
+    return (
+      normalized.includes('post only') ||
+      normalized.includes('post-only') ||
+      normalized.includes('would match') ||
+      normalized.includes('would trade') ||
+      normalized.includes('marketable') ||
+      normalized.includes('crosses') ||
+      normalized.includes('would execute')
+    );
+  }
+
+  private recordPolymarketPostOnlyResult(tokenId: string, accepted: boolean): void {
+    const now = Date.now();
+    const config = this.getPolymarketExecutionSafetyConfig();
+    const existing = this.polymarketPostOnlyStats.get(tokenId);
+    const shouldReset = !existing || now - existing.windowStart > config.windowMs;
+    const stats = shouldReset
+      ? { attempts: 0, accepted: 0, rejected: 0, windowStart: now }
+      : existing;
+
+    stats.attempts += 1;
+    if (accepted) {
+      stats.accepted += 1;
+    } else {
+      stats.rejected += 1;
+    }
+    this.polymarketPostOnlyStats.set(tokenId, stats);
+  }
+
+  private shouldTripPolymarketPostOnlyFuse(tokenId: string): boolean {
+    const stats = this.polymarketPostOnlyStats.get(tokenId);
+    if (!stats) return false;
+    const config = this.getPolymarketExecutionSafetyConfig();
+    if (stats.attempts < config.minAttempts) {
+      return false;
+    }
+    const hitRate = stats.accepted / Math.max(1, stats.attempts);
+    if (hitRate >= config.minHitRate) {
+      return false;
+    }
+    const pauseMs = Math.max(1000, Number(config.pauseMs || 0));
+    this.pauseUntil.set(tokenId, Date.now() + pauseMs);
+    this.recordMmEvent(
+      'POLYMARKET_POST_ONLY_FUSE',
+      `postOnly hit rate ${(hitRate * 100).toFixed(0)}% < ${(config.minHitRate * 100).toFixed(0)}%, attempts=${stats.attempts}`,
+      tokenId
+    );
+    console.log(
+      `⏸️ Polymarket postOnly fuse ${tokenId.slice(0, 8)}: hit rate ${(hitRate * 100).toFixed(0)}% ` +
+        `< ${(config.minHitRate * 100).toFixed(0)}%, pause ${Math.round(pauseMs / 1000)}s`
+    );
+    return true;
   }
 
   private isUnsafeBook(orderbook: Orderbook | null | undefined): boolean {
@@ -5493,6 +5566,7 @@ export class MarketMaker {
       return false;
     }
 
+    let payload: any;
     try {
       if (side === 'BUY' && this.config.mmVenue === 'predict') {
         const blockRemainingMs = this.getPredictBuyBlockRemainingMs(market.token_id);
@@ -5581,12 +5655,13 @@ export class MarketMaker {
         }
       }
 
-      const payload = await this.orderManager.buildLimitOrderPayload({
+      payload = await this.orderManager.buildLimitOrderPayload({
         market,
         side,
         price: adjustedPrice,
         shares: adjustedShares
       });
+      const isPolymarketPostOnly = this.isPolymarketPostOnlyOrder(payload);
       const response = await this.api.createOrder(payload);
       const orderHash =
         response?.order?.hash ||
@@ -5630,12 +5705,25 @@ export class MarketMaker {
       this.recordAutoTuneEvent(market.token_id, 'PLACED');
       const optTag = pointsOptimized ? ' [Points optimized]' : '';
       console.log(`✅ ${side} order submitted at ${adjustedPrice.toFixed(4)} (${adjustedShares} shares)${optTag}`);
+      if (isPolymarketPostOnly) {
+        this.recordPolymarketPostOnlyResult(market.token_id, true);
+      }
       if (side === 'BUY') {
         this.predictBuyInsufficientUntil.delete(market.token_id);
       }
       return true;
     } catch (error) {
       const message = this.getErrorMessage(error);
+      const isPolymarketPostOnly = this.isPolymarketPostOnlyOrder(payload);
+      if (isPolymarketPostOnly && this.isPolymarketPostOnlyReject(message)) {
+        this.recordPolymarketPostOnlyResult(market.token_id, false);
+        const fused = this.shouldTripPolymarketPostOnlyFuse(market.token_id);
+        if (fused) {
+          await this.cancelOrdersForMarket(market.token_id);
+        }
+        console.warn(`⚠️ Polymarket postOnly reject for ${market.token_id.slice(0, 8)}: ${message}`);
+        return false;
+      }
       if (side === 'BUY' && this.config.mmVenue === 'predict' && this.isPredictBuyInsufficientError(message)) {
         const cooldownMs = Math.max(1000, this.config.predictBuyInsufficientCooldownMs ?? 60000);
         this.predictBuyInsufficientUntil.set(market.token_id, Date.now() + cooldownMs);

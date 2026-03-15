@@ -12,6 +12,13 @@ export interface MarketScore {
   reasons: string[];
 }
 
+export interface MarketSelectorOptions {
+  polymarketRewardMinFitScore?: number;
+  polymarketRewardMinDailyRate?: number;
+  polymarketRewardRequireFit?: boolean;
+  polymarketRewardRequireEnabled?: boolean;
+}
+
 interface LevelLiquidity {
   bid1: number;
   ask1: number;
@@ -46,17 +53,26 @@ export class MarketSelector {
   private minVolume24h: number;
   private maxSpread: number;
   private minOrders: number;
+  private polymarketRewardMinFitScore: number;
+  private polymarketRewardMinDailyRate: number;
+  private polymarketRewardRequireFit: boolean;
+  private polymarketRewardRequireEnabled: boolean;
 
   constructor(
     minLiquidity: number = 100,
     minVolume24h: number = 500,
     maxSpread: number = 0.15,
-    minOrders: number = 3
+    minOrders: number = 3,
+    options: MarketSelectorOptions = {}
   ) {
     this.minLiquidity = minLiquidity;
     this.minVolume24h = minVolume24h;
     this.maxSpread = maxSpread;
     this.minOrders = minOrders;
+    this.polymarketRewardMinFitScore = options.polymarketRewardMinFitScore ?? 0.6;
+    this.polymarketRewardMinDailyRate = options.polymarketRewardMinDailyRate ?? 0;
+    this.polymarketRewardRequireFit = options.polymarketRewardRequireFit !== false;
+    this.polymarketRewardRequireEnabled = options.polymarketRewardRequireEnabled === true;
   }
 
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
@@ -96,6 +112,27 @@ export class MarketSelector {
     }
     if (market.polymarket_accepting_orders === false) {
       return { market, score: 0, reasons: ['Polymarket 市场当前不接受下单'] };
+    }
+    if (market.venue === 'polymarket') {
+      if (this.polymarketRewardRequireEnabled && !rewardProfile.enabled) {
+        return { market, score: 0, reasons: ['Polymarket 市场无流动性激励，不纳入当前策略'] };
+      }
+      if (rewardProfile.enabled && rewardProfile.dailyRate < this.polymarketRewardMinDailyRate) {
+        return {
+          market,
+          score: 0,
+          reasons: [`激励日速率不足: ${rewardProfile.dailyRate.toFixed(0)} < ${this.polymarketRewardMinDailyRate.toFixed(0)}`],
+        };
+      }
+      if (rewardProfile.enabled && this.polymarketRewardRequireFit && rewardProfile.fitScore < this.polymarketRewardMinFitScore) {
+        return {
+          market,
+          score: 0,
+          reasons: [
+            `激励适配度不足: ${(rewardProfile.fitScore * 100).toFixed(0)}% < ${(this.polymarketRewardMinFitScore * 100).toFixed(0)}%`,
+          ],
+        };
+      }
     }
     if (liquidity < this.minLiquidity) {
       return { market, score: 0, reasons: [`流动性不足: $${liquidity.toFixed(0)} < $${this.minLiquidity}`] };
@@ -252,6 +289,10 @@ export class MarketSelector {
       fitScore,
       bonus,
     };
+  }
+
+  evaluatePolymarketRewardFit(market: Market, orderbook: Orderbook): PolymarketRewardProfile {
+    return this.getPolymarketRewardProfile(market, orderbook);
   }
 
   private getLevelLiquidity(orderbook: Orderbook): LevelLiquidity {

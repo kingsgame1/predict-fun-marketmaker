@@ -612,6 +612,9 @@ export class PredictMarketMakerBot {
 
 // Polymarket 做市
 export class PolymarketMarketMakerBot {
+  private static readonly POLYMARKET_REWARD_MIN_FIT_SCORE = 0.6;
+  private static readonly POLYMARKET_REWARD_MIN_DAILY_RATE = 0;
+  private static readonly POLYMARKET_REWARD_PAUSE_MS = 3 * 60 * 1000;
   private api: PolymarketAPI;
   private marketSelector: MarketSelector;
   private marketMaker: MarketMaker;
@@ -627,9 +630,94 @@ export class PolymarketMarketMakerBot {
   private wsHealthTarget = 100;
   private wsHealthUpdatedAt = 0;
   private warnedStatusSync = false;
+  private rewardPauseUntil: Map<string, number> = new Map();
 
   private getAccountAddressForQueries(): string {
     return this.config.polymarketFunderAddress || this.wallet.address;
+  }
+
+  private getPolymarketSafetyConfig() {
+    return {
+      rewardMinFitScore:
+        this.config.polymarketRewardMinFitScore ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_MIN_FIT_SCORE,
+      rewardMinDailyRate:
+        this.config.polymarketRewardMinDailyRate ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_MIN_DAILY_RATE,
+      rewardRequireFit: this.config.polymarketRewardRequireFit !== false,
+      rewardRequireEnabled: this.config.polymarketRewardRequireEnabled === true,
+      rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
+    };
+  }
+
+  private isRewardPaused(tokenId: string): boolean {
+    return (this.rewardPauseUntil.get(tokenId) ?? 0) > Date.now();
+  }
+
+  private pauseRewardMarket(tokenId: string, reason: string): void {
+    const pauseMs = Math.max(1000, Number(this.getPolymarketSafetyConfig().rewardPauseMs || 0));
+    this.rewardPauseUntil.set(tokenId, Date.now() + pauseMs);
+    console.log(`⏸️ Polymarket 奖励门禁暂停 ${tokenId.slice(0, 8)} ${Math.round(pauseMs / 1000)}s: ${reason}`);
+  }
+
+  private getPolymarketSelectorOptions() {
+    const safety = this.getPolymarketSafetyConfig();
+    return {
+      polymarketRewardMinFitScore: safety.rewardMinFitScore,
+      polymarketRewardMinDailyRate: safety.rewardMinDailyRate,
+      polymarketRewardRequireFit: safety.rewardRequireFit,
+      polymarketRewardRequireEnabled: safety.rewardRequireEnabled,
+    };
+  }
+
+  private evaluateRewardGate(market: Market, orderbook: Orderbook): { skip: boolean; reason?: string } {
+    const safety = this.getPolymarketSafetyConfig();
+    if (market.polymarket_enable_order_book === false) {
+      return { skip: true, reason: 'orderbook 未启用' };
+    }
+    if (market.polymarket_accepting_orders === false) {
+      return { skip: true, reason: '市场当前不接受下单' };
+    }
+    const profile = this.marketSelector.evaluatePolymarketRewardFit(market, orderbook);
+    if (safety.rewardRequireEnabled && !profile.enabled) {
+      return { skip: true, reason: '无流动性激励' };
+    }
+    if (profile.enabled && profile.dailyRate < safety.rewardMinDailyRate) {
+      return { skip: true, reason: `激励日速率不足 ${profile.dailyRate.toFixed(0)}` };
+    }
+    if (profile.enabled && safety.rewardRequireFit && profile.fitScore < safety.rewardMinFitScore) {
+      return { skip: true, reason: `激励适配度不足 ${(profile.fitScore * 100).toFixed(0)}%` };
+    }
+    return { skip: false };
+  }
+
+  private async runPolymarketPreflight(): Promise<void> {
+    const signatureType = Number(this.config.polymarketSignatureType ?? 0);
+    const explicitFunder = String(this.config.polymarketFunderAddress || '').trim();
+    const signer = this.wallet.address;
+    const queryAddress = this.getAccountAddressForQueries();
+    const orderType = String(this.config.crossPlatformOrderType || 'GTC').toUpperCase();
+    const liveMode = this.config.enableTrading === true;
+
+    if (liveMode && !['GTC', 'GTD'].includes(orderType)) {
+      throw new Error(`Polymarket 做市要求 resting order type，当前 CROSS_PLATFORM_ORDER_TYPE=${orderType}`);
+    }
+    if (liveMode && signatureType !== 0 && !explicitFunder) {
+      throw new Error('POLYMARKET_FUNDER_ADDRESS is required when POLYMARKET_SIGNATURE_TYPE is non-zero');
+    }
+    if (liveMode && signatureType === 0 && explicitFunder && explicitFunder.toLowerCase() !== signer.toLowerCase()) {
+      throw new Error('EOA 签名模式下，POLYMARKET_FUNDER_ADDRESS 必须与 signer 地址一致');
+    }
+    if (signatureType !== 0 && explicitFunder && explicitFunder.toLowerCase() === signer.toLowerCase()) {
+      console.log('⚠️  Polymarket 配置中 funder/profile 与 signer 相同，请确认这是预期配置');
+    }
+
+    const preflight = await this.api.runTradingPreflight(queryAddress);
+    console.log(
+      `🔧 Polymarket preflight: signer=${preflight.signerAddress} funder=${preflight.funderAddress} ` +
+        `sigType=${preflight.signatureType} creds=${preflight.credsReady ? 'ready' : 'missing'} openOrders=${preflight.openOrderCount}`
+    );
+    if (liveMode && !preflight.credsReady) {
+      throw new Error('Polymarket API credentials are not ready; cannot safely run live market making');
+    }
   }
 
   constructor() {
@@ -657,7 +745,7 @@ export class PolymarketMarketMakerBot {
       signatureType: this.config.polymarketSignatureType || 0,
     });
 
-    this.marketSelector = new MarketSelector(0, 0, 0.12, 0);
+    this.marketSelector = new MarketSelector(0, 0, 0.12, 0, this.getPolymarketSelectorOptions());
     this.marketMaker = new MarketMaker(this.api, this.config, async () => {
       return new PolymarketOrderManager({
         clobUrl: this.config.polymarketClobUrl || 'https://clob.polymarket.com',
@@ -678,6 +766,7 @@ export class PolymarketMarketMakerBot {
       throw new Error('Failed to connect to Polymarket API');
     }
 
+    await this.runPolymarketPreflight();
     await this.selectMarkets();
     await this.marketMaker.initialize();
     this.setupMarketWs();
@@ -713,7 +802,7 @@ export class PolymarketMarketMakerBot {
 
     let scoredMarkets = this.marketSelector.selectMarkets(allMarkets, orderbooks);
     if (scoredMarkets.length === 0 && orderbooks.size > 0) {
-      const relaxedSelector = new MarketSelector(0, 0, 0.12, 0);
+      const relaxedSelector = new MarketSelector(0, 0, 0.12, 0, this.getPolymarketSelectorOptions());
       const relaxed = relaxedSelector.selectMarkets(allMarkets, orderbooks);
       if (relaxed.length > 0) {
         console.log('ℹ️  Strict selector returned 0, fallback to relaxed selector (' + relaxed.length + ')');
@@ -877,8 +966,17 @@ export class PolymarketMarketMakerBot {
 
         for (const market of marketsToProcess) {
           try {
+            if (this.isRewardPaused(market.token_id)) {
+              continue;
+            }
             const orderbook = await this.getOrderbookForMarket(market);
             if (!orderbook) continue;
+            const rewardGate = this.evaluateRewardGate(market, orderbook);
+            if (rewardGate.skip) {
+              await this.marketMaker.cancelOrdersForMarket(market.token_id);
+              this.pauseRewardMarket(market.token_id, rewardGate.reason || 'reward gate');
+              continue;
+            }
             await this.marketMaker.placeMMOrders(market, orderbook);
           } catch (error) {
             console.error('Error processing market ' + market.token_id + ':', error);

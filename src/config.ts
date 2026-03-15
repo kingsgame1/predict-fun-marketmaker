@@ -1211,6 +1211,15 @@ export function loadConfig(): Config {
     polymarketApiPassphrase: process.env.POLYMARKET_API_PASSPHRASE,
     polymarketChainId: parseInt(process.env.POLYMARKET_CHAIN_ID || '137'),
     polymarketAutoDeriveApiKey: process.env.POLYMARKET_AUTO_DERIVE_API_KEY !== 'false',
+    polymarketRewardMinFitScore: parseFloat(process.env.POLYMARKET_REWARD_MIN_FIT_SCORE || '0.6'),
+    polymarketRewardMinDailyRate: parseFloat(process.env.POLYMARKET_REWARD_MIN_DAILY_RATE || '0'),
+    polymarketRewardRequireFit: process.env.POLYMARKET_REWARD_REQUIRE_FIT !== 'false',
+    polymarketRewardRequireEnabled: process.env.POLYMARKET_REWARD_REQUIRE_ENABLED === 'true',
+    polymarketRewardPauseMs: parseInt(process.env.POLYMARKET_REWARD_PAUSE_MS || '180000'),
+    polymarketPostOnlyMinHitRate: parseFloat(process.env.POLYMARKET_POST_ONLY_MIN_HIT_RATE || '0.7'),
+    polymarketPostOnlyMinAttempts: parseInt(process.env.POLYMARKET_POST_ONLY_MIN_ATTEMPTS || '6'),
+    polymarketPostOnlyWindowMs: parseInt(process.env.POLYMARKET_POST_ONLY_WINDOW_MS || '600000'),
+    polymarketPostOnlyPauseMs: parseInt(process.env.POLYMARKET_POST_ONLY_PAUSE_MS || '300000'),
     opinionOpenApiUrl: process.env.OPINION_OPENAPI_URL || 'https://proxy.opinion.trade:8443/openapi',
     opinionApiKey: process.env.OPINION_API_KEY,
     opinionMaxMarkets: parseInt(process.env.OPINION_MAX_MARKETS || '30'),
@@ -1250,6 +1259,21 @@ export function loadConfig(): Config {
   if (venue === 'polymarket') {
     if (!hasPolymarketPrivateKey) {
       throw new Error('POLYMARKET_PRIVATE_KEY is required in .env file when MM_VENUE=polymarket');
+    }
+    if (![0, 1, 2].includes(config.polymarketSignatureType ?? 0)) {
+      throw new Error('POLYMARKET_SIGNATURE_TYPE must be 0, 1, or 2');
+    }
+    if ((config.polymarketRewardMinFitScore ?? 0) < 0 || (config.polymarketRewardMinFitScore ?? 0) > 1) {
+      throw new Error('POLYMARKET_REWARD_MIN_FIT_SCORE must be between 0 and 1');
+    }
+    if ((config.polymarketRewardMinDailyRate ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_MIN_DAILY_RATE must be >= 0');
+    }
+    if ((config.polymarketPostOnlyMinHitRate ?? 0) <= 0 || (config.polymarketPostOnlyMinHitRate ?? 0) > 1) {
+      throw new Error('POLYMARKET_POST_ONLY_MIN_HIT_RATE must be between 0 and 1');
+    }
+    if ((config.polymarketPostOnlyMinAttempts ?? 0) < 1) {
+      throw new Error('POLYMARKET_POST_ONLY_MIN_ATTEMPTS must be >= 1');
     }
   } else {
     if (!hasPrivateKey) {

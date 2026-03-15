@@ -1027,6 +1027,15 @@ export interface Config {
   polymarketApiPassphrase?: string;
   polymarketChainId?: number;
   polymarketAutoDeriveApiKey?: boolean;
+  polymarketRewardMinFitScore?: number;
+  polymarketRewardMinDailyRate?: number;
+  polymarketRewardRequireFit?: boolean;
+  polymarketRewardRequireEnabled?: boolean;
+  polymarketRewardPauseMs?: number;
+  polymarketPostOnlyMinHitRate?: number;
+  polymarketPostOnlyMinAttempts?: number;
+  polymarketPostOnlyWindowMs?: number;
+  polymarketPostOnlyPauseMs?: number;
   opinionOpenApiUrl?: string;
   opinionApiKey?: string;
   opinionMaxMarkets?: number;
