@@ -43,6 +43,13 @@ interface HourRiskPenalty {
   hour: number;
 }
 
+interface PatternMemoryPenalty {
+  penalty: number;
+  reason: string;
+  dominance?: number;
+  dominantReason?: string;
+}
+
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
 const PREDICT_SAFE_MAX_SPREAD = 0.06;
 const PREDICT_SAFE_MIN_L1_NOTIONAL = 25;
@@ -664,6 +671,61 @@ function getPredictSafetyConfig(env: EnvMap): PredictSafetyConfig {
   };
 }
 
+function resolvePolymarketPatternMemoryPath(metricsPath: string, envPath: string): string {
+  const resolvedMetricsPath = path.isAbsolute(metricsPath)
+    ? metricsPath
+    : path.resolve(path.dirname(envPath), metricsPath);
+  const ext = path.extname(resolvedMetricsPath);
+  if (ext) {
+    return resolvedMetricsPath.slice(0, -ext.length) + ' .polymarket-pattern-memory.json'.trimStart();
+  }
+  return resolvedMetricsPath + ' .polymarket-pattern-memory.json'.trimStart();
+}
+
+function loadPolymarketPatternMemory(
+  env: EnvMap,
+  envPath: string,
+  ttlMs: number,
+  maxPenalty: number
+): Map<string, PatternMemoryPenalty> {
+  const penalties = new Map<string, PatternMemoryPenalty>();
+  const metricsPath = env.get('MM_METRICS_PATH');
+  if (!metricsPath) return penalties;
+  try {
+    const memoryPath = resolvePolymarketPatternMemoryPath(metricsPath, envPath);
+    if (!fs.existsSync(memoryPath)) return penalties;
+    const raw = JSON.parse(fs.readFileSync(memoryPath, 'utf8')) as {
+      updatedAt?: number;
+      markets?: Array<{
+        tokenId?: string;
+        updatedAt?: number;
+        penalty?: number;
+        dominance?: number;
+        dominantReason?: string;
+        reason?: string;
+      }>;
+    };
+    const cutoff = Date.now() - ttlMs;
+    for (const market of raw.markets || []) {
+      const tokenId = String(market.tokenId || '');
+      if (!tokenId) continue;
+      const updatedAt = Number(market.updatedAt || 0);
+      if (!Number.isFinite(updatedAt) || updatedAt < cutoff) continue;
+      const penalty = Math.max(0, Math.min(maxPenalty, Number(market.penalty || 0)));
+      if (!(penalty > 0)) continue;
+      penalties.set(tokenId, {
+        penalty,
+        reason: String(market.reason || market.dominantReason || '长期撤单模式风险'),
+        dominance: Number.isFinite(Number(market.dominance)) ? Number(market.dominance) : undefined,
+        dominantReason: market.dominantReason ? String(market.dominantReason) : undefined,
+      });
+    }
+  } catch {
+    return penalties;
+  }
+  return penalties;
+}
+
 function getPolymarketSelectorOptions(env: EnvMap) {
   return {
     polymarketRewardMinFitScore: readNumber(env, 'POLYMARKET_REWARD_MIN_FIT_SCORE', 0.6),
@@ -681,6 +743,9 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRecentRiskBlockPenalty: readNumber(env, 'POLYMARKET_RECENT_RISK_BLOCK_PENALTY', 12),
     polymarketHourRiskBlockPenalty: readNumber(env, 'POLYMARKET_HOUR_RISK_BLOCK_PENALTY', 6),
     polymarketHourRiskSizeFactorMin: readNumber(env, 'POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN', 0.55),
+    polymarketPatternMemoryMaxPenalty: readNumber(env, 'POLYMARKET_PATTERN_MEMORY_MAX_PENALTY', 8),
+    polymarketPatternMemoryBlockPenalty: readNumber(env, 'POLYMARKET_PATTERN_MEMORY_BLOCK_PENALTY', 6),
+    polymarketPatternMemoryTtlMs: readNumber(env, 'POLYMARKET_PATTERN_MEMORY_TTL_MS', 604800000),
   };
 }
 
@@ -1254,8 +1319,15 @@ async function main(): Promise<void> {
     readNumber(env, 'POLYMARKET_HOUR_RISK_LOOKBACK_DAYS', 7),
     readNumber(env, 'POLYMARKET_HOUR_RISK_PENALTY_MAX', 8)
   );
+  const patternMemoryPenalty = loadPolymarketPatternMemory(
+    env,
+    args.envPath,
+    readNumber(env, 'POLYMARKET_PATTERN_MEMORY_TTL_MS', 604800000),
+    readNumber(env, 'POLYMARKET_PATTERN_MEMORY_MAX_PENALTY', 8)
+  );
   polymarketSelectorOptions.polymarketRecentRiskPenalty = recentRiskPenalty;
   polymarketSelectorOptions.polymarketHourRiskPenalty = hourRiskPenalty;
+  polymarketSelectorOptions.polymarketPatternMemoryPenalty = patternMemoryPenalty;
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
   const selector = new MarketSelector(
     minLiquidity,
@@ -1421,6 +1493,10 @@ async function main(): Promise<void> {
       hourRiskPenalty: toFixedOrNull(hourRiskPenalty.penalty || null, 1),
       hourRiskReason: hourRiskPenalty.reason || null,
       hourRiskHour: Number.isFinite(hourRiskPenalty.hour) ? hourRiskPenalty.hour : null,
+      patternMemoryPenalty: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
+      patternMemoryReason: patternMemoryPenalty.get(entry.market.token_id)?.reason || null,
+      patternMemoryDominance: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.dominance ?? null, 3),
+      patternMemoryDominantReason: patternMemoryPenalty.get(entry.market.token_id)?.dominantReason || null,
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

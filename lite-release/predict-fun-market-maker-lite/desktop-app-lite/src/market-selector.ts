@@ -50,6 +50,16 @@ export interface MarketSelectorOptions {
   polymarketHourRiskPenalty?: { penalty: number; reason: string; hour: number };
   polymarketHourRiskBlockPenalty?: number;
   polymarketHourRiskSizeFactorMin?: number;
+  polymarketPatternMemoryPenalty?: Map<
+    string,
+    {
+      penalty: number;
+      reason: string;
+      dominance?: number;
+      dominantReason?: string;
+    }
+  >;
+  polymarketPatternMemoryBlockPenalty?: number;
 }
 
 interface LevelLiquidity {
@@ -150,6 +160,16 @@ export class MarketSelector {
   private polymarketHourRiskPenalty: { penalty: number; reason: string; hour: number };
   private polymarketHourRiskBlockPenalty: number;
   private polymarketHourRiskSizeFactorMin: number;
+  private polymarketPatternMemoryPenalty: Map<
+    string,
+    {
+      penalty: number;
+      reason: string;
+      dominance?: number;
+      dominantReason?: string;
+    }
+  >;
+  private polymarketPatternMemoryBlockPenalty: number;
 
   constructor(
     minLiquidity: number = 100,
@@ -179,6 +199,8 @@ export class MarketSelector {
     this.polymarketHourRiskPenalty = options.polymarketHourRiskPenalty ?? { penalty: 0, reason: '', hour: new Date().getHours() };
     this.polymarketHourRiskBlockPenalty = options.polymarketHourRiskBlockPenalty ?? 6;
     this.polymarketHourRiskSizeFactorMin = options.polymarketHourRiskSizeFactorMin ?? 0.55;
+    this.polymarketPatternMemoryPenalty = options.polymarketPatternMemoryPenalty ?? new Map();
+    this.polymarketPatternMemoryBlockPenalty = options.polymarketPatternMemoryBlockPenalty ?? 6;
   }
 
   selectMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): MarketScore[] {
@@ -214,6 +236,7 @@ export class MarketSelector {
     const rewardProfile = this.getPolymarketRewardProfile(market, orderbook);
     const recentRisk = this.polymarketRecentRiskPenalty.get(market.token_id);
     const hourRisk = this.polymarketHourRiskPenalty;
+    const patternMemory = this.polymarketPatternMemoryPenalty.get(market.token_id);
 
     market.polymarket_recent_risk_penalty = recentRisk?.penalty;
     market.polymarket_recent_risk_reason = recentRisk?.reason;
@@ -231,6 +254,10 @@ export class MarketSelector {
     market.polymarket_recent_cancel_vwap = recentRisk?.cancelVwap;
     market.polymarket_recent_cancel_aggressive = recentRisk?.cancelAggressive;
     market.polymarket_recent_cancel_unsafe = recentRisk?.cancelUnsafe;
+    market.polymarket_pattern_memory_penalty = patternMemory?.penalty;
+    market.polymarket_pattern_memory_reason = patternMemory?.reason;
+    market.polymarket_pattern_memory_dominance = patternMemory?.dominance;
+    market.polymarket_pattern_memory_dominant_reason = patternMemory?.dominantReason;
     market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
@@ -270,6 +297,13 @@ export class MarketSelector {
           market,
           score: 0,
           reasons: [`近期风险过高，暂不推荐: ${recentRisk.reason}`],
+        };
+      }
+      if (patternMemory && patternMemory.penalty >= this.polymarketPatternMemoryBlockPenalty) {
+        return {
+          market,
+          score: 0,
+          reasons: [`长期撤单模式风险过高，暂不推荐: ${patternMemory.reason}`],
         };
       }
       if (this.polymarketRewardRequireEnabled && !rewardProfile.enabled) {
@@ -434,6 +468,10 @@ export class MarketSelector {
     if (recentRisk && recentRisk.penalty > 0) {
       score -= recentRisk.penalty;
       reasons.push(`近期风险记忆，降权: ${recentRisk.reason}`);
+    }
+    if (patternMemory && patternMemory.penalty > 0) {
+      score -= patternMemory.penalty;
+      reasons.push(`长期撤单模式，降权: ${patternMemory.reason}`);
     }
     if (hourRisk.penalty > 0) {
       score -= hourRisk.penalty;

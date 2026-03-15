@@ -269,6 +269,7 @@ function renderMarketCards(items, selected = new Set()) {
     const riskPenalty = item.recentRiskPenalty == null ? null : Number(item.recentRiskPenalty);
     const cooldownMinutes = item.recentRiskCooldownMinutes == null ? null : Number(item.recentRiskCooldownMinutes);
     const hourRiskPenalty = item.hourRiskPenalty == null ? null : Number(item.hourRiskPenalty);
+    const patternMemoryPenalty = item.patternMemoryPenalty == null ? null : Number(item.patternMemoryPenalty);
     const riskChip =
       riskPenalty && riskPenalty > 0
         ? `<span class="status-chip" style="background:#7f1d1d;border-color:#b91c1c;">近期风险 -${escapeHtml(formatNum(riskPenalty, 1))}</span>`
@@ -310,6 +311,7 @@ function renderMarketCards(items, selected = new Set()) {
             ${riskChip}
             ${cooldownChip}
             ${hourRiskChip}
+            ${patternMemoryChip}
           </div>
           <h3 class="market-card-title">${escapeHtml(item.question || '--')}</h3>
         </div>

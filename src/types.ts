@@ -1062,6 +1062,10 @@ export interface Config {
   polymarketCancelPatternFuseMinCount?: number;
   polymarketCancelPatternFuseDominance?: number;
   polymarketCancelPatternFusePauseMs?: number;
+  polymarketPatternMemoryAlpha?: number;
+  polymarketPatternMemoryMaxPenalty?: number;
+  polymarketPatternMemoryBlockPenalty?: number;
+  polymarketPatternMemoryTtlMs?: number;
   polymarketAdverseFillWindowMs?: number;
   polymarketAdverseFillPauseMs?: number;
   polymarketAdverseFillScoreThreshold?: number;
@@ -1154,6 +1158,10 @@ export interface Market {
   polymarket_recent_cancel_vwap?: number;
   polymarket_recent_cancel_aggressive?: number;
   polymarket_recent_cancel_unsafe?: number;
+  polymarket_pattern_memory_penalty?: number;
+  polymarket_pattern_memory_reason?: string;
+  polymarket_pattern_memory_dominance?: number;
+  polymarket_pattern_memory_dominant_reason?: string;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;

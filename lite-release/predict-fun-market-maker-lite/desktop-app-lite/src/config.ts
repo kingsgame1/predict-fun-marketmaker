@@ -1258,6 +1258,18 @@ export function loadConfig(): Config {
     polymarketCancelPatternFusePauseMs: parseInt(
       process.env.POLYMARKET_CANCEL_PATTERN_FUSE_PAUSE_MS || '1200000'
     ),
+    polymarketPatternMemoryAlpha: parseFloat(
+      process.env.POLYMARKET_PATTERN_MEMORY_ALPHA || '0.35'
+    ),
+    polymarketPatternMemoryMaxPenalty: parseFloat(
+      process.env.POLYMARKET_PATTERN_MEMORY_MAX_PENALTY || '8'
+    ),
+    polymarketPatternMemoryBlockPenalty: parseFloat(
+      process.env.POLYMARKET_PATTERN_MEMORY_BLOCK_PENALTY || '6'
+    ),
+    polymarketPatternMemoryTtlMs: parseInt(
+      process.env.POLYMARKET_PATTERN_MEMORY_TTL_MS || String(7 * 24 * 60 * 60 * 1000)
+    ),
     polymarketAdverseFillWindowMs: parseInt(process.env.POLYMARKET_ADVERSE_FILL_WINDOW_MS || '1200000'),
     polymarketAdverseFillPauseMs: parseInt(process.env.POLYMARKET_ADVERSE_FILL_PAUSE_MS || '2700000'),
     polymarketAdverseFillScoreThreshold: parseFloat(process.env.POLYMARKET_ADVERSE_FILL_SCORE_THRESHOLD || '3.5'),
@@ -1419,6 +1431,18 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketCancelPatternFusePauseMs ?? 0) < 0) {
       throw new Error('POLYMARKET_CANCEL_PATTERN_FUSE_PAUSE_MS must be >= 0');
+    }
+    if ((config.polymarketPatternMemoryAlpha ?? 0) <= 0 || (config.polymarketPatternMemoryAlpha ?? 0) > 1) {
+      throw new Error('POLYMARKET_PATTERN_MEMORY_ALPHA must be within (0, 1]');
+    }
+    if ((config.polymarketPatternMemoryMaxPenalty ?? 0) < 0) {
+      throw new Error('POLYMARKET_PATTERN_MEMORY_MAX_PENALTY must be >= 0');
+    }
+    if ((config.polymarketPatternMemoryBlockPenalty ?? 0) < 0) {
+      throw new Error('POLYMARKET_PATTERN_MEMORY_BLOCK_PENALTY must be >= 0');
+    }
+    if ((config.polymarketPatternMemoryTtlMs ?? 0) <= 0) {
+      throw new Error('POLYMARKET_PATTERN_MEMORY_TTL_MS must be > 0');
     }
     if ((config.polymarketAdverseFillWindowMs ?? 0) < 0) {
       throw new Error('POLYMARKET_ADVERSE_FILL_WINDOW_MS must be >= 0');

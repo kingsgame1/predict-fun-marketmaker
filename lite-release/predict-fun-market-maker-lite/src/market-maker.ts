@@ -3835,6 +3835,173 @@ export class MarketMaker {
     };
   }
 
+  private getPolymarketPatternMemoryPath(): string | null {
+    const target = this.config.mmMetricsPath;
+    if (!target) {
+      return null;
+    }
+    const resolved = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+    if (resolved.endsWith('.json')) {
+      return resolved.replace(/\.json$/i, '.polymarket-pattern-memory.json');
+    }
+    return `${resolved}.polymarket-pattern-memory.json`;
+  }
+
+  private buildPolymarketPatternMemoryEntry(metric: Record<string, any>): {
+    tokenId: string;
+    question?: string;
+    updatedAt: number;
+    penalty: number;
+    dominantReason: string;
+    dominance: number;
+    reasonMix: Record<string, number>;
+    cancelRate: number;
+    fillPenaltyBps: number;
+    riskThrottleFactor: number;
+  } | null {
+    const tokenId = String(metric.tokenId || '');
+    if (!tokenId) {
+      return null;
+    }
+    const counts = {
+      nearTouch: Number(metric.cancelNearTouch || 0),
+      refresh: Number(metric.cancelRefresh || 0),
+      vwap: Number(metric.cancelVwap || 0),
+      aggressive: Number(metric.cancelAggressive || 0),
+      unsafe: Number(metric.cancelUnsafe || 0),
+      other: Number(metric.cancelOther || 0),
+    };
+    const total =
+      counts.nearTouch + counts.refresh + counts.vwap + counts.aggressive + counts.unsafe + counts.other;
+    if (total <= 0) {
+      return null;
+    }
+    const reasonMix = {
+      nearTouch: counts.nearTouch / total,
+      refresh: counts.refresh / total,
+      vwap: counts.vwap / total,
+      aggressive: counts.aggressive / total,
+      unsafe: counts.unsafe / total,
+      other: counts.other / total,
+    };
+    const dominant = (Object.entries(reasonMix) as Array<[string, number]>).reduce(
+      (best, entry) => (entry[1] > best[1] ? entry : best),
+      ['other', 0]
+    );
+    const cancelPenalty = Math.max(0, Number(metric.cancelPenalty || 0));
+    const lifetimePenalty = Math.max(0, Number(metric.lifetimePenalty || 0));
+    const fillPenaltyBps = Math.max(0, Number(metric.fillPenaltyBps || 0));
+    const riskThrottleFactor = this.clamp(Number(metric.riskThrottleFactor || 1), 0.1, 1);
+    const penalty = Math.min(
+      Math.max(0, Number(this.config.polymarketPatternMemoryMaxPenalty ?? 8)),
+      Math.min(5, reasonMix.nearTouch * 2.5 + reasonMix.aggressive * 4 + reasonMix.unsafe * 4.5 + reasonMix.vwap * 1.5 + reasonMix.refresh) +
+        Math.min(2, cancelPenalty * 0.6 + lifetimePenalty * 0.4) +
+        Math.min(2, fillPenaltyBps / 12) +
+        Math.min(1.5, (1 - riskThrottleFactor) * 4)
+    );
+    return {
+      tokenId,
+      question: metric.question,
+      updatedAt: Number(metric.updatedAt || Date.now()),
+      penalty,
+      dominantReason: dominant[0],
+      dominance: dominant[1],
+      reasonMix,
+      cancelRate: Math.max(0, Number(metric.cancelRate || 0)),
+      fillPenaltyBps,
+      riskThrottleFactor,
+    };
+  }
+
+  private async flushPolymarketPatternMemory(marketEntries: Array<Record<string, any>>): Promise<void> {
+    if (this.config.mmVenue !== 'polymarket') {
+      return;
+    }
+    const memoryPath = this.getPolymarketPatternMemoryPath();
+    if (!memoryPath) {
+      return;
+    }
+    try {
+      const now = Date.now();
+      const ttlMs = Math.max(60_000, Number(this.config.polymarketPatternMemoryTtlMs ?? 7 * 24 * 60 * 60 * 1000));
+      const alpha = this.clamp(Number(this.config.polymarketPatternMemoryAlpha ?? 0.35), 0.01, 1);
+      let existing: {
+        version?: number;
+        ts?: number;
+        markets?: Array<{
+          tokenId: string;
+          question?: string;
+          updatedAt: number;
+          penalty: number;
+          dominantReason: string;
+          dominance: number;
+          reasonMix?: Record<string, number>;
+          cancelRate?: number;
+          fillPenaltyBps?: number;
+          riskThrottleFactor?: number;
+        }>;
+      } = {};
+      try {
+        const raw = await fs.readFile(memoryPath, 'utf8');
+        existing = JSON.parse(raw);
+      } catch {
+        existing = {};
+      }
+      const existingMap = new Map(
+        (existing.markets || [])
+          .filter((entry) => now - Number(entry.updatedAt || 0) <= ttlMs)
+          .map((entry) => [String(entry.tokenId), entry] as const)
+      );
+
+      for (const metric of marketEntries) {
+        const current = this.buildPolymarketPatternMemoryEntry(metric);
+        if (!current) {
+          continue;
+        }
+        const previous = existingMap.get(current.tokenId);
+        if (!previous) {
+          existingMap.set(current.tokenId, current);
+          continue;
+        }
+        const mergedMix: Record<string, number> = {};
+        for (const key of ['nearTouch', 'refresh', 'vwap', 'aggressive', 'unsafe', 'other']) {
+          const prevValue = Number(previous.reasonMix?.[key] || 0);
+          const currValue = Number(current.reasonMix[key] || 0);
+          mergedMix[key] = prevValue * (1 - alpha) + currValue * alpha;
+        }
+        const dominant = (Object.entries(mergedMix) as Array<[string, number]>).reduce(
+          (best, entry) => (entry[1] > best[1] ? entry : best),
+          ['other', 0]
+        );
+        existingMap.set(current.tokenId, {
+          tokenId: current.tokenId,
+          question: current.question || previous.question,
+          updatedAt: now,
+          penalty: Number(previous.penalty || 0) * (1 - alpha) + current.penalty * alpha,
+          dominantReason: dominant[0],
+          dominance: dominant[1],
+          reasonMix: mergedMix,
+          cancelRate: Number(previous.cancelRate || 0) * (1 - alpha) + current.cancelRate * alpha,
+          fillPenaltyBps: Number(previous.fillPenaltyBps || 0) * (1 - alpha) + current.fillPenaltyBps * alpha,
+          riskThrottleFactor:
+            Number(previous.riskThrottleFactor || 1) * (1 - alpha) + current.riskThrottleFactor * alpha,
+        });
+      }
+
+      const payload = {
+        version: 1,
+        ts: now,
+        markets: Array.from(existingMap.values()).sort((a, b) => Number(b.penalty || 0) - Number(a.penalty || 0)),
+      };
+      await fs.mkdir(path.dirname(memoryPath), { recursive: true });
+      const tmp = `${memoryPath}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf8');
+      await fs.rename(tmp, memoryPath);
+    } catch (error) {
+      console.warn('Polymarket pattern memory flush failed:', error);
+    }
+  }
+
   private async flushMmMetrics(): Promise<void> {
     const target = this.config.mmMetricsPath;
     const interval = this.config.mmMetricsFlushMs ?? 0;
@@ -3864,6 +4031,7 @@ export class MarketMaker {
       const tmp = `${resolved}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf8');
       await fs.rename(tmp, resolved);
+      await this.flushPolymarketPatternMemory(payload.markets as Array<Record<string, any>>);
     } catch (error) {
       console.warn('MM metrics flush failed:', error);
     }

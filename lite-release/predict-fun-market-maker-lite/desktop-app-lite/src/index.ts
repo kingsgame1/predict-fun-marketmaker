@@ -345,6 +345,91 @@ function loadRecentPolymarketRiskPenalty(
   return penalties;
 }
 
+function resolvePolymarketPatternMemoryPath(metricsPath: string | undefined, cwd: string): string | null {
+  if (!metricsPath) {
+    return null;
+  }
+  const resolved = path.isAbsolute(metricsPath) ? metricsPath : path.resolve(cwd, metricsPath);
+  return resolved.endsWith('.json')
+    ? resolved.replace(/\.json$/i, '.polymarket-pattern-memory.json')
+    : `${resolved}.polymarket-pattern-memory.json`;
+}
+
+function loadPolymarketPatternMemory(
+  metricsPath: string | undefined,
+  cwd: string,
+  ttlMs: number = 7 * 24 * 60 * 60 * 1000,
+  maxPenalty: number = 8
+): Map<
+  string,
+  {
+    penalty: number;
+    reason: string;
+    dominance?: number;
+    dominantReason?: string;
+  }
+> {
+  const penalties = new Map<
+    string,
+    {
+      penalty: number;
+      reason: string;
+      dominance?: number;
+      dominantReason?: string;
+    }
+  >();
+  const memoryPath = resolvePolymarketPatternMemoryPath(metricsPath, cwd);
+  if (!memoryPath) {
+    return penalties;
+  }
+  try {
+    if (!fs.existsSync(memoryPath)) {
+      return penalties;
+    }
+    const raw = JSON.parse(fs.readFileSync(memoryPath, 'utf8')) as {
+      markets?: Array<{
+        tokenId?: string;
+        updatedAt?: number;
+        penalty?: number;
+        dominance?: number;
+        dominantReason?: string;
+      }>;
+    };
+    const now = Date.now();
+    for (const entry of raw.markets || []) {
+      const tokenId = String(entry.tokenId || '');
+      if (!tokenId) continue;
+      const updatedAt = Number(entry.updatedAt || 0);
+      if (!Number.isFinite(updatedAt) || now - updatedAt > ttlMs) continue;
+      const penalty = Math.min(maxPenalty, Math.max(0, Number(entry.penalty || 0)));
+      if (penalty <= 0) continue;
+      const dominance = Math.max(0, Math.min(1, Number(entry.dominance || 0)));
+      const dominantReason = String(entry.dominantReason || '');
+      const reasonLabel =
+        dominantReason === 'aggressive'
+          ? '激进走势撤单'
+          : dominantReason === 'unsafe'
+            ? '不安全盘口撤单'
+            : dominantReason === 'nearTouch'
+              ? '近触撤单'
+              : dominantReason === 'vwap'
+                ? 'VWAP 风控撤单'
+                : dominantReason === 'refresh'
+                  ? '追价撤单'
+                  : dominantReason || '撤单模式';
+      penalties.set(tokenId, {
+        penalty,
+        reason: `长期撤单模式: ${reasonLabel} ${(dominance * 100).toFixed(0)}% (-${penalty.toFixed(1)})`,
+        dominance: dominance > 0 ? dominance : undefined,
+        dominantReason: dominantReason || undefined,
+      });
+    }
+  } catch (error) {
+    console.warn('⚠️ 读取 Polymarket 撤单模式长期记忆失败，忽略:', error);
+  }
+  return penalties;
+}
+
 function loadPolymarketHourRiskPenalty(
   metricsPath: string | undefined,
   cwd: string,
@@ -1031,6 +1116,9 @@ export class PolymarketMarketMakerBot {
       rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
       rewardFastFlowPenaltyMax: this.config.polymarketRewardFastFlowPenaltyMax ?? 8,
       recentRiskBlockPenalty: this.config.polymarketRecentRiskBlockPenalty ?? 12,
+      patternMemoryMaxPenalty: this.config.polymarketPatternMemoryMaxPenalty ?? 8,
+      patternMemoryBlockPenalty: this.config.polymarketPatternMemoryBlockPenalty ?? 6,
+      patternMemoryTtlMs: this.config.polymarketPatternMemoryTtlMs ?? 7 * 24 * 60 * 60 * 1000,
       hourRiskPenaltyMax: this.config.polymarketHourRiskPenaltyMax ?? 8,
       hourRiskBlockPenalty: this.config.polymarketHourRiskBlockPenalty ?? 6,
       hourRiskLookbackDays: this.config.polymarketHourRiskLookbackDays ?? 7,
@@ -1068,6 +1156,12 @@ export class PolymarketMarketMakerBot {
         shortLifetimePenaltyMax: this.config.polymarketShortLifetimePenaltyMax ?? 5,
       }
     );
+    const patternMemoryPenalty = loadPolymarketPatternMemory(
+      this.config.mmMetricsPath,
+      process.cwd(),
+      safety.patternMemoryTtlMs,
+      safety.patternMemoryMaxPenalty
+    );
     const hourRiskPenalty = loadPolymarketHourRiskPenalty(
       this.config.mmMetricsPath,
       process.cwd(),
@@ -1089,6 +1183,8 @@ export class PolymarketMarketMakerBot {
       polymarketRewardFastFlowPenaltyMax: safety.rewardFastFlowPenaltyMax,
       polymarketRecentRiskBlockPenalty: safety.recentRiskBlockPenalty,
       polymarketRecentRiskPenalty: recentRiskPenalty,
+      polymarketPatternMemoryPenalty: patternMemoryPenalty,
+      polymarketPatternMemoryBlockPenalty: safety.patternMemoryBlockPenalty,
       polymarketHourRiskPenalty: hourRiskPenalty,
       polymarketHourRiskBlockPenalty: safety.hourRiskBlockPenalty,
       polymarketHourRiskSizeFactorMin: safety.hourRiskSizeFactorMin,
