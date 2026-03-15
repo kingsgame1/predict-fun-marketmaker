@@ -371,6 +371,10 @@ function loadPolymarketPatternMemory(
     ttlRemainingMs?: number;
     decayFactor?: number;
     reasonMix?: Record<string, number>;
+    learnedRetreatMix?: Record<string, number>;
+    learnedSizeMix?: Record<string, number>;
+    learnedRetreat?: number;
+    learnedSize?: number;
   }
 > {
   const penalties = new Map<
@@ -384,6 +388,10 @@ function loadPolymarketPatternMemory(
       ttlRemainingMs?: number;
       decayFactor?: number;
       reasonMix?: Record<string, number>;
+      learnedRetreatMix?: Record<string, number>;
+      learnedSizeMix?: Record<string, number>;
+      learnedRetreat?: number;
+      learnedSize?: number;
     }
   >();
   const memoryPath = resolvePolymarketPatternMemoryPath(metricsPath, cwd);
@@ -402,6 +410,10 @@ function loadPolymarketPatternMemory(
         dominance?: number;
         dominantReason?: string;
         reasonMix?: Record<string, number>;
+        learnedRetreatMix?: Record<string, number>;
+        learnedSizeMix?: Record<string, number>;
+        learnedRetreat?: number;
+        learnedSize?: number;
       }>;
     };
     const now = Date.now();
@@ -438,6 +450,12 @@ function loadPolymarketPatternMemory(
         ttlRemainingMs,
         decayFactor,
         reasonMix: entry.reasonMix && typeof entry.reasonMix === 'object' ? entry.reasonMix : undefined,
+        learnedRetreatMix:
+          entry.learnedRetreatMix && typeof entry.learnedRetreatMix === 'object' ? entry.learnedRetreatMix : undefined,
+        learnedSizeMix:
+          entry.learnedSizeMix && typeof entry.learnedSizeMix === 'object' ? entry.learnedSizeMix : undefined,
+        learnedRetreat: Number.isFinite(Number(entry.learnedRetreat)) ? Number(entry.learnedRetreat) : undefined,
+        learnedSize: Number.isFinite(Number(entry.learnedSize)) ? Number(entry.learnedSize) : undefined,
       });
     }
   } catch (error) {

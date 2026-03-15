@@ -277,6 +277,9 @@ function renderMarketCards(items, selected = new Set()) {
     const patternVwap = item.patternMemoryVwap == null ? null : Number(item.patternMemoryVwap);
     const patternAggressive = item.patternMemoryAggressive == null ? null : Number(item.patternMemoryAggressive);
     const patternUnsafe = item.patternMemoryUnsafe == null ? null : Number(item.patternMemoryUnsafe);
+    const patternLearnedRetreat =
+      item.patternMemoryLearnedRetreat == null ? null : Number(item.patternMemoryLearnedRetreat);
+    const patternLearnedSize = item.patternMemoryLearnedSize == null ? null : Number(item.patternMemoryLearnedSize);
     const riskChip =
       riskPenalty && riskPenalty > 0
         ? `<span class="status-chip" style="background:#7f1d1d;border-color:#b91c1c;">近期风险 -${escapeHtml(formatNum(riskPenalty, 1))}</span>`
@@ -317,6 +320,7 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-subvalue">队列耗时 ${item.rewardQueueHours == null ? '--' : `${formatNum(item.rewardQueueHours, 2)}h`} / 流速倍率 ${item.rewardFlowToQueuePerHour == null ? '--' : `${formatNum(item.rewardFlowToQueuePerHour, 2)}x/h`}</div>
           ${item.patternMemoryReason ? `<div class="metric-subvalue">长期模式 ${escapeHtml(item.patternMemoryReason)}${item.patternMemoryDominantReason ? ` / 主导撤单 ${escapeHtml(item.patternMemoryDominantReason)}` : ""}${item.patternMemoryDominance == null ? "" : ` / 主导度 ${escapeHtml(formatPct(Number(item.patternMemoryDominance) * 100, 0))}`}${patternMemoryDecayFactor == null ? "" : ` / 衰减系数 ${escapeHtml(formatNum(patternMemoryDecayFactor, 3))}x`}${patternMemoryTtlHours == null ? "" : ` / 剩余 ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h`}</div>` : ""}
           ${patternMixSummary ? `<div class="metric-subvalue">长期模式构成 ${escapeHtml(patternMixSummary)}</div>` : ""}
+          ${patternLearnedRetreat != null || patternLearnedSize != null ? `<div class="metric-subvalue">学习退后 ${patternLearnedRetreat == null ? '--' : `${escapeHtml(formatNum(patternLearnedRetreat, 3))}x`} / 学习缩单 ${patternLearnedSize == null ? '--' : `${escapeHtml(formatNum(patternLearnedSize, 3))}x`}</div>` : ""}
         </div>
       `);
     }

@@ -52,6 +52,10 @@ interface PatternMemoryPenalty {
   ttlRemainingMs?: number;
   decayFactor?: number;
   reasonMix?: Record<string, number>;
+  learnedRetreatMix?: Record<string, number>;
+  learnedSizeMix?: Record<string, number>;
+  learnedRetreat?: number;
+  learnedSize?: number;
 }
 
 const RETRYABLE_NET_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT']);
@@ -708,6 +712,10 @@ function loadPolymarketPatternMemory(
         dominantReason?: string;
         reason?: string;
         reasonMix?: Record<string, number>;
+        learnedRetreatMix?: Record<string, number>;
+        learnedSizeMix?: Record<string, number>;
+        learnedRetreat?: number;
+        learnedSize?: number;
       }>;
     };
     const cutoff = Date.now() - ttlMs;
@@ -730,6 +738,14 @@ function loadPolymarketPatternMemory(
         ttlRemainingMs: remainingMs,
         decayFactor,
         reasonMix: market.reasonMix && typeof market.reasonMix === 'object' ? market.reasonMix : undefined,
+        learnedRetreatMix:
+          market.learnedRetreatMix && typeof market.learnedRetreatMix === 'object'
+            ? market.learnedRetreatMix
+            : undefined,
+        learnedSizeMix:
+          market.learnedSizeMix && typeof market.learnedSizeMix === 'object' ? market.learnedSizeMix : undefined,
+        learnedRetreat: Number.isFinite(Number(market.learnedRetreat)) ? Number(market.learnedRetreat) : undefined,
+        learnedSize: Number.isFinite(Number(market.learnedSize)) ? Number(market.learnedSize) : undefined,
       });
     }
   } catch {
@@ -1529,6 +1545,11 @@ async function main(): Promise<void> {
       patternMemoryVwap: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.vwap ?? null, 3),
       patternMemoryAggressive: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.aggressive ?? null, 3),
       patternMemoryUnsafe: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.reasonMix?.unsafe ?? null, 3),
+      patternMemoryLearnedRetreat: toFixedOrNull(
+        patternMemoryPenalty.get(entry.market.token_id)?.learnedRetreat ?? null,
+        3
+      ),
+      patternMemoryLearnedSize: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.learnedSize ?? null, 3),
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

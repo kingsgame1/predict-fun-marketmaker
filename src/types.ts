@@ -1172,6 +1172,8 @@ export interface Market {
   polymarket_pattern_memory_vwap?: number;
   polymarket_pattern_memory_aggressive?: number;
   polymarket_pattern_memory_unsafe?: number;
+  polymarket_pattern_memory_learned_retreat?: number;
+  polymarket_pattern_memory_learned_size?: number;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;

@@ -871,6 +871,8 @@ export class MarketMaker {
     const vwapMix = this.clamp(Number(market.polymarket_pattern_memory_vwap || 0), 0, 1);
     const aggressiveMix = this.clamp(Number(market.polymarket_pattern_memory_aggressive || 0), 0, 1);
     const unsafeMix = this.clamp(Number(market.polymarket_pattern_memory_unsafe || 0), 0, 1);
+    const learnedRetreat = this.clamp(Number(market.polymarket_pattern_memory_learned_retreat || 0), 0, 1);
+    const learnedSize = this.clamp(Number(market.polymarket_pattern_memory_learned_size || 0), 0, 1);
     const scaled = this.clamp((penalty / maxPenalty) * (0.65 + 0.35 * dominance) * decayFactor, 0, 1);
     const retreatWeight = this.clamp(
       0.15 +
@@ -881,7 +883,7 @@ export class MarketMaker {
         refreshMix * 0.25,
       0.2,
       1.6
-    );
+    ) * (1 + learnedRetreat * 0.35);
     const sizeWeight = this.clamp(
       0.2 +
         aggressiveMix * 1.1 +
@@ -891,7 +893,7 @@ export class MarketMaker {
         refreshMix * 0.2,
       0.25,
       1.7
-    );
+    ) * (1 + learnedSize * 0.45);
     const retreatBps = Number(cfg.patternMemoryRetreatMaxBps || 0) * this.clamp(scaled * retreatWeight, 0, 1);
     const sizeMin = this.clamp(Number(cfg.patternMemorySizeFactorMin || 0.7), 0.1, 1);
     const sizeFactor = 1 - (1 - sizeMin) * this.clamp(scaled * sizeWeight, 0, 1);
@@ -3930,6 +3932,10 @@ export class MarketMaker {
     dominantReason: string;
     dominance: number;
     reasonMix: Record<string, number>;
+    learnedRetreatMix: Record<string, number>;
+    learnedSizeMix: Record<string, number>;
+    learnedRetreat: number;
+    learnedSize: number;
     cancelRate: number;
     fillPenaltyBps: number;
     riskThrottleFactor: number;
@@ -3967,6 +3973,46 @@ export class MarketMaker {
     const lifetimePenalty = Math.max(0, Number(metric.lifetimePenalty || 0));
     const fillPenaltyBps = Math.max(0, Number(metric.fillPenaltyBps || 0));
     const riskThrottleFactor = this.clamp(Number(metric.riskThrottleFactor || 1), 0.1, 1);
+    const retreatSeverity = this.clamp((Math.min(2, cancelPenalty * 0.6 + lifetimePenalty * 0.4)) / 2, 0, 1);
+    const sizeSeverity = this.clamp(
+      (Math.min(2.5, fillPenaltyBps / 12 + Math.max(0, 1 - riskThrottleFactor) * 4)) / 2.5,
+      0,
+      1
+    );
+    const learnedRetreatMix = {
+      nearTouch: reasonMix.nearTouch * retreatSeverity,
+      refresh: reasonMix.refresh * retreatSeverity * 0.55,
+      vwap: reasonMix.vwap * retreatSeverity * 0.8,
+      aggressive: reasonMix.aggressive * retreatSeverity * 1.05,
+      unsafe: reasonMix.unsafe * retreatSeverity * 1.1,
+      other: reasonMix.other * retreatSeverity * 0.4,
+    };
+    const learnedSizeMix = {
+      nearTouch: reasonMix.nearTouch * sizeSeverity * 0.45,
+      refresh: reasonMix.refresh * sizeSeverity * 0.3,
+      vwap: reasonMix.vwap * sizeSeverity * 0.9,
+      aggressive: reasonMix.aggressive * sizeSeverity * 1.1,
+      unsafe: reasonMix.unsafe * sizeSeverity * 1.15,
+      other: reasonMix.other * sizeSeverity * 0.25,
+    };
+    const learnedRetreat = this.clamp(
+      learnedRetreatMix.nearTouch +
+        learnedRetreatMix.refresh +
+        learnedRetreatMix.vwap +
+        learnedRetreatMix.aggressive +
+        learnedRetreatMix.unsafe,
+      0,
+      1
+    );
+    const learnedSize = this.clamp(
+      learnedSizeMix.nearTouch +
+        learnedSizeMix.refresh +
+        learnedSizeMix.vwap +
+        learnedSizeMix.aggressive +
+        learnedSizeMix.unsafe,
+      0,
+      1
+    );
     const penalty = Math.min(
       Math.max(0, Number(this.config.polymarketPatternMemoryMaxPenalty ?? 8)),
       Math.min(5, reasonMix.nearTouch * 2.5 + reasonMix.aggressive * 4 + reasonMix.unsafe * 4.5 + reasonMix.vwap * 1.5 + reasonMix.refresh) +
@@ -3982,6 +4028,10 @@ export class MarketMaker {
       dominantReason: dominant[0],
       dominance: dominant[1],
       reasonMix,
+      learnedRetreatMix,
+      learnedSizeMix,
+      learnedRetreat,
+      learnedSize,
       cancelRate: Math.max(0, Number(metric.cancelRate || 0)),
       fillPenaltyBps,
       riskThrottleFactor,
@@ -4011,6 +4061,10 @@ export class MarketMaker {
           dominantReason: string;
           dominance: number;
           reasonMix?: Record<string, number>;
+          learnedRetreatMix?: Record<string, number>;
+          learnedSizeMix?: Record<string, number>;
+          learnedRetreat?: number;
+          learnedSize?: number;
           cancelRate?: number;
           fillPenaltyBps?: number;
           riskThrottleFactor?: number;
@@ -4039,10 +4093,18 @@ export class MarketMaker {
           continue;
         }
         const mergedMix: Record<string, number> = {};
+        const mergedRetreatMix: Record<string, number> = {};
+        const mergedSizeMix: Record<string, number> = {};
         for (const key of ['nearTouch', 'refresh', 'vwap', 'aggressive', 'unsafe', 'other']) {
           const prevValue = Number(previous.reasonMix?.[key] || 0);
           const currValue = Number(current.reasonMix[key] || 0);
           mergedMix[key] = prevValue * (1 - alpha) + currValue * alpha;
+          mergedRetreatMix[key] =
+            Number(previous.learnedRetreatMix?.[key] || 0) * (1 - alpha) +
+            Number(current.learnedRetreatMix[key] || 0) * alpha;
+          mergedSizeMix[key] =
+            Number(previous.learnedSizeMix?.[key] || 0) * (1 - alpha) +
+            Number(current.learnedSizeMix[key] || 0) * alpha;
         }
         const dominant = (Object.entries(mergedMix) as Array<[string, number]>).reduce(
           (best, entry) => (entry[1] > best[1] ? entry : best),
@@ -4056,6 +4118,11 @@ export class MarketMaker {
           dominantReason: dominant[0],
           dominance: dominant[1],
           reasonMix: mergedMix,
+          learnedRetreatMix: mergedRetreatMix,
+          learnedSizeMix: mergedSizeMix,
+          learnedRetreat:
+            Number(previous.learnedRetreat || 0) * (1 - alpha) + Number(current.learnedRetreat || 0) * alpha,
+          learnedSize: Number(previous.learnedSize || 0) * (1 - alpha) + Number(current.learnedSize || 0) * alpha,
           cancelRate: Number(previous.cancelRate || 0) * (1 - alpha) + current.cancelRate * alpha,
           fillPenaltyBps: Number(previous.fillPenaltyBps || 0) * (1 - alpha) + current.fillPenaltyBps * alpha,
           riskThrottleFactor:
