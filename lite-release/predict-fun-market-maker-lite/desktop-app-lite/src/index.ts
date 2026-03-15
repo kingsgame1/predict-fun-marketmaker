@@ -63,6 +63,11 @@ function loadRecentPolymarketRiskPenalty(
     avgFillLifetimeMs?: number;
     cancelPenalty?: number;
     lifetimePenalty?: number;
+    cancelNearTouch?: number;
+    cancelRefresh?: number;
+    cancelVwap?: number;
+    cancelAggressive?: number;
+    cancelUnsafe?: number;
   }
 > {
   type RecentPenaltyEntry = {
@@ -77,6 +82,11 @@ function loadRecentPolymarketRiskPenalty(
     avgFillLifetimeMs?: number;
     cancelPenalty?: number;
     lifetimePenalty?: number;
+    cancelNearTouch?: number;
+    cancelRefresh?: number;
+    cancelVwap?: number;
+    cancelAggressive?: number;
+    cancelUnsafe?: number;
   };
   type RecentPenaltyScoreState = {
     penalty: number;
@@ -92,6 +102,11 @@ function loadRecentPolymarketRiskPenalty(
     avgFillLifetimeMs: number;
     cancelPenalty: number;
     lifetimePenalty: number;
+    cancelNearTouch: number;
+    cancelRefresh: number;
+    cancelVwap: number;
+    cancelAggressive: number;
+    cancelUnsafe: number;
   };
 
   const penalties = new Map<string, RecentPenaltyEntry>();
@@ -116,6 +131,11 @@ function loadRecentPolymarketRiskPenalty(
         avgFillLifetimeMs?: number;
         cancelPenalty?: number;
         lifetimePenalty?: number;
+        cancelNearTouch?: number;
+        cancelRefresh?: number;
+        cancelVwap?: number;
+        cancelAggressive?: number;
+        cancelUnsafe?: number;
       }>;
     };
     const cutoff = Date.now() - lookbackMs;
@@ -158,6 +178,11 @@ function loadRecentPolymarketRiskPenalty(
         avgFillLifetimeMs: 0,
         cancelPenalty: 0,
         lifetimePenalty: 0,
+        cancelNearTouch: 0,
+        cancelRefresh: 0,
+        cancelVwap: 0,
+        cancelAggressive: 0,
+        cancelUnsafe: 0,
       };
       if (type === 'POLYMARKET_ADVERSE_FILL') {
         entry.penalty += 2;
@@ -197,6 +222,11 @@ function loadRecentPolymarketRiskPenalty(
         avgFillLifetimeMs: 0,
         cancelPenalty: 0,
         lifetimePenalty: 0,
+        cancelNearTouch: 0,
+        cancelRefresh: 0,
+        cancelVwap: 0,
+        cancelAggressive: 0,
+        cancelUnsafe: 0,
       };
       const fillPenaltyBps = Number(metric.fillPenaltyBps || 0);
       const riskThrottleFactor = Number(metric.riskThrottleFactor || 1);
@@ -205,6 +235,11 @@ function loadRecentPolymarketRiskPenalty(
       const avgFillLifetimeMs = Number(metric.avgFillLifetimeMs || 0);
       const derivedCancelPenalty = Number(metric.cancelPenalty || 0);
       const derivedLifetimePenalty = Number(metric.lifetimePenalty || 0);
+      const cancelNearTouch = Number(metric.cancelNearTouch || 0);
+      const cancelRefresh = Number(metric.cancelRefresh || 0);
+      const cancelVwap = Number(metric.cancelVwap || 0);
+      const cancelAggressive = Number(metric.cancelAggressive || 0);
+      const cancelUnsafe = Number(metric.cancelUnsafe || 0);
       if (Number.isFinite(fillPenaltyBps) && fillPenaltyBps > 0) {
         entry.penalty += Math.min(4, fillPenaltyBps / 6);
         entry.fillPenaltyBps = Math.max(entry.fillPenaltyBps, fillPenaltyBps);
@@ -229,6 +264,21 @@ function loadRecentPolymarketRiskPenalty(
         entry.cancelRate = Math.max(entry.cancelRate, cancelRate);
         entry.cancelPenalty = Math.max(entry.cancelPenalty, cancelPenalty);
       }
+      const totalCancelReasons = cancelNearTouch + cancelRefresh + cancelVwap + cancelAggressive + cancelUnsafe;
+      if (Number.isFinite(totalCancelReasons) && totalCancelReasons >= 3) {
+        const reasonPenalty =
+          Math.min(4, (cancelNearTouch / totalCancelReasons) * 3.5) +
+          Math.min(4, (cancelAggressive / totalCancelReasons) * 4) +
+          Math.min(3, (cancelUnsafe / totalCancelReasons) * 2.5) +
+          Math.min(2, (cancelVwap / totalCancelReasons) * 1.5) +
+          Math.min(1.5, (cancelRefresh / totalCancelReasons) * 1);
+        entry.penalty += reasonPenalty;
+      }
+      entry.cancelNearTouch = Math.max(entry.cancelNearTouch, cancelNearTouch);
+      entry.cancelRefresh = Math.max(entry.cancelRefresh, cancelRefresh);
+      entry.cancelVwap = Math.max(entry.cancelVwap, cancelVwap);
+      entry.cancelAggressive = Math.max(entry.cancelAggressive, cancelAggressive);
+      entry.cancelUnsafe = Math.max(entry.cancelUnsafe, cancelUnsafe);
       if (Number.isFinite(avgCancelLifetimeMs) && avgCancelLifetimeMs > 0) {
         entry.avgCancelLifetimeMs =
           entry.avgCancelLifetimeMs > 0 ? Math.min(entry.avgCancelLifetimeMs, avgCancelLifetimeMs) : avgCancelLifetimeMs;
@@ -266,6 +316,9 @@ function loadRecentPolymarketRiskPenalty(
       if (entry.pauses > 0) reasonParts.push(`风控暂停${entry.pauses}次`);
       if (entry.cancelRate > 0) reasonParts.push(`撤单率${(entry.cancelRate * 100).toFixed(0)}%`);
       if (entry.avgCancelLifetimeMs > 0) reasonParts.push(`平均撤单寿命${Math.round(entry.avgCancelLifetimeMs / 1000)}s`);
+      if (entry.cancelNearTouch > 0) reasonParts.push(`近触撤单${entry.cancelNearTouch}次`);
+      if (entry.cancelAggressive > 0) reasonParts.push(`追价撤单${entry.cancelAggressive}次`);
+      if (entry.cancelUnsafe > 0) reasonParts.push(`风控撤单${entry.cancelUnsafe}次`);
       penalties.set(tokenId, {
         penalty,
         reason: `${reasonParts.join(' / ') || '近期风险'} (-${penalty.toFixed(1)})`,
@@ -278,6 +331,11 @@ function loadRecentPolymarketRiskPenalty(
         avgFillLifetimeMs: entry.avgFillLifetimeMs > 0 ? entry.avgFillLifetimeMs : undefined,
         cancelPenalty: entry.cancelPenalty > 0 ? entry.cancelPenalty : undefined,
         lifetimePenalty: entry.lifetimePenalty > 0 ? entry.lifetimePenalty : undefined,
+        cancelNearTouch: entry.cancelNearTouch > 0 ? entry.cancelNearTouch : undefined,
+        cancelRefresh: entry.cancelRefresh > 0 ? entry.cancelRefresh : undefined,
+        cancelVwap: entry.cancelVwap > 0 ? entry.cancelVwap : undefined,
+        cancelAggressive: entry.cancelAggressive > 0 ? entry.cancelAggressive : undefined,
+        cancelUnsafe: entry.cancelUnsafe > 0 ? entry.cancelUnsafe : undefined,
       });
     }
   } catch (error) {

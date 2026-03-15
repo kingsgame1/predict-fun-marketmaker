@@ -263,6 +263,18 @@ export class MarketMaker {
     string,
     { score: number; count: number; windowStart: number; lastAt: number }
   > = new Map();
+  private polymarketCancelReasonState: Map<
+    string,
+    {
+      windowStart: number;
+      nearTouch: number;
+      refresh: number;
+      vwap: number;
+      aggressive: number;
+      unsafe: number;
+      other: number;
+    }
+  > = new Map();
   private polymarketOrderLifecycleState: Map<
     string,
     {
@@ -428,6 +440,9 @@ export class MarketMaker {
       rewardQueueRetreatStart: this.config.polymarketRewardQueueRetreatStart ?? 3,
       rewardQueueRetreatMaxBps: this.config.polymarketRewardQueueRetreatMaxBps ?? 12,
       rewardFastFlowRetreatMaxBps: this.config.polymarketRewardFastFlowRetreatMaxBps ?? 8,
+      cancelReasonDominanceThreshold: this.config.polymarketCancelReasonDominanceThreshold ?? 0.45,
+      cancelReasonRetreatMaxBps: this.config.polymarketCancelReasonRetreatMaxBps ?? 10,
+      cancelReasonSizeFactorMin: this.config.polymarketCancelReasonSizeFactorMin ?? 0.55,
       adverseFillWindowMs: this.config.polymarketAdverseFillWindowMs ?? 20 * 60 * 1000,
       adverseFillPauseMs: this.config.polymarketAdverseFillPauseMs ?? 45 * 60 * 1000,
       adverseFillScoreThreshold: this.config.polymarketAdverseFillScoreThreshold ?? 3.5,
@@ -2243,6 +2258,167 @@ export class MarketMaker {
     return Math.max(min, Math.min(max, value));
   }
 
+  private getPolymarketCancelReasonState(tokenId: string): {
+    windowStart: number;
+    nearTouch: number;
+    refresh: number;
+    vwap: number;
+    aggressive: number;
+    unsafe: number;
+    other: number;
+  } {
+    const now = Date.now();
+    const existing = this.polymarketCancelReasonState.get(tokenId);
+    const windowMs = Math.max(60_000, this.config.polymarketOrderLifecycleWindowMs ?? 6 * 60 * 60 * 1000);
+    if (existing && now - existing.windowStart <= windowMs) {
+      return existing;
+    }
+    const state = {
+      windowStart: now,
+      nearTouch: 0,
+      refresh: 0,
+      vwap: 0,
+      aggressive: 0,
+      unsafe: 0,
+      other: 0,
+    };
+    this.polymarketCancelReasonState.set(tokenId, state);
+    return state;
+  }
+
+  private recordPolymarketCancelReason(tokenId: string, reason: string): void {
+    if (this.config.mmVenue !== 'polymarket') {
+      return;
+    }
+    const state = this.getPolymarketCancelReasonState(tokenId);
+    const normalized = String(reason || '').toLowerCase();
+    if (
+      normalized.startsWith('near-touch') ||
+      normalized === 'anti-fill' ||
+      normalized.startsWith('hit-warning')
+    ) {
+      state.nearTouch += 1;
+    } else if (normalized === 'refresh' || normalized === 'reprice' || normalized === 'quote-refresh') {
+      state.refresh += 1;
+    } else if (normalized === 'vwap-risk') {
+      state.vwap += 1;
+    } else if (
+      normalized === 'aggressive-move' ||
+      normalized === 'fast-move' ||
+      normalized === 'price-accel'
+    ) {
+      state.aggressive += 1;
+    } else if (
+      normalized.includes('unsafe') ||
+      normalized.includes('reward-gate') ||
+      normalized.includes('postonly') ||
+      normalized.includes('post-only')
+    ) {
+      state.unsafe += 1;
+    } else {
+      state.other += 1;
+    }
+  }
+
+  private getPolymarketCancelReasonSnapshot(tokenId: string): {
+    nearTouch: number;
+    refresh: number;
+    vwap: number;
+    aggressive: number;
+    unsafe: number;
+    other: number;
+    total: number;
+  } {
+    const state = this.polymarketCancelReasonState.get(tokenId);
+    if (!state) {
+      return { nearTouch: 0, refresh: 0, vwap: 0, aggressive: 0, unsafe: 0, other: 0, total: 0 };
+    }
+    const total = state.nearTouch + state.refresh + state.vwap + state.aggressive + state.unsafe + state.other;
+    return { ...state, total };
+  }
+
+  private getPolymarketCancelReasonAdjustment(
+    tokenId: string,
+    market: Market
+  ): {
+    dominant: 'nearTouch' | 'refresh' | 'vwap' | 'aggressive' | 'unsafe' | 'other' | 'none';
+    dominance: number;
+    retreatBps: number;
+    sizeFactor: number;
+    reason: string;
+  } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return { dominant: 'none', dominance: 0, retreatBps: 0, sizeFactor: 1, reason: '' };
+    }
+    const live = this.getPolymarketCancelReasonSnapshot(tokenId);
+    const recent = {
+      nearTouch: Number(market.polymarket_recent_cancel_near_touch || 0),
+      refresh: Number(market.polymarket_recent_cancel_refresh || 0),
+      vwap: Number(market.polymarket_recent_cancel_vwap || 0),
+      aggressive: Number(market.polymarket_recent_cancel_aggressive || 0),
+      unsafe: Number(market.polymarket_recent_cancel_unsafe || 0),
+      other: 0,
+    };
+    const counts = {
+      nearTouch: live.nearTouch + recent.nearTouch,
+      refresh: live.refresh + recent.refresh,
+      vwap: live.vwap + recent.vwap,
+      aggressive: live.aggressive + recent.aggressive,
+      unsafe: live.unsafe + recent.unsafe,
+      other: live.other + recent.other,
+    };
+    const total =
+      counts.nearTouch + counts.refresh + counts.vwap + counts.aggressive + counts.unsafe + counts.other;
+    if (total < 3) {
+      return { dominant: 'none', dominance: 0, retreatBps: 0, sizeFactor: 1, reason: '' };
+    }
+    const entries = Object.entries(counts) as Array<
+      ['nearTouch' | 'refresh' | 'vwap' | 'aggressive' | 'unsafe' | 'other', number]
+    >;
+    const [dominant, dominantCount] = entries.reduce((best, entry) => (entry[1] > best[1] ? entry : best), [
+      'other',
+      0,
+    ] as ['nearTouch' | 'refresh' | 'vwap' | 'aggressive' | 'unsafe' | 'other', number]);
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const rawDominance = dominantCount / Math.max(1, total);
+    const threshold = this.clamp(cfg.cancelReasonDominanceThreshold, 0, 1);
+    if (rawDominance <= threshold) {
+      return { dominant: 'none', dominance: rawDominance, retreatBps: 0, sizeFactor: 1, reason: '' };
+    }
+    const normalized = this.clamp((rawDominance - threshold) / Math.max(0.05, 1 - threshold), 0, 1);
+    const riskWeight =
+      dominant === 'aggressive'
+        ? 1.1
+        : dominant === 'unsafe'
+          ? 1.2
+          : dominant === 'nearTouch'
+            ? 0.9
+            : dominant === 'vwap'
+              ? 0.7
+              : dominant === 'refresh'
+                ? 0.45
+                : 0.3;
+    const scaled = this.clamp(normalized * riskWeight, 0, 1);
+    const retreatBps = cfg.cancelReasonRetreatMaxBps * scaled;
+    const sizeFactor = 1 - (1 - cfg.cancelReasonSizeFactorMin) * scaled;
+    const labelMap = {
+      nearTouch: '近触撤单占比高',
+      refresh: '追价撤单占比高',
+      vwap: 'VWAP 风控撤单占比高',
+      aggressive: '激进走势撤单占比高',
+      unsafe: '不安全盘口撤单占比高',
+      other: '其他撤单占比高',
+      none: '',
+    } as const;
+    return {
+      dominant,
+      dominance: rawDominance,
+      retreatBps,
+      sizeFactor: this.clamp(sizeFactor, cfg.cancelReasonSizeFactorMin, 1),
+      reason: `${labelMap[dominant]} ${(rawDominance * 100).toFixed(0)}%`,
+    };
+  }
+
   private allowCancel(tokenId: string, isPanic: boolean): boolean {
     const bypass = this.config.mmCancelBudgetPanicBypass !== false;
     if (isPanic && bypass) {
@@ -3659,6 +3835,7 @@ export class MarketMaker {
     const riskGlobal = this.getRiskThrottleFactor('__global__');
     const riskThrottle = Math.min(riskLocal, riskGlobal);
     const lifecycle = this.getPolymarketLifecycleSnapshot(market.token_id);
+    const cancelReasons = this.getPolymarketCancelReasonSnapshot(market.token_id);
     const riskOnlyFarThreshold = Math.max(0, this.config.mmRiskThrottleOnlyFarThreshold ?? 0);
     const riskOnlyFarActive = riskOnlyFarThreshold > 0 && riskThrottle <= riskOnlyFarThreshold;
     const burstEntry = this.cancelBurst.get(market.token_id);
@@ -3689,6 +3866,13 @@ export class MarketMaker {
       avgFillLifetimeMs: lifecycle.avgFillLifetimeMs,
       cancelPenalty: lifecycle.cancelPenalty,
       lifetimePenalty: lifecycle.lifetimePenalty,
+      cancelNearTouch: cancelReasons.nearTouch,
+      cancelRefresh: cancelReasons.refresh,
+      cancelVwap: cancelReasons.vwap,
+      cancelAggressive: cancelReasons.aggressive,
+      cancelUnsafe: cancelReasons.unsafe,
+      cancelOther: cancelReasons.other,
+      cancelReasonTotal: cancelReasons.total,
       noFillPenaltyBps: this.getNoFillPenalty(market.token_id).spreadBps,
       autoTune: this.getAutoTuneSnapshot(market.token_id),
       wsHealthScore: wsHealth.score,
@@ -4643,6 +4827,10 @@ export class MarketMaker {
     if (rewardQueueRetreatBps > 0) {
       touchBufferBps += rewardQueueRetreatBps;
     }
+    const cancelReasonAdjustment = this.getPolymarketCancelReasonAdjustment(market.token_id, market);
+    if (cancelReasonAdjustment.retreatBps > 0) {
+      touchBufferBps += cancelReasonAdjustment.retreatBps;
+    }
     const secondBid = this.getLevelPrice(orderbook.bids, 1, 'bids');
     const secondAsk = this.getLevelPrice(orderbook.asks, 1, 'asks');
     const fixedCents = Math.max(0, this.config.mmTouchBufferFixedCents ?? 0);
@@ -4841,6 +5029,11 @@ export class MarketMaker {
       if (minShares > 0 && shares < minShares) {
         shares = minShares;
       }
+    }
+
+    const cancelReasonAdjustment = this.getPolymarketCancelReasonAdjustment(market.token_id, market);
+    if (cancelReasonAdjustment.sizeFactor < 1) {
+      shares = Math.max(1, Math.floor(shares * cancelReasonAdjustment.sizeFactor));
     }
 
     if (depthCap > 0) {
@@ -5439,6 +5632,9 @@ export class MarketMaker {
         }
       }
         if (risk.cancel || shouldReprice) {
+          if (this.config.mmVenue === 'polymarket') {
+            this.recordPolymarketCancelReason(tokenId, risk.reason || (shouldReprice ? 'reprice' : 'other'));
+          }
           if (!this.allowCancel(tokenId, risk.panic)) {
             this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
             continue;
@@ -5571,6 +5767,9 @@ export class MarketMaker {
         }
       }
         if (risk.cancel || shouldReprice) {
+          if (this.config.mmVenue === 'polymarket') {
+            this.recordPolymarketCancelReason(tokenId, risk.reason || (shouldReprice ? 'reprice' : 'other'));
+          }
           if (!this.allowCancel(tokenId, risk.panic)) {
             this.recordMmEvent('CANCEL_BUDGET_SKIP', `${risk.reason || 'budget'}`, tokenId);
             continue;

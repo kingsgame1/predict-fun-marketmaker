@@ -40,6 +40,11 @@ export interface MarketSelectorOptions {
       avgFillLifetimeMs?: number;
       cancelPenalty?: number;
       lifetimePenalty?: number;
+      cancelNearTouch?: number;
+      cancelRefresh?: number;
+      cancelVwap?: number;
+      cancelAggressive?: number;
+      cancelUnsafe?: number;
     }
   >;
   polymarketHourRiskPenalty?: { penalty: number; reason: string; hour: number };
@@ -135,6 +140,11 @@ export class MarketSelector {
       avgFillLifetimeMs?: number;
       cancelPenalty?: number;
       lifetimePenalty?: number;
+      cancelNearTouch?: number;
+      cancelRefresh?: number;
+      cancelVwap?: number;
+      cancelAggressive?: number;
+      cancelUnsafe?: number;
     }
   >;
   private polymarketHourRiskPenalty: { penalty: number; reason: string; hour: number };
@@ -216,6 +226,11 @@ export class MarketSelector {
     market.polymarket_recent_avg_fill_lifetime_ms = recentRisk?.avgFillLifetimeMs;
     market.polymarket_recent_cancel_penalty = recentRisk?.cancelPenalty;
     market.polymarket_recent_lifetime_penalty = recentRisk?.lifetimePenalty;
+    market.polymarket_recent_cancel_near_touch = recentRisk?.cancelNearTouch;
+    market.polymarket_recent_cancel_refresh = recentRisk?.cancelRefresh;
+    market.polymarket_recent_cancel_vwap = recentRisk?.cancelVwap;
+    market.polymarket_recent_cancel_aggressive = recentRisk?.cancelAggressive;
+    market.polymarket_recent_cancel_unsafe = recentRisk?.cancelUnsafe;
     market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;

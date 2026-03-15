@@ -1240,6 +1240,15 @@ export function loadConfig(): Config {
     polymarketRewardQueueRetreatStart: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_START || '3'),
     polymarketRewardQueueRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_MAX_BPS || '12'),
     polymarketRewardFastFlowRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_RETREAT_MAX_BPS || '8'),
+    polymarketCancelReasonDominanceThreshold: parseFloat(
+      process.env.POLYMARKET_CANCEL_REASON_DOMINANCE_THRESHOLD || '0.45'
+    ),
+    polymarketCancelReasonRetreatMaxBps: parseFloat(
+      process.env.POLYMARKET_CANCEL_REASON_RETREAT_MAX_BPS || '10'
+    ),
+    polymarketCancelReasonSizeFactorMin: parseFloat(
+      process.env.POLYMARKET_CANCEL_REASON_SIZE_FACTOR_MIN || '0.55'
+    ),
     polymarketAdverseFillWindowMs: parseInt(process.env.POLYMARKET_ADVERSE_FILL_WINDOW_MS || '1200000'),
     polymarketAdverseFillPauseMs: parseInt(process.env.POLYMARKET_ADVERSE_FILL_PAUSE_MS || '2700000'),
     polymarketAdverseFillScoreThreshold: parseFloat(process.env.POLYMARKET_ADVERSE_FILL_SCORE_THRESHOLD || '3.5'),
@@ -1374,6 +1383,21 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketRewardFastFlowRetreatMaxBps ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_FAST_FLOW_RETREAT_MAX_BPS must be >= 0');
+    }
+    if (
+      (config.polymarketCancelReasonDominanceThreshold ?? 0) < 0 ||
+      (config.polymarketCancelReasonDominanceThreshold ?? 0) > 1
+    ) {
+      throw new Error('POLYMARKET_CANCEL_REASON_DOMINANCE_THRESHOLD must be within [0, 1]');
+    }
+    if ((config.polymarketCancelReasonRetreatMaxBps ?? 0) < 0) {
+      throw new Error('POLYMARKET_CANCEL_REASON_RETREAT_MAX_BPS must be >= 0');
+    }
+    if (
+      (config.polymarketCancelReasonSizeFactorMin ?? 0) <= 0 ||
+      (config.polymarketCancelReasonSizeFactorMin ?? 0) > 1
+    ) {
+      throw new Error('POLYMARKET_CANCEL_REASON_SIZE_FACTOR_MIN must be within (0, 1]');
     }
     if ((config.polymarketAdverseFillWindowMs ?? 0) < 0) {
       throw new Error('POLYMARKET_ADVERSE_FILL_WINDOW_MS must be >= 0');

@@ -1056,6 +1056,9 @@ export interface Config {
   polymarketRewardQueueRetreatStart?: number;
   polymarketRewardQueueRetreatMaxBps?: number;
   polymarketRewardFastFlowRetreatMaxBps?: number;
+  polymarketCancelReasonDominanceThreshold?: number;
+  polymarketCancelReasonRetreatMaxBps?: number;
+  polymarketCancelReasonSizeFactorMin?: number;
   polymarketAdverseFillWindowMs?: number;
   polymarketAdverseFillPauseMs?: number;
   polymarketAdverseFillScoreThreshold?: number;
@@ -1143,6 +1146,11 @@ export interface Market {
   polymarket_recent_avg_fill_lifetime_ms?: number;
   polymarket_recent_cancel_penalty?: number;
   polymarket_recent_lifetime_penalty?: number;
+  polymarket_recent_cancel_near_touch?: number;
+  polymarket_recent_cancel_refresh?: number;
+  polymarket_recent_cancel_vwap?: number;
+  polymarket_recent_cancel_aggressive?: number;
+  polymarket_recent_cancel_unsafe?: number;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;
