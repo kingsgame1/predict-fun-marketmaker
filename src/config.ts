@@ -1219,6 +1219,8 @@ export function loadConfig(): Config {
     polymarketRewardSizeCapMultiplier: parseFloat(process.env.POLYMARKET_REWARD_SIZE_CAP_MULTIPLIER || '1.25'),
     polymarketRewardCrowdingPenaltyStart: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_START || '4'),
     polymarketRewardCrowdingPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_MAX || '12'),
+    polymarketRewardQueueRetreatStart: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_START || '3'),
+    polymarketRewardQueueRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_MAX_BPS || '12'),
     polymarketPostOnlyMinHitRate: parseFloat(process.env.POLYMARKET_POST_ONLY_MIN_HIT_RATE || '0.7'),
     polymarketPostOnlyMinAttempts: parseInt(process.env.POLYMARKET_POST_ONLY_MIN_ATTEMPTS || '6'),
     polymarketPostOnlyWindowMs: parseInt(process.env.POLYMARKET_POST_ONLY_WINDOW_MS || '600000'),
@@ -1286,6 +1288,12 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketRewardCrowdingPenaltyMax ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_CROWDING_PENALTY_MAX must be >= 0');
+    }
+    if ((config.polymarketRewardQueueRetreatStart ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_QUEUE_RETREAT_START must be >= 0');
+    }
+    if ((config.polymarketRewardQueueRetreatMaxBps ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_QUEUE_RETREAT_MAX_BPS must be >= 0');
     }
     if ((config.polymarketPostOnlyMinHitRate ?? 0) <= 0 || (config.polymarketPostOnlyMinHitRate ?? 0) > 1) {
       throw new Error('POLYMARKET_POST_ONLY_MIN_HIT_RATE must be between 0 and 1');

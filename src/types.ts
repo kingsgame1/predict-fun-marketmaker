@@ -1035,6 +1035,8 @@ export interface Config {
   polymarketRewardSizeCapMultiplier?: number;
   polymarketRewardCrowdingPenaltyStart?: number;
   polymarketRewardCrowdingPenaltyMax?: number;
+  polymarketRewardQueueRetreatStart?: number;
+  polymarketRewardQueueRetreatMaxBps?: number;
   polymarketPostOnlyMinHitRate?: number;
   polymarketPostOnlyMinAttempts?: number;
   polymarketPostOnlyWindowMs?: number;

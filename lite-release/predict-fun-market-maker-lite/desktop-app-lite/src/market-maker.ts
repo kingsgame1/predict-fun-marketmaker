@@ -404,6 +404,8 @@ export class MarketMaker {
       windowMs: this.config.polymarketPostOnlyWindowMs ?? 10 * 60 * 1000,
       pauseMs: this.config.polymarketPostOnlyPauseMs ?? 5 * 60 * 1000,
       rewardSizeCapMultiplier: this.config.polymarketRewardSizeCapMultiplier ?? 1.25,
+      rewardQueueRetreatStart: this.config.polymarketRewardQueueRetreatStart ?? 3,
+      rewardQueueRetreatMaxBps: this.config.polymarketRewardQueueRetreatMaxBps ?? 12,
       adversePressureThreshold: this.config.polymarketAdversePressureThreshold ?? 0.18,
       adverseImbalanceThreshold: this.config.polymarketAdverseImbalanceThreshold ?? 0.55,
       adverseDepthSpeedBps: this.config.polymarketAdverseDepthSpeedBps ?? 12,
@@ -567,6 +569,22 @@ export class MarketMaker {
     return price;
   }
 
+  private getLevelShares(levels: OrderbookEntry[] | undefined, index: number, side: 'bids' | 'asks'): number | null {
+    if (!Array.isArray(levels) || levels.length <= index) {
+      return null;
+    }
+    const sorted = [...levels].sort((a, b) => {
+      const ap = Number(a.price || 0);
+      const bp = Number(b.price || 0);
+      return side === 'bids' ? bp - ap : ap - bp;
+    });
+    const shares = Number(sorted[index]?.shares || 0);
+    if (!Number.isFinite(shares) || shares <= 0) {
+      return null;
+    }
+    return shares;
+  }
+
   private getSupportRatio(levels: OrderbookEntry[] | undefined, side: 'bids' | 'asks'): number {
     if (!Array.isArray(levels) || levels.length < 2) {
       return 0;
@@ -699,6 +717,33 @@ export class MarketMaker {
     }
     const mult = Math.max(1, Number(this.getPolymarketExecutionSafetyConfig().rewardSizeCapMultiplier || 1.25));
     return Math.max(0, Math.floor(reward.minShares * mult));
+  }
+
+  private getPolymarketRewardCrowdingMultiple(market: Market, orderbook: Orderbook): number {
+    if (this.config.mmVenue !== 'polymarket') {
+      return 0;
+    }
+    const reward = this.getPolymarketRewardRule(market);
+    if (!reward.enabled || reward.minShares <= 0) {
+      return 0;
+    }
+    const bid1Shares = this.getLevelShares(orderbook.bids, 0, 'bids') || 0;
+    const ask1Shares = this.getLevelShares(orderbook.asks, 0, 'asks') || 0;
+    const bid2Shares = this.getLevelShares(orderbook.bids, 1, 'bids') || 0;
+    const ask2Shares = this.getLevelShares(orderbook.asks, 1, 'asks') || 0;
+    const l1MinShares = bid1Shares > 0 && ask1Shares > 0 ? Math.min(bid1Shares, ask1Shares) : 0;
+    const l2MinShares = bid2Shares > 0 && ask2Shares > 0 ? Math.min(bid2Shares, ask2Shares) : 0;
+    return Math.max(l1MinShares, l2MinShares) / Math.max(1, reward.minShares);
+  }
+
+  private getPolymarketRewardQueueRetreatBps(market: Market, orderbook: Orderbook): number {
+    if (this.config.mmVenue !== 'polymarket') {
+      return 0;
+    }
+    const crowdingMultiple = this.getPolymarketRewardCrowdingMultiple(market, orderbook);
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const extra = Math.max(0, crowdingMultiple - cfg.rewardQueueRetreatStart) * 2;
+    return this.clamp(extra, 0, cfg.rewardQueueRetreatMaxBps);
   }
 
   private getPolymarketAdverseSuppression(
@@ -4330,6 +4375,10 @@ export class MarketMaker {
           touchBufferBps *= 1 + (mult - 1) * autoWeight;
         }
       }
+    }
+    const rewardQueueRetreatBps = this.getPolymarketRewardQueueRetreatBps(market, orderbook);
+    if (rewardQueueRetreatBps > 0) {
+      touchBufferBps += rewardQueueRetreatBps;
     }
     const secondBid = this.getLevelPrice(orderbook.bids, 1, 'bids');
     const secondAsk = this.getLevelPrice(orderbook.asks, 1, 'asks');
