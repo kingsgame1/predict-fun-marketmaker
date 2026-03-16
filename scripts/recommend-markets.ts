@@ -1521,6 +1521,8 @@ async function main(): Promise<void> {
       hourRiskPenalty: toFixedOrNull(hourRiskPenalty.penalty || null, 1),
       hourRiskReason: hourRiskPenalty.reason || null,
       hourRiskHour: Number.isFinite(hourRiskPenalty.hour) ? hourRiskPenalty.hour : null,
+      marketHourRiskPenalty: toFixedOrNull(entry.market.polymarket_market_hour_risk_penalty ?? null, 1),
+      marketHourRiskReason: entry.market.polymarket_market_hour_risk_reason || null,
       patternMemoryPenalty: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
       patternMemoryReason: patternMemoryPenalty.get(entry.market.token_id)?.reason || null,
       patternMemoryDominance: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.dominance ?? null, 3),

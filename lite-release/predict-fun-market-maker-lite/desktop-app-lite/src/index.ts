@@ -527,6 +527,72 @@ function loadPolymarketHourRiskPenalty(
   }
 }
 
+function loadPolymarketHourlyMarketRisk(
+  metricsPath: string | undefined,
+  cwd: string,
+  lookbackDays: number = 7,
+  maxPenalty: number = 8
+): Map<string, { penalty: number; reason: string; hour: number }> {
+  const currentHour = new Date().getHours();
+  const penalties = new Map<string, { penalty: number; reason: string; hour: number }>();
+  if (!metricsPath) {
+    return penalties;
+  }
+
+  try {
+    const resolved = path.isAbsolute(metricsPath) ? metricsPath : path.resolve(cwd, metricsPath);
+    if (!fs.existsSync(resolved)) {
+      return penalties;
+    }
+    const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
+      events?: Array<{ ts?: number; type?: string; tokenId?: string; message?: string }>;
+    };
+    const cutoff = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
+    const scores = new Map<string, { penalty: number; adverse: number; postOnly: number; pauses: number }>();
+
+    for (const event of raw.events || []) {
+      const tokenId = String(event.tokenId || '');
+      if (!tokenId) continue;
+      const ts = Number(event.ts || 0);
+      if (!Number.isFinite(ts) || ts < cutoff) continue;
+      const date = new Date(ts);
+      if (date.getHours() !== currentHour) continue;
+      const type = String(event.type || '');
+      const message = String(event.message || '');
+      const entry = scores.get(tokenId) || { penalty: 0, adverse: 0, postOnly: 0, pauses: 0 };
+      if (type === 'POLYMARKET_ADVERSE_FILL') {
+        entry.penalty += 1.75;
+        entry.adverse += 1;
+      } else if (type === 'POLYMARKET_POST_ONLY_FUSE') {
+        entry.penalty += 2.25;
+        entry.postOnly += 1;
+      } else if (type === 'MARKET_PAUSE' && message.includes('polymarket-')) {
+        entry.penalty += 1.5;
+        entry.pauses += 1;
+      }
+      scores.set(tokenId, entry);
+    }
+
+    for (const [tokenId, score] of scores.entries()) {
+      const bounded = Math.min(maxPenalty, score.penalty);
+      if (bounded <= 0) continue;
+      const parts: string[] = [];
+      if (score.adverse > 0) parts.push(`不利成交${score.adverse}次`);
+      if (score.postOnly > 0) parts.push(`postOnly熔断${score.postOnly}次`);
+      if (score.pauses > 0) parts.push(`风控暂停${score.pauses}次`);
+      penalties.set(tokenId, {
+        penalty: bounded,
+        reason: `${currentHour}点该市场时段偏危险: ${parts.join(' / ') || '风险偏高'} (-${bounded.toFixed(1)})`,
+        hour: currentHour,
+      });
+    }
+  } catch (error) {
+    console.warn('⚠️ 读取 Polymarket 分市场时段风险失败，忽略:', error);
+  }
+
+  return penalties;
+}
+
 async function populateOrderbooksWithConcurrency(
   markets: Market[],
   concurrency: number,
@@ -1202,6 +1268,12 @@ export class PolymarketMarketMakerBot {
       safety.hourRiskLookbackDays,
       safety.hourRiskPenaltyMax
     );
+    const hourlyMarketRiskPenalty = loadPolymarketHourlyMarketRisk(
+      this.config.mmMetricsPath,
+      process.cwd(),
+      safety.hourRiskLookbackDays,
+      safety.hourRiskPenaltyMax
+    );
     return {
       polymarketRewardMinFitScore: safety.rewardMinFitScore,
       polymarketRewardMinDailyRate: safety.rewardMinDailyRate,
@@ -1220,6 +1292,7 @@ export class PolymarketMarketMakerBot {
       polymarketPatternMemoryPenalty: patternMemoryPenalty,
       polymarketPatternMemoryBlockPenalty: safety.patternMemoryBlockPenalty,
       polymarketHourRiskPenalty: hourRiskPenalty,
+      polymarketHourlyMarketRiskPenalty: hourlyMarketRiskPenalty,
       polymarketHourRiskBlockPenalty: safety.hourRiskBlockPenalty,
       polymarketHourRiskSizeFactorMin: safety.hourRiskSizeFactorMin,
     };
@@ -1260,6 +1333,15 @@ export class PolymarketMarketMakerBot {
     );
     if (hourRisk.penalty >= safety.hourRiskBlockPenalty) {
       return { skip: true, reason: hourRisk.reason };
+    }
+    const hourlyMarketRisk = loadPolymarketHourlyMarketRisk(
+      this.config.mmMetricsPath,
+      process.cwd(),
+      safety.hourRiskLookbackDays,
+      safety.hourRiskPenaltyMax
+    ).get(market.token_id);
+    if ((hourlyMarketRisk?.penalty || 0) >= safety.hourRiskBlockPenalty) {
+      return { skip: true, reason: hourlyMarketRisk?.reason || '该市场当前时段风险过高' };
     }
     return { skip: false };
   }

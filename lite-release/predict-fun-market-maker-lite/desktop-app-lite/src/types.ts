@@ -1186,6 +1186,8 @@ export interface Market {
   polymarket_pattern_memory_learned_size_unsafe?: number;
   polymarket_hour_risk_penalty?: number;
   polymarket_hour_risk_reason?: string;
+  polymarket_market_hour_risk_penalty?: number;
+  polymarket_market_hour_risk_reason?: string;
   polymarket_accepting_orders?: boolean;
   polymarket_tick_size?: number;
   polymarket_enable_order_book?: boolean;

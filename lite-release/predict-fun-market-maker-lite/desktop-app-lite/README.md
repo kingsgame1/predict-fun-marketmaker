@@ -22,16 +22,16 @@
 
 | 平台 | 文件 |
 |------|------|
-| macOS (Apple Silicon) | `PredictFun.Market.Maker.Lite-1.1.0-arm64.dmg` |
-| Windows | `PredictFun.Market.Maker.Lite.Setup.1.1.0.exe` |
-| Linux x64 | `PredictFun.Market.Maker.Lite-1.1.0.AppImage` |
-| Linux arm64 | `PredictFun.Market.Maker.Lite-1.1.0-arm64.AppImage` |
+| macOS (Apple Silicon) | `PredictFun.Market.Maker.Lite-2.1.0-arm64.dmg` |
+| Windows | `PredictFun.Market.Maker.Lite.Setup.2.1.0.exe` |
+| Linux x64 | `PredictFun.Market.Maker.Lite-2.1.0.AppImage` |
+| Linux arm64 | `PredictFun.Market.Maker.Lite-2.1.0-arm64.AppImage` |
 
 Linux 额外说明：
 
 ```bash
-chmod +x PredictFun.Market.Maker.Lite-1.1.0.AppImage
-./PredictFun.Market.Maker.Lite-1.1.0.AppImage
+chmod +x PredictFun.Market.Maker.Lite-2.1.0.AppImage
+./PredictFun.Market.Maker.Lite-2.1.0.AppImage
 ```
 
 如果 AppImage 无法启动，先检查系统是否安装 `libfuse2`。
@@ -40,18 +40,18 @@ chmod +x PredictFun.Market.Maker.Lite-1.1.0.AppImage
 
 Windows：
 
-- 安装包：`PredictFun.Market.Maker.Lite.Setup.1.1.0.exe`
+- 安装包：`PredictFun.Market.Maker.Lite.Setup.2.1.0.exe`
 - 配置目录：`%APPDATA%\\PredictFunMarketMakerLite`
 - 配置文件：`%APPDATA%\\PredictFunMarketMakerLite\\.env`
 - 最新版本已经内置运行时脚本，不再依赖系统 `npx` / `tsx`
 
 Ubuntu：
 
-- 推荐优先安装：`predict-fun-market-maker-lite-app_1.1.0_amd64.deb`
+- 推荐优先安装：`predict-fun-market-maker-lite-app_2.1.0_amd64.deb`
 - 安装命令：
 
 ```bash
-sudo dpkg -i predict-fun-market-maker-lite-app_1.1.0_amd64.deb
+sudo dpkg -i predict-fun-market-maker-lite-app_2.1.0_amd64.deb
 sudo apt-get install -f
 ```
 

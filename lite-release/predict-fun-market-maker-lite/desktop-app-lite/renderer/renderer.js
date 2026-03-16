@@ -269,6 +269,7 @@ function renderMarketCards(items, selected = new Set()) {
     const riskPenalty = item.recentRiskPenalty == null ? null : Number(item.recentRiskPenalty);
     const cooldownMinutes = item.recentRiskCooldownMinutes == null ? null : Number(item.recentRiskCooldownMinutes);
     const hourRiskPenalty = item.hourRiskPenalty == null ? null : Number(item.hourRiskPenalty);
+    const marketHourRiskPenalty = item.marketHourRiskPenalty == null ? null : Number(item.marketHourRiskPenalty);
     const patternMemoryPenalty = item.patternMemoryPenalty == null ? null : Number(item.patternMemoryPenalty);
     const patternMemoryTtlHours = item.patternMemoryTtlHours == null ? null : Number(item.patternMemoryTtlHours);
     const patternMemoryDecayFactor = item.patternMemoryDecayFactor == null ? null : Number(item.patternMemoryDecayFactor);
@@ -291,6 +292,10 @@ function renderMarketCards(items, selected = new Set()) {
     const hourRiskChip =
       hourRiskPenalty && hourRiskPenalty > 0
         ? `<span class="status-chip" style="background:#312e81;border-color:#6366f1;">时段风险 -${escapeHtml(formatNum(hourRiskPenalty, 1))}</span>`
+        : '';
+    const marketHourRiskChip =
+      marketHourRiskPenalty && marketHourRiskPenalty > 0
+        ? `<span class="status-chip" style="background:#1e3a8a;border-color:#3b82f6;">市场时段风险 -${escapeHtml(formatNum(marketHourRiskPenalty, 1))}</span>`
         : '';
     const patternMemoryChip =
       patternMemoryPenalty && patternMemoryPenalty > 0
@@ -316,6 +321,7 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-subvalue">净效率 ${item.rewardNetEfficiency == null ? '--' : `${formatPct(Number(item.rewardNetEfficiency) * 100, 2)}/日`} / 有效净效率 ${item.rewardEffectiveNetEfficiency == null ? '--' : `${formatPct(Number(item.rewardEffectiveNetEfficiency) * 100, 2)}/日`}</div>
           <div class="metric-subvalue">净日奖励 ${item.rewardNetDailyRate == null ? '--' : `$${formatNum(item.rewardNetDailyRate, 2)}`} / 有效净日奖励 ${item.rewardEffectiveNetDailyRate == null ? '--' : `$${formatNum(item.rewardEffectiveNetDailyRate, 2)}`}</div>
           <div class="metric-subvalue">估算成本 ${item.rewardEstimatedCostBps == null ? '--' : `${formatNum(item.rewardEstimatedCostBps, 2)}bps`} / 风险缩放 ${item.rewardRiskThrottleFactor == null ? '--' : `${formatNum(item.rewardRiskThrottleFactor, 3)}x`} / 时段系数 ${item.rewardHourRiskFactor == null ? '--' : `${formatNum(item.rewardHourRiskFactor, 3)}x`}</div>
+          ${item.marketHourRiskReason ? `<div class="metric-subvalue">市场时段风险 ${escapeHtml(item.marketHourRiskReason)}</div>` : ""}
           <div class="metric-subvalue">撤单率 ${item.recentCancelRate == null ? '--' : `${formatPct(Number(item.recentCancelRate) * 100, 0)}`} / 平均撤单寿命 ${item.recentAvgCancelLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgCancelLifetimeMs) / 60000, 1)}m`} / 平均成交寿命 ${item.recentAvgFillLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgFillLifetimeMs) / 60000, 1)}m`}</div>
           <div class="metric-subvalue">队列耗时 ${item.rewardQueueHours == null ? '--' : `${formatNum(item.rewardQueueHours, 2)}h`} / 流速倍率 ${item.rewardFlowToQueuePerHour == null ? '--' : `${formatNum(item.rewardFlowToQueuePerHour, 2)}x/h`}</div>
           ${item.patternMemoryReason ? `<div class="metric-subvalue">长期模式 ${escapeHtml(item.patternMemoryReason)}${item.patternMemoryDominantReason ? ` / 主导撤单 ${escapeHtml(item.patternMemoryDominantReason)}` : ""}${item.patternMemoryDominance == null ? "" : ` / 主导度 ${escapeHtml(formatPct(Number(item.patternMemoryDominance) * 100, 0))}`}${patternMemoryDecayFactor == null ? "" : ` / 衰减系数 ${escapeHtml(formatNum(patternMemoryDecayFactor, 3))}x`}${patternMemoryTtlHours == null ? "" : ` / 剩余 ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h`}</div>` : ""}
@@ -335,6 +341,7 @@ function renderMarketCards(items, selected = new Set()) {
             ${riskChip}
             ${cooldownChip}
             ${hourRiskChip}
+            ${marketHourRiskChip}
             ${patternMemoryChip}
           </div>
           <h3 class="market-card-title">${escapeHtml(item.question || '--')}</h3>

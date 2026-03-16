@@ -48,6 +48,7 @@ export interface MarketSelectorOptions {
     }
   >;
   polymarketHourRiskPenalty?: { penalty: number; reason: string; hour: number };
+  polymarketHourlyMarketRiskPenalty?: Map<string, { penalty: number; reason: string; hour: number }>;
   polymarketHourRiskBlockPenalty?: number;
   polymarketHourRiskSizeFactorMin?: number;
   polymarketPatternMemoryPenalty?: Map<
@@ -166,6 +167,7 @@ export class MarketSelector {
     }
   >;
   private polymarketHourRiskPenalty: { penalty: number; reason: string; hour: number };
+  private polymarketHourlyMarketRiskPenalty: Map<string, { penalty: number; reason: string; hour: number }>;
   private polymarketHourRiskBlockPenalty: number;
   private polymarketHourRiskSizeFactorMin: number;
   private polymarketPatternMemoryPenalty: Map<
@@ -213,6 +215,7 @@ export class MarketSelector {
     this.polymarketRecentRiskBlockPenalty = options.polymarketRecentRiskBlockPenalty ?? 12;
     this.polymarketRecentRiskPenalty = options.polymarketRecentRiskPenalty ?? new Map();
     this.polymarketHourRiskPenalty = options.polymarketHourRiskPenalty ?? { penalty: 0, reason: '', hour: new Date().getHours() };
+    this.polymarketHourlyMarketRiskPenalty = options.polymarketHourlyMarketRiskPenalty ?? new Map();
     this.polymarketHourRiskBlockPenalty = options.polymarketHourRiskBlockPenalty ?? 6;
     this.polymarketHourRiskSizeFactorMin = options.polymarketHourRiskSizeFactorMin ?? 0.55;
     this.polymarketPatternMemoryPenalty = options.polymarketPatternMemoryPenalty ?? new Map();
@@ -252,6 +255,7 @@ export class MarketSelector {
     const rewardProfile = this.getPolymarketRewardProfile(market, orderbook);
     const recentRisk = this.polymarketRecentRiskPenalty.get(market.token_id);
     const hourRisk = this.polymarketHourRiskPenalty;
+    const marketHourRisk = this.polymarketHourlyMarketRiskPenalty.get(market.token_id);
     const patternMemory = this.polymarketPatternMemoryPenalty.get(market.token_id);
 
     market.polymarket_recent_risk_penalty = recentRisk?.penalty;
@@ -296,6 +300,8 @@ export class MarketSelector {
     market.polymarket_pattern_memory_learned_size_unsafe = patternMemory?.learnedSizeMix?.unsafe;
     market.polymarket_hour_risk_penalty = hourRisk.penalty > 0 ? hourRisk.penalty : undefined;
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
+    market.polymarket_market_hour_risk_penalty = marketHourRisk?.penalty;
+    market.polymarket_market_hour_risk_reason = marketHourRisk?.reason;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
     market.polymarket_reward_net_efficiency = rewardProfile.enabled ? rewardProfile.netEfficiency : undefined;
     market.polymarket_reward_net_daily_rate = rewardProfile.enabled ? rewardProfile.netDailyRate : undefined;
@@ -326,6 +332,13 @@ export class MarketSelector {
           market,
           score: 0,
           reasons: [hourRisk.reason],
+        };
+      }
+      if ((marketHourRisk?.penalty || 0) >= this.polymarketHourRiskBlockPenalty) {
+        return {
+          market,
+          score: 0,
+          reasons: [marketHourRisk?.reason || '该市场当前时段风险过高'],
         };
       }
       if (recentRisk && recentRisk.penalty >= this.polymarketRecentRiskBlockPenalty) {
@@ -595,14 +608,25 @@ export class MarketSelector {
       fillPenaltyBps * this.polymarketRewardNetCostBpsMultiplier + (cancelPenalty + lifetimePenalty) * 5;
     const netEfficiency = Math.max(0, efficiency - estimatedCostBps / 10000) * riskThrottleFactor;
     const netDailyRate = netEfficiency * capitalEstimateUsd;
-    const hourPenaltyRatio = this.polymarketHourRiskPenalty.penalty > 0
-      ? clamp(
-          this.polymarketHourRiskPenalty.penalty / Math.max(this.polymarketHourRiskBlockPenalty, 1),
-          0,
-          1
-        )
-      : 0;
-    const hourRiskFactor = 1 - (1 - this.polymarketHourRiskSizeFactorMin) * hourPenaltyRatio;
+    const globalHourPenaltyRatio =
+      this.polymarketHourRiskPenalty.penalty > 0
+        ? clamp(
+            this.polymarketHourRiskPenalty.penalty / Math.max(this.polymarketHourRiskBlockPenalty, 1),
+            0,
+            1
+          )
+        : 0;
+    const marketHourPenalty = Number(market.polymarket_market_hour_risk_penalty || 0);
+    const marketHourPenaltyRatio =
+      marketHourPenalty > 0
+        ? clamp(marketHourPenalty / Math.max(this.polymarketHourRiskBlockPenalty, 1), 0, 1)
+        : 0;
+    const combinedHourPenaltyRatio = clamp(
+      Math.max(globalHourPenaltyRatio, marketHourPenaltyRatio * 1.1),
+      0,
+      1
+    );
+    const hourRiskFactor = 1 - (1 - this.polymarketHourRiskSizeFactorMin) * combinedHourPenaltyRatio;
     const effectiveNetEfficiency = netEfficiency * hourRiskFactor;
     const effectiveNetDailyRate = effectiveNetEfficiency * capitalEstimateUsd;
     const efficiencyBonus = effectiveNetEfficiency > 0 ? Math.min(6, Math.log10(effectiveNetEfficiency * 100 + 1) * 4) : 0;
