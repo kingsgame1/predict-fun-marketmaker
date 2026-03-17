@@ -225,7 +225,7 @@ export class MarketMaker {
   private wsEmergencyRecoveryStage = -1;
   private autoTuneState: Map<
     string,
-    { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number }
+    { mult: number; windowStart: number; placed: number; canceled: number; filled: number; lastUpdate: number; lastUtility: number }
   > = new Map();
   private mmMetrics: Map<string, Record<string, unknown>> = new Map();
   private mmEventLog: Array<{ ts: number; type: string; tokenId?: string; message: string }> = [];
@@ -459,6 +459,21 @@ export class MarketMaker {
       patternMemoryMaxPenalty: this.config.polymarketPatternMemoryMaxPenalty ?? 8,
       patternMemoryRetreatMaxBps: this.config.polymarketPatternMemoryRetreatMaxBps ?? 8,
       patternMemorySizeFactorMin: this.config.polymarketPatternMemorySizeFactorMin ?? 0.7,
+      eventRiskBlockWithinMs: this.config.polymarketEventRiskBlockWithinMs ?? 30 * 60 * 1000,
+      eventRiskPenaltyWithinMs: this.config.polymarketEventRiskPenaltyWithinMs ?? 4 * 60 * 60 * 1000,
+      eventRiskPenaltyMax: this.config.polymarketEventRiskPenaltyMax ?? 6,
+      eventRiskSizeFactorMin: this.config.polymarketEventRiskSizeFactorMin ?? 0.45,
+      eventRiskRetreatMaxBps: this.config.polymarketEventRiskRetreatMaxBps ?? 10,
+      groupMaxExposureFactor: this.config.polymarketGroupMaxExposureFactor ?? 1.4,
+      groupSoftExposureStart: this.config.polymarketGroupSoftExposureStart ?? 0.7,
+      groupSizeFactorMin: this.config.polymarketGroupSizeFactorMin ?? 0.55,
+      groupRetreatMaxBps: this.config.polymarketGroupRetreatMaxBps ?? 12,
+      autoTuneUtilityTarget: this.config.mmAutoTuneUtilityTarget ?? 0.7,
+      autoTuneUtilityDeadband: this.config.mmAutoTuneUtilityDeadband ?? 0.15,
+      autoTuneRewardWeight: this.config.mmAutoTuneRewardWeight ?? 1,
+      autoTuneFillCostWeight: this.config.mmAutoTuneFillCostWeight ?? 1,
+      autoTuneCancelCostWeight: this.config.mmAutoTuneCancelCostWeight ?? 0.75,
+      autoTuneRiskWeight: this.config.mmAutoTuneRiskWeight ?? 0.6,
     };
   }
 
@@ -852,6 +867,83 @@ export class MarketMaker {
       0,
       cfg.rewardQueueRetreatMaxBps + cfg.rewardFastFlowRetreatMaxBps + Number(cfg.patternMemoryRetreatMaxBps || 0)
     );
+  }
+
+  private getPolymarketEventRiskAdjustment(market: Market): { retreatBps: number; sizeFactor: number; reason: string; block: boolean } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return { retreatBps: 0, sizeFactor: 1, reason: '', block: false };
+    }
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const endDate = String(market.end_date || '').trim();
+    if (!endDate) {
+      return { retreatBps: 0, sizeFactor: 1, reason: '', block: false };
+    }
+    const endMs = Date.parse(endDate);
+    if (!Number.isFinite(endMs)) {
+      return { retreatBps: 0, sizeFactor: 1, reason: '', block: false };
+    }
+    const timeToCloseMs = endMs - Date.now();
+    const blockWithinMs = Math.max(0, Number(cfg.eventRiskBlockWithinMs || 0));
+    const penaltyWithinMs = Math.max(blockWithinMs, Number(cfg.eventRiskPenaltyWithinMs || 0));
+    const penaltyMax = Math.max(0, Number(cfg.eventRiskPenaltyMax || 0));
+    const sizeFactorMin = this.clamp(Number(cfg.eventRiskSizeFactorMin || 0.45), 0.1, 1);
+    const retreatMaxBps = Math.max(0, Number(cfg.eventRiskRetreatMaxBps || 0));
+    if (timeToCloseMs <= 0) {
+      return { retreatBps: retreatMaxBps, sizeFactor: sizeFactorMin, reason: '市场已接近结束或结算窗口', block: true };
+    }
+    if (blockWithinMs > 0 && timeToCloseMs <= blockWithinMs) {
+      return { retreatBps: retreatMaxBps, sizeFactor: sizeFactorMin, reason: '临近事件窗口，仅剩约' + Math.max(1, Math.ceil(timeToCloseMs / 60000)) + '分钟', block: true };
+    }
+    if (penaltyWithinMs <= 0 || timeToCloseMs > penaltyWithinMs || penaltyMax <= 0) {
+      return { retreatBps: 0, sizeFactor: 1, reason: '', block: false };
+    }
+    const span = Math.max(1, penaltyWithinMs - blockWithinMs);
+    const ratio = this.clamp((penaltyWithinMs - timeToCloseMs) / span, 0, 1);
+    const sizeFactor = 1 - (1 - sizeFactorMin) * ratio;
+    const retreatBps = retreatMaxBps * ratio;
+    return {
+      retreatBps,
+      sizeFactor,
+      reason: '临近事件窗口，剩余约' + Math.max(1, Math.ceil(timeToCloseMs / 60000)) + '分钟',
+      block: false,
+    };
+  }
+
+  private getPolymarketGroupKey(market: Market): string {
+    const raw = String(market.condition_id || market.event_id || '').trim();
+    return raw ? raw : String(market.token_id || '').trim();
+  }
+
+  private getPolymarketGroupBudgetAdjustment(market: Market): { remainingBudget: number; utilization: number; sizeFactor: number; retreatBps: number; reason: string } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return { remainingBudget: Number.POSITIVE_INFINITY, utilization: 0, sizeFactor: 1, retreatBps: 0, reason: '' };
+    }
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const groupKey = this.getPolymarketGroupKey(market);
+    if (!groupKey) {
+      return { remainingBudget: Number.POSITIVE_INFINITY, utilization: 0, sizeFactor: 1, retreatBps: 0, reason: '' };
+    }
+    const maxBudget = Math.max(1, this.getEffectiveMaxPosition() * Math.max(0.25, Number(cfg.groupMaxExposureFactor || 1.4)));
+    let groupValue = 0;
+    for (const [tokenId, position] of this.positions.entries()) {
+      const mapped = this.marketByToken.get(tokenId);
+      if (!mapped || this.getPolymarketGroupKey(mapped) !== groupKey) continue;
+      groupValue += Math.max(0, Number(position.total_value || position.value || 0));
+    }
+    const remainingBudget = Math.max(0, maxBudget - groupValue);
+    const utilization = this.clamp(groupValue / maxBudget, 0, 4);
+    const softStart = this.clamp(Number(cfg.groupSoftExposureStart || 0.7), 0.1, 0.99);
+    const ratio = utilization <= softStart ? 0 : this.clamp((utilization - softStart) / Math.max(0.01, 1 - softStart), 0, 1);
+    const sizeMin = this.clamp(Number(cfg.groupSizeFactorMin || 0.55), 0.1, 1);
+    const sizeFactor = 1 - (1 - sizeMin) * ratio;
+    const retreatBps = Math.max(0, Number(cfg.groupRetreatMaxBps || 0)) * ratio;
+    return {
+      remainingBudget,
+      utilization,
+      sizeFactor,
+      retreatBps,
+      reason: '事件组利用率 ' + (utilization * 100).toFixed(0) + '%',
+    };
   }
 
   private getPolymarketPatternMemoryAdjustment(market: Market): { retreatBps: number; sizeFactor: number; reason: string } {
@@ -3741,13 +3833,14 @@ export class MarketMaker {
     canceled: number;
     filled: number;
     lastUpdate: number;
+    lastUtility: number;
   } {
     const now = Date.now();
     const existing = this.autoTuneState.get(tokenId);
     if (existing) {
       return existing;
     }
-    const state = { mult: 1, windowStart: now, placed: 0, canceled: 0, filled: 0, lastUpdate: now };
+    const state = { mult: 1, windowStart: now, placed: 0, canceled: 0, filled: 0, lastUpdate: now, lastUtility: 0 };
     this.autoTuneState.set(tokenId, state);
     return state;
   }
@@ -3772,11 +3865,30 @@ export class MarketMaker {
     } else {
       state.filled += 1;
     }
-    this.updateAutoTuneMultiplier(state, now);
+    this.updateAutoTuneMultiplier(tokenId, state, now);
+  }
+
+  private getAutoTuneUtilitySnapshot(tokenId: string): { utility: number; rewardScore: number; costScore: number } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return { utility: 0, rewardScore: 0, costScore: 0 };
+    }
+    const market = this.marketByToken.get(tokenId);
+    if (!market) {
+      return { utility: 0, rewardScore: 0, costScore: 0 };
+    }
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const minNetEfficiency = Math.max(1e-6, Number(this.config.polymarketRewardMinNetEfficiency || 0.0008));
+    const rewardScore = this.clamp(Number(market.polymarket_reward_effective_net_efficiency || 0) / minNetEfficiency, 0, 3) * Math.max(0, Number(cfg.autoTuneRewardWeight || 1));
+    const fillCost = (Math.max(0, Number(market.polymarket_recent_fill_penalty_bps || 0)) / 10) * Math.max(0, Number(cfg.autoTuneFillCostWeight || 1));
+    const cancelCost = (Math.max(0, Number(market.polymarket_recent_cancel_penalty || 0)) + Math.max(0, Number(market.polymarket_recent_lifetime_penalty || 0))) * Math.max(0, Number(cfg.autoTuneCancelCostWeight || 0.75));
+    const riskCost = ((Math.max(0, Number(market.polymarket_recent_risk_penalty || 0)) + Math.max(0, Number(market.polymarket_pattern_memory_penalty || 0)) + Math.max(0, Number(market.polymarket_hour_risk_penalty || 0)) + Math.max(0, Number(market.polymarket_market_hour_risk_penalty || 0)) + Math.max(0, Number(market.polymarket_event_risk_penalty || 0))) / 6) * Math.max(0, Number(cfg.autoTuneRiskWeight || 0.6));
+    const utility = rewardScore - fillCost - cancelCost - riskCost;
+    return { utility, rewardScore, costScore: fillCost + cancelCost + riskCost };
   }
 
   private updateAutoTuneMultiplier(
-    state: { mult: number; placed: number; canceled: number; filled: number; lastUpdate: number },
+    tokenId: string,
+    state: { mult: number; placed: number; canceled: number; filled: number; lastUpdate: number; lastUtility: number },
     now: number
   ): void {
     const minEvents = Math.max(1, this.config.mmAutoTuneMinEvents ?? 20);
@@ -3793,8 +3905,22 @@ export class MarketMaker {
     const step = Math.max(0, this.config.mmAutoTuneStep ?? 0.05);
     const minMult = Math.max(0.1, this.config.mmAutoTuneMinMult ?? 0.6);
     const maxMult = Math.max(minMult, this.config.mmAutoTuneMaxMult ?? 2.5);
+    const utilityTarget = Number(this.config.mmAutoTuneUtilityTarget ?? 0.7);
+    const utilityDeadband = Math.max(0, Number(this.config.mmAutoTuneUtilityDeadband ?? 0.15));
+    const utilitySnapshot = this.getAutoTuneUtilitySnapshot(tokenId);
     let mult = state.mult ?? 1;
-    if (targetFill > 0 && fillRate > targetFill) {
+    state.lastUtility = utilitySnapshot.utility;
+    if (this.config.mmVenue === 'polymarket') {
+      if (utilitySnapshot.utility < utilityTarget - utilityDeadband) {
+        mult = Math.min(maxMult, mult + step);
+      } else if (utilitySnapshot.utility > utilityTarget + utilityDeadband) {
+        mult = Math.max(minMult, mult - step * 0.5);
+      } else if (targetFill > 0 && fillRate > targetFill * 1.25) {
+        mult = Math.min(maxMult, mult + step * 0.5);
+      } else if (targetCancel > 0 && cancelRate > targetCancel && fillRate < targetFill) {
+        mult = Math.max(minMult, mult - step * 0.25);
+      }
+    } else if (targetFill > 0 && fillRate > targetFill) {
       mult = Math.min(maxMult, mult + step);
     } else if (targetFill > 0 && fillRate < targetFill * 0.5 && targetCancel > 0 && cancelRate > targetCancel) {
       mult = Math.max(minMult, mult - step * 0.5);
@@ -3814,16 +3940,17 @@ export class MarketMaker {
     return Math.max(0.1, (state.mult || 1) + panicBoost);
   }
 
-  private getAutoTuneSnapshot(tokenId: string): { mult: number; fillRate: number; cancelRate: number } {
+  private getAutoTuneSnapshot(tokenId: string): { mult: number; fillRate: number; cancelRate: number; utility: number } {
     const state = this.autoTuneState.get(tokenId);
     if (!state || !this.config.mmAutoTuneEnabled) {
-      return { mult: 1, fillRate: 0, cancelRate: 0 };
+      return { mult: 1, fillRate: 0, cancelRate: 0, utility: 0 };
     }
     const placed = Math.max(1, state.placed);
     return {
       mult: state.mult || 1,
       fillRate: state.filled / placed,
       cancelRate: state.canceled / placed,
+      utility: Number.isFinite(state.lastUtility) ? state.lastUtility : 0,
     };
   }
 
@@ -5244,6 +5371,17 @@ export class MarketMaker {
     if (patternMemoryAdjustment.retreatBps > 0) {
       touchBufferBps += patternMemoryAdjustment.retreatBps;
     }
+    const eventRiskAdjustment = this.getPolymarketEventRiskAdjustment(market);
+    if (eventRiskAdjustment.retreatBps > 0) {
+      touchBufferBps += eventRiskAdjustment.retreatBps;
+    }
+    const groupBudgetAdjustment = this.getPolymarketGroupBudgetAdjustment(market);
+    market.polymarket_group_utilization = groupBudgetAdjustment.utilization > 0 ? groupBudgetAdjustment.utilization : undefined;
+    market.polymarket_group_remaining_budget = Number.isFinite(groupBudgetAdjustment.remainingBudget) ? groupBudgetAdjustment.remainingBudget : undefined;
+    market.polymarket_group_reason = groupBudgetAdjustment.reason || undefined;
+    if (groupBudgetAdjustment.retreatBps > 0) {
+      touchBufferBps += groupBudgetAdjustment.retreatBps;
+    }
     const secondBid = this.getLevelPrice(orderbook.bids, 1, 'bids');
     const secondAsk = this.getLevelPrice(orderbook.asks, 1, 'asks');
     const fixedCents = Math.max(0, this.config.mmTouchBufferFixedCents ?? 0);
@@ -5319,14 +5457,19 @@ export class MarketMaker {
     const positionValue = this.positions.get(market.token_id)?.total_value || 0;
     const effectiveMaxPosition = this.getEffectiveMaxPosition();
     const remainingRiskBudget = Math.max(0, effectiveMaxPosition - positionValue);
+    const groupBudgetAdjustment = this.getPolymarketGroupBudgetAdjustment(market);
+    market.polymarket_group_utilization = groupBudgetAdjustment.utilization > 0 ? groupBudgetAdjustment.utilization : undefined;
+    market.polymarket_group_remaining_budget = Number.isFinite(groupBudgetAdjustment.remainingBudget) ? groupBudgetAdjustment.remainingBudget : undefined;
+    market.polymarket_group_reason = groupBudgetAdjustment.reason || undefined;
+    const combinedRemainingBudget = Math.max(0, Math.min(remainingRiskBudget, groupBudgetAdjustment.remainingBudget));
 
-    if (remainingRiskBudget <= 0) {
+    if (combinedRemainingBudget <= 0) {
       return { shares: 0, usdt: 0 };
     }
 
     const effectiveOrderSize = this.getEffectiveOrderSize();
     const effectiveMaxSingle = this.getEffectiveMaxSingleOrderValue();
-    const targetOrderValue = Math.min(effectiveOrderSize, effectiveMaxSingle, remainingRiskBudget);
+    const targetOrderValue = Math.min(effectiveOrderSize, effectiveMaxSingle, combinedRemainingBudget);
 
     if (targetOrderValue <= 0) {
       return { shares: 0, usdt: 0 };
@@ -5413,7 +5556,7 @@ export class MarketMaker {
     if (minShares > 0 && shares < minShares) {
       const minOrderValue = minShares * price;
       const hardCap = this.config.maxSingleOrderValue ?? Number.POSITIVE_INFINITY;
-      if (minOrderValue <= hardCap && minOrderValue <= remainingRiskBudget) {
+      if (minOrderValue <= hardCap && minOrderValue <= combinedRemainingBudget) {
         // 优先确保满足 min_shares 以获得积分，即使超过 depthCap
         shares = minShares;
         this.recordMmEvent('MIN_SHARES_ENFORCED',
@@ -5422,7 +5565,7 @@ export class MarketMaker {
       } else {
         // 无法满足 min_shares 要求，记录警告
         this.recordMmEvent('MIN_SHARES_UNMET',
-          `min=${minShares} shares=${shares} value=${minOrderValue} cap=${hardCap} budget=${remainingRiskBudget}`,
+          `min=${minShares} shares=${shares} value=${minOrderValue} cap=${hardCap} budget=${combinedRemainingBudget}`,
           market.token_id);
       }
     }
@@ -5451,6 +5594,13 @@ export class MarketMaker {
     const patternMemoryAdjustment = this.getPolymarketPatternMemoryAdjustment(market);
     if (patternMemoryAdjustment.sizeFactor < 1) {
       shares = Math.max(1, Math.floor(shares * patternMemoryAdjustment.sizeFactor));
+    }
+    const eventRiskAdjustment = this.getPolymarketEventRiskAdjustment(market);
+    if (eventRiskAdjustment.sizeFactor < 1) {
+      shares = Math.max(1, Math.floor(shares * eventRiskAdjustment.sizeFactor));
+    }
+    if (groupBudgetAdjustment.sizeFactor < 1) {
+      shares = Math.max(1, Math.floor(shares * groupBudgetAdjustment.sizeFactor));
     }
 
     if (depthCap > 0) {
@@ -5667,6 +5817,17 @@ export class MarketMaker {
     }
     if (this.shouldTripPolymarketLossFuse(livePosition)) {
       await this.triggerPolymarketLossFuse(market.token_id, livePosition);
+      return;
+    }
+    const eventRiskAdjustment = this.getPolymarketEventRiskAdjustment(market);
+    if (eventRiskAdjustment.block) {
+      await this.enforceMarketPause(
+        market.token_id,
+        Math.max(60_000, Number(this.config.polymarketEventRiskBlockWithinMs || 30 * 60 * 1000)),
+        eventRiskAdjustment.reason || '临近事件窗口',
+        'polymarket-event-window',
+        true
+      );
       return;
     }
 

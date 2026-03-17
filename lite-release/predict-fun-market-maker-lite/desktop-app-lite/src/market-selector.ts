@@ -51,6 +51,10 @@ export interface MarketSelectorOptions {
   polymarketHourlyMarketRiskPenalty?: Map<string, { penalty: number; reason: string; hour: number }>;
   polymarketHourRiskBlockPenalty?: number;
   polymarketHourRiskSizeFactorMin?: number;
+  polymarketEventRiskPenaltyWithinMs?: number;
+  polymarketEventRiskBlockWithinMs?: number;
+  polymarketEventRiskPenaltyMax?: number;
+  polymarketEventRiskSizeFactorMin?: number;
   polymarketPatternMemoryPenalty?: Map<
     string,
     {
@@ -113,6 +117,14 @@ interface PolymarketRewardProfile {
   fastFlowPenalty: number;
 }
 
+export interface PolymarketEventRiskState {
+  penalty: number;
+  reason: string;
+  block: boolean;
+  timeToCloseMs?: number;
+  sizeFactor: number;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -125,6 +137,50 @@ function formatDurationMs(durationMs: number): string {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+}
+
+export function evaluatePolymarketEventRisk(
+  market: Market,
+  options: {
+    penaltyWithinMs?: number;
+    blockWithinMs?: number;
+    penaltyMax?: number;
+    sizeFactorMin?: number;
+  } = {}
+): PolymarketEventRiskState {
+  const endDate = String(market.end_date || '').trim();
+  if (!endDate) {
+    return { penalty: 0, reason: '', block: false, sizeFactor: 1 };
+  }
+  const endMs = Date.parse(endDate);
+  if (!Number.isFinite(endMs)) {
+    return { penalty: 0, reason: '', block: false, sizeFactor: 1 };
+  }
+  const timeToCloseMs = endMs - Date.now();
+  const blockWithinMs = Math.max(0, Number(options.blockWithinMs || 0));
+  const penaltyWithinMs = Math.max(blockWithinMs, Number(options.penaltyWithinMs || 0));
+  const penaltyMax = Math.max(0, Number(options.penaltyMax || 0));
+  const sizeFactorMin = clamp(Number(options.sizeFactorMin ?? 0.45), 0.1, 1);
+  if (timeToCloseMs <= 0) {
+    return { penalty: penaltyMax, reason: '市场已接近结束或结算窗口', block: true, timeToCloseMs, sizeFactor: sizeFactorMin };
+  }
+  if (blockWithinMs > 0 && timeToCloseMs <= blockWithinMs) {
+    return { penalty: penaltyMax, reason: '临近事件窗口，仅剩约' + formatDurationMs(timeToCloseMs), block: true, timeToCloseMs, sizeFactor: sizeFactorMin };
+  }
+  if (penaltyWithinMs <= 0 || timeToCloseMs > penaltyWithinMs || penaltyMax <= 0) {
+    return { penalty: 0, reason: '', block: false, timeToCloseMs, sizeFactor: 1 };
+  }
+  const span = Math.max(1, penaltyWithinMs - blockWithinMs);
+  const ratio = clamp((penaltyWithinMs - timeToCloseMs) / span, 0, 1);
+  const penalty = penaltyMax * ratio;
+  const sizeFactor = 1 - (1 - sizeFactorMin) * ratio;
+  return {
+    penalty,
+    reason: '临近事件窗口，剩余约' + formatDurationMs(timeToCloseMs) + ' (-' + penalty.toFixed(1) + ')',
+    block: false,
+    timeToCloseMs,
+    sizeFactor,
+  };
 }
 
 export class MarketSelector {
@@ -170,6 +226,10 @@ export class MarketSelector {
   private polymarketHourlyMarketRiskPenalty: Map<string, { penalty: number; reason: string; hour: number }>;
   private polymarketHourRiskBlockPenalty: number;
   private polymarketHourRiskSizeFactorMin: number;
+  private polymarketEventRiskPenaltyWithinMs: number;
+  private polymarketEventRiskBlockWithinMs: number;
+  private polymarketEventRiskPenaltyMax: number;
+  private polymarketEventRiskSizeFactorMin: number;
   private polymarketPatternMemoryPenalty: Map<
     string,
     {
@@ -218,6 +278,10 @@ export class MarketSelector {
     this.polymarketHourlyMarketRiskPenalty = options.polymarketHourlyMarketRiskPenalty ?? new Map();
     this.polymarketHourRiskBlockPenalty = options.polymarketHourRiskBlockPenalty ?? 6;
     this.polymarketHourRiskSizeFactorMin = options.polymarketHourRiskSizeFactorMin ?? 0.55;
+    this.polymarketEventRiskPenaltyWithinMs = options.polymarketEventRiskPenaltyWithinMs ?? 4 * 60 * 60 * 1000;
+    this.polymarketEventRiskBlockWithinMs = options.polymarketEventRiskBlockWithinMs ?? 30 * 60 * 1000;
+    this.polymarketEventRiskPenaltyMax = options.polymarketEventRiskPenaltyMax ?? 6;
+    this.polymarketEventRiskSizeFactorMin = options.polymarketEventRiskSizeFactorMin ?? 0.45;
     this.polymarketPatternMemoryPenalty = options.polymarketPatternMemoryPenalty ?? new Map();
     this.polymarketPatternMemoryBlockPenalty = options.polymarketPatternMemoryBlockPenalty ?? 6;
   }
@@ -257,6 +321,12 @@ export class MarketSelector {
     const hourRisk = this.polymarketHourRiskPenalty;
     const marketHourRisk = this.polymarketHourlyMarketRiskPenalty.get(market.token_id);
     const patternMemory = this.polymarketPatternMemoryPenalty.get(market.token_id);
+    const eventRisk = evaluatePolymarketEventRisk(market, {
+      penaltyWithinMs: this.polymarketEventRiskPenaltyWithinMs,
+      blockWithinMs: this.polymarketEventRiskBlockWithinMs,
+      penaltyMax: this.polymarketEventRiskPenaltyMax,
+      sizeFactorMin: this.polymarketEventRiskSizeFactorMin,
+    });
 
     market.polymarket_recent_risk_penalty = recentRisk?.penalty;
     market.polymarket_recent_risk_reason = recentRisk?.reason;
@@ -302,6 +372,10 @@ export class MarketSelector {
     market.polymarket_hour_risk_reason = hourRisk.penalty > 0 ? hourRisk.reason : undefined;
     market.polymarket_market_hour_risk_penalty = marketHourRisk?.penalty;
     market.polymarket_market_hour_risk_reason = marketHourRisk?.reason;
+    market.polymarket_event_risk_penalty = eventRisk.penalty > 0 ? eventRisk.penalty : undefined;
+    market.polymarket_event_risk_reason = eventRisk.reason || undefined;
+    market.polymarket_event_time_to_close_ms = eventRisk.timeToCloseMs;
+    market.polymarket_event_risk_size_factor = eventRisk.sizeFactor < 1 ? eventRisk.sizeFactor : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
     market.polymarket_reward_net_efficiency = rewardProfile.enabled ? rewardProfile.netEfficiency : undefined;
     market.polymarket_reward_net_daily_rate = rewardProfile.enabled ? rewardProfile.netDailyRate : undefined;
@@ -339,6 +413,13 @@ export class MarketSelector {
           market,
           score: 0,
           reasons: [marketHourRisk?.reason || '该市场当前时段风险过高'],
+        };
+      }
+      if (eventRisk.block) {
+        return {
+          market,
+          score: 0,
+          reasons: [eventRisk.reason || '临近事件窗口，暂不推荐'],
         };
       }
       if (recentRisk && recentRisk.penalty >= this.polymarketRecentRiskBlockPenalty) {
@@ -527,6 +608,10 @@ export class MarketSelector {
       );
     }
     if (hourRisk.penalty > 0) {
+    if (eventRisk.penalty > 0) {
+      score -= eventRisk.penalty;
+      reasons.push(eventRisk.reason || '临近事件窗口，降权');
+    }
       score -= hourRisk.penalty;
       reasons.push(`分时段风险，降权: ${hourRisk.reason}`);
     }

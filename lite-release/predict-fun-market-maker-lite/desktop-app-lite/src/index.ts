@@ -9,7 +9,7 @@ import { Wallet } from 'ethers';
 import { loadConfig, printConfig } from './config.js';
 import { PredictAPI } from './api/client.js';
 import { PolymarketAPI } from './api/polymarket-client.js';
-import { MarketSelector } from './market-selector.js';
+import { MarketSelector, evaluatePolymarketEventRisk } from './market-selector.js';
 import { MarketMaker } from './market-maker.js';
 import { applyLiquidityRules } from './markets-config.js';
 import { PredictWebSocketFeed } from './external/predict-ws.js';
@@ -1223,6 +1223,15 @@ export class PolymarketMarketMakerBot {
       hourRiskBlockPenalty: this.config.polymarketHourRiskBlockPenalty ?? 6,
       hourRiskLookbackDays: this.config.polymarketHourRiskLookbackDays ?? 7,
       hourRiskSizeFactorMin: this.config.polymarketHourRiskSizeFactorMin ?? 0.55,
+      eventRiskPenaltyWithinMs: this.config.polymarketEventRiskPenaltyWithinMs ?? 4 * 60 * 60 * 1000,
+      eventRiskBlockWithinMs: this.config.polymarketEventRiskBlockWithinMs ?? 30 * 60 * 1000,
+      eventRiskPenaltyMax: this.config.polymarketEventRiskPenaltyMax ?? 6,
+      eventRiskSizeFactorMin: this.config.polymarketEventRiskSizeFactorMin ?? 0.45,
+      eventRiskRetreatMaxBps: this.config.polymarketEventRiskRetreatMaxBps ?? 10,
+      groupMaxExposureFactor: this.config.polymarketGroupMaxExposureFactor ?? 1.4,
+      groupSoftExposureStart: this.config.polymarketGroupSoftExposureStart ?? 0.7,
+      groupSizeFactorMin: this.config.polymarketGroupSizeFactorMin ?? 0.55,
+      groupRetreatMaxBps: this.config.polymarketGroupRetreatMaxBps ?? 12,
       rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
     };
   }
@@ -1295,6 +1304,10 @@ export class PolymarketMarketMakerBot {
       polymarketHourlyMarketRiskPenalty: hourlyMarketRiskPenalty,
       polymarketHourRiskBlockPenalty: safety.hourRiskBlockPenalty,
       polymarketHourRiskSizeFactorMin: safety.hourRiskSizeFactorMin,
+      polymarketEventRiskPenaltyWithinMs: safety.eventRiskPenaltyWithinMs,
+      polymarketEventRiskBlockWithinMs: safety.eventRiskBlockWithinMs,
+      polymarketEventRiskPenaltyMax: safety.eventRiskPenaltyMax,
+      polymarketEventRiskSizeFactorMin: safety.eventRiskSizeFactorMin,
     };
   }
 
@@ -1305,6 +1318,15 @@ export class PolymarketMarketMakerBot {
     }
     if (market.polymarket_accepting_orders === false) {
       return { skip: true, reason: '市场当前不接受下单' };
+    }
+    const eventRisk = evaluatePolymarketEventRisk(market, {
+      penaltyWithinMs: safety.eventRiskPenaltyWithinMs,
+      blockWithinMs: safety.eventRiskBlockWithinMs,
+      penaltyMax: safety.eventRiskPenaltyMax,
+      sizeFactorMin: safety.eventRiskSizeFactorMin,
+    });
+    if (eventRisk.block) {
+      return { skip: true, reason: eventRisk.reason || '临近事件窗口，暂不做市' };
     }
     const profile = this.marketSelector.evaluatePolymarketRewardFit(market, orderbook);
     if (safety.rewardRequireEnabled && !profile.enabled) {
