@@ -885,6 +885,24 @@ async function runPredictWalletStatus() {
   }
 }
 
+async function runPolymarketPreflightStatus() {
+  const result = await runCommand(
+    getNpxCmd(),
+    ['tsx', 'scripts/check-polymarket-preflight.ts', '--env', envPath, '--json'],
+    'poly-preflight',
+    false
+  );
+  if (!result.ok) {
+    return { ok: false, message: result.stderr || result.stdout || 'polymarket preflight failed' };
+  }
+  try {
+    const payload = JSON.parse((result.stdout || '').trim());
+    return { ok: true, payload };
+  } catch {
+    return { ok: false, message: 'polymarket preflight json parse failed', raw: result.stdout };
+  }
+}
+
 async function startMM() {
   if (mmProcess) return { ok: false, message: '做市进程已在运行' };
 
@@ -908,6 +926,21 @@ async function startMM() {
     }
     sendLog(
       `[wallet] signer=${info.signerAddress} predict=${info.predictAccountAddress} balance=${Number(info.balance).toFixed(6)} approvals=${info.approvalReady ? 'ready' : 'pending'}`
+    );
+  }
+
+  if (venue === 'polymarket') {
+    const preflightStatus = await runPolymarketPreflightStatus();
+    if (!preflightStatus.ok) {
+      return { ok: false, message: `Polymarket 预检失败: ${preflightStatus.message}` };
+    }
+    const info = preflightStatus.payload || {};
+    const coreIssues = Array.isArray(info.coreIssues) ? info.coreIssues : [];
+    if (coreIssues.length > 0) {
+      return { ok: false, message: `Polymarket 预检未通过: ${coreIssues.join('；')}` };
+    }
+    sendLog(
+      `[wallet] poly signer=${info.signerAddress || '--'} funder=${info.funderAddress || '--'} native=${Number(info.signerNativeBalance || 0).toFixed(4)} ${info.signerNativeSymbol || 'POL'} usdc=${Number(info.funderUsdcBalance || 0).toFixed(2)} ${info.funderUsdcSymbol || 'USDC.e'} allowance=${info.usdcAllowanceReady ? 'ready' : 'pending'} exchange=${info.exchangeApprovalReady ? 'ready' : 'pending'} negRisk=${info.negRiskExchangeApprovalReady ? 'ready' : 'pending'} creds=${info.credsReady ? 'ready' : 'missing'} openOrders=${info.openOrderCount || 0}`
     );
   }
 
@@ -1102,6 +1135,7 @@ ipcMain.handle('market:apply-auto', async (_, venue, top, scan) => {
 ipcMain.handle('market:set-manual', async (_, tokenIds) => await setManualMarketSelection(tokenIds));
 ipcMain.handle('market:get-manual', () => getManualMarketSelection());
 ipcMain.handle('predict:wallet-status', async () => await runPredictWalletStatus());
+ipcMain.handle('polymarket:preflight-status', async () => await runPolymarketPreflightStatus());
 ipcMain.handle('link:open', async (_, url) => {
   try {
     await shell.openExternal(url);

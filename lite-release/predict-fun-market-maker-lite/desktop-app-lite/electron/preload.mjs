@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('liteApp', {
   getManualMarkets: () => ipcRenderer.invoke('market:get-manual'),
   openExternal: (url) => ipcRenderer.invoke('link:open', url),
   getPredictWalletStatus: () => ipcRenderer.invoke('predict:wallet-status'),
-  // 获取 JWT Token
+  getPolymarketPreflightStatus: () => ipcRenderer.invoke('polymarket:preflight-status'),
   getJwt: () => ipcRenderer.invoke('auth:get-jwt'),
   onLog: (cb) => ipcRenderer.on('log', (_, payload) => cb(payload)),
   onStatus: (cb) => ipcRenderer.on('status', (_, payload) => cb(payload)),
