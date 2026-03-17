@@ -34,10 +34,26 @@ const riskStatus = document.getElementById('riskStatus');
 const riskUpdatedAt = document.getElementById('riskUpdatedAt');
 const riskSummary = document.getElementById('riskSummary');
 const riskList = document.getElementById('riskList');
+const startMMBtn = document.getElementById('startMM');
+const stopMMBtn = document.getElementById('stopMM');
+const tplPredictBtn = document.getElementById('tplPredict');
+const tplPolymarketBtn = document.getElementById('tplPolymarket');
+const getJwtBtn = document.getElementById('getJwt');
+const refreshPredictWalletBtn = document.getElementById('refreshPredictWallet');
+const refreshPolymarketPreflightBtn = document.getElementById('refreshPolymarketPreflight');
+const scanMarketsBtn = document.getElementById('scanMarkets');
+const applyAutoMarketsBtn = document.getElementById('applyAutoMarkets');
+const applyManualMarketsBtn = document.getElementById('applyManualMarkets');
+const reloadManualMarketsBtn = document.getElementById('reloadManualMarkets');
+const reloadEnvBtn = document.getElementById('reloadEnv');
+const saveEnvBtn = document.getElementById('saveEnv');
 const api = window.liteApp;
 
 let lastRecommendations = [];
+let lastRecommendationVenue = '';
 let approvalState = '待检查';
+let mmRunning = false;
+const busyActions = new Set();
 
 function shortenAddress(value) {
   const text = String(value || '').trim();
@@ -166,6 +182,69 @@ function setPolymarketBadge(state, kind = 'idle') {
   polyPreflightStatus.textContent = `预检状态：${state}`;
   polyPreflightStatus.style.background =
     kind === 'ok' ? '#065f46' : kind === 'error' ? '#7f1d1d' : kind === 'warn' ? '#92400e' : '#334155';
+}
+
+
+function setBusy(name, active) {
+  if (active) busyActions.add(name);
+  else busyActions.delete(name);
+  syncButtonState();
+}
+
+async function runUiAction(name, fn) {
+  setBusy(name, true);
+  try {
+    await fn();
+  } catch (error) {
+    pushLog(`${name} 执行失败: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    setBusy(name, false);
+  }
+}
+
+function setButtonDisabled(button, disabled, title = '') {
+  if (!button) return;
+  button.disabled = Boolean(disabled);
+  if (title) button.title = title;
+  else button.removeAttribute('title');
+}
+
+function syncButtonState() {
+  const envVenue = getCurrentVenue();
+  const selectedVenue = String(marketVenue?.value || 'predict').toLowerCase();
+  const hasRecommendations = lastRecommendations.length > 0;
+  const recommendationMatchesVenue = !hasRecommendations || lastRecommendationVenue === selectedVenue;
+  const checkedCount = getCheckedTokenIds().length;
+  const hasApi = Boolean(api);
+  const running = mmRunning;
+
+  setButtonDisabled(startMMBtn, !hasApi || running || busyActions.has('startMM'));
+  setButtonDisabled(stopMMBtn, !hasApi || !running || busyActions.has('stopMM'));
+  setButtonDisabled(tplPredictBtn, !hasApi || busyActions.has('tplPredict') || running, running ? '做市运行中时不允许切换模板' : '');
+  setButtonDisabled(tplPolymarketBtn, !hasApi || busyActions.has('tplPolymarket') || running, running ? '做市运行中时不允许切换模板' : '');
+  setButtonDisabled(getJwtBtn, !hasApi || envVenue !== 'predict' || busyActions.has('getJwt'), envVenue !== 'predict' ? '仅 Predict 模式需要 JWT' : '');
+  setButtonDisabled(refreshPredictWalletBtn, !hasApi || envVenue !== 'predict' || busyActions.has('refreshPredictWallet'), envVenue !== 'predict' ? '当前 .env 不是 Predict 模式' : '');
+  setButtonDisabled(refreshPolymarketPreflightBtn, !hasApi || envVenue !== 'polymarket' || busyActions.has('refreshPolymarketPreflight'), envVenue !== 'polymarket' ? '当前 .env 不是 Polymarket 模式' : '');
+  setButtonDisabled(scanMarketsBtn, !hasApi || busyActions.has('scanMarkets'));
+  setButtonDisabled(
+    applyAutoMarketsBtn,
+    !hasApi || busyActions.has('applyAutoMarkets') || selectedVenue !== envVenue || !hasRecommendations || !recommendationMatchesVenue,
+    selectedVenue !== envVenue
+      ? '当前扫描场馆与 .env 里的 MM_VENUE 不一致，请先套用对应模板并保存配置'
+      : !recommendationMatchesVenue
+      ? '当前卡片不是这个场馆的扫描结果，请重新扫描'
+      : !hasRecommendations
+      ? '请先扫描市场'
+      : ''
+  );
+  setButtonDisabled(
+    applyManualMarketsBtn,
+    !hasApi || busyActions.has('applyManualMarkets') || checkedCount === 0 || !recommendationMatchesVenue,
+    !recommendationMatchesVenue ? '当前卡片不是这个场馆的扫描结果，请重新扫描' : checkedCount === 0 ? '请先勾选市场' : ''
+  );
+  setButtonDisabled(reloadManualMarketsBtn, !hasApi || busyActions.has('reloadManualMarkets'));
+  setButtonDisabled(reloadEnvBtn, !hasApi || busyActions.has('reloadEnv'));
+  setButtonDisabled(saveEnvBtn, !hasApi || busyActions.has('saveEnv') || running, running ? '做市运行中时不允许覆盖 .env' : '');
 }
 
 function renderRiskState(payload) {
@@ -403,6 +482,7 @@ async function refreshPredictWalletStatus(forceLog = false) {
     return;
   }
   renderPredictWalletStatus(res.payload || {});
+  syncButtonState();
   if (forceLog) {
     pushLog(
       `Predict 余额检查完成: account=${res.payload?.predictAccountAddress || '(未配置)'} balance=${Number(res.payload?.balance || 0).toFixed(6)} approvals=${res.payload?.approvalReady ? 'ready' : 'pending'}`
@@ -430,6 +510,7 @@ async function refreshPolymarketPreflight(forceLog = false) {
     return;
   }
   renderPolymarketPreflight(res.payload || {});
+  syncButtonState();
   if (forceLog) {
     const payload = res.payload || {};
     pushLog(
@@ -609,6 +690,7 @@ function renderMarketCards(items, selected = new Set()) {
 
   updateSelectAllState();
   renderPolymarketSelectionSummary();
+  syncButtonState();
 }
 
 async function refreshEnv() {
@@ -623,14 +705,17 @@ async function refreshEnv() {
   renderMarketCards(lastRecommendations, new Set(getConfiguredTokenIds()));
   await refreshPredictWalletStatus();
   await refreshPolymarketPreflight();
+  syncButtonState();
 }
 
 async function refreshStatus() {
   if (!api || !status) return;
   const s = await api.status();
-  status.textContent = s.running ? '运行中' : '未运行';
-  status.style.background = s.running ? '#065f46' : '#334155';
+  mmRunning = Boolean(s?.running);
+  status.textContent = mmRunning ? '运行中' : '未运行';
+  status.style.background = mmRunning ? '#065f46' : '#334155';
   renderRiskState(s);
+  syncButtonState();
 }
 
 async function scanMarkets() {
@@ -650,6 +735,7 @@ async function scanMarkets() {
   }
   const payload = res.payload || {};
   lastRecommendations = Array.isArray(payload.recommendations) ? payload.recommendations : [];
+  lastRecommendationVenue = venue;
   renderMarketCards(lastRecommendations, new Set(getConfiguredTokenIds()));
   pushLog(`扫描完成: valid=${payload.validMarkets || 0}, recommendations=${lastRecommendations.length}`);
   if (lastRecommendations.length === 0) {
@@ -678,6 +764,7 @@ async function applyAutoMarkets() {
     })),
     appliedSet
   );
+  syncButtonState();
 }
 
 async function applyManualMarkets() {
@@ -702,6 +789,7 @@ async function applyManualMarkets() {
     })),
     selectedSet
   );
+  syncButtonState();
 }
 
 async function reloadManualMarkets() {
@@ -714,67 +802,103 @@ async function reloadManualMarkets() {
   const selected = new Set((res.tokenIds || getConfiguredTokenIds()).map(String));
   renderMarketCards(lastRecommendations, selected);
   pushLog(`当前 MARKET_TOKEN_IDS 共 ${selected.size} 个`);
+  syncButtonState();
 }
 
-document.getElementById('startMM').onclick = async () => {
-  if (!api) return;
-  const r = await api.startMM();
-  pushLog(r.ok ? '已启动做市' : `启动失败: ${r.message || 'unknown'}`);
-  refreshStatus();
-};
+if (startMMBtn) {
+  startMMBtn.onclick = () =>
+    runUiAction('startMM', async () => {
+      if (!api) return;
+      const r = await api.startMM();
+      pushLog(r.ok ? '已启动做市' : `启动失败: ${r.message || 'unknown'}`);
+      await refreshStatus();
+    });
+}
 
-document.getElementById('stopMM').onclick = async () => {
-  if (!api) return;
-  const r = await api.stopMM();
-  pushLog(r.ok ? '已停止做市' : `停止失败: ${r.message || 'unknown'}`);
-  refreshStatus();
-};
+if (stopMMBtn) {
+  stopMMBtn.onclick = () =>
+    runUiAction('stopMM', async () => {
+      if (!api) return;
+      const r = await api.stopMM();
+      pushLog(r.ok ? '已停止做市' : `停止失败: ${r.message || 'unknown'}`);
+      await refreshStatus();
+    });
+}
 
-document.getElementById('tplPredict').onclick = async () => {
-  if (!api) return;
-  const r = await api.applyTemplate('predict');
-  pushLog(r.ok ? '已应用 Predict 模板' : `模板失败: ${r.message || 'unknown'}`);
-  await refreshEnv();
-};
+if (tplPredictBtn) {
+  tplPredictBtn.onclick = () =>
+    runUiAction('tplPredict', async () => {
+      if (!api) return;
+      const r = await api.applyTemplate('predict');
+      pushLog(r.ok ? '已应用 Predict 模板' : `模板失败: ${r.message || 'unknown'}`);
+      await refreshEnv();
+    });
+}
 
-document.getElementById('tplPolymarket').onclick = async () => {
-  if (!api) return;
-  const r = await api.applyTemplate('polymarket');
-  pushLog(r.ok ? '已应用 Polymarket 模板' : `模板失败: ${r.message || 'unknown'}`);
-  await refreshEnv();
-};
+if (tplPolymarketBtn) {
+  tplPolymarketBtn.onclick = () =>
+    runUiAction('tplPolymarket', async () => {
+      if (!api) return;
+      const r = await api.applyTemplate('polymarket');
+      pushLog(r.ok ? '已应用 Polymarket 模板' : `模板失败: ${r.message || 'unknown'}`);
+      await refreshEnv();
+    });
+}
 
-document.getElementById('scanMarkets').onclick = scanMarkets;
-document.getElementById('applyAutoMarkets').onclick = applyAutoMarkets;
-document.getElementById('applyManualMarkets').onclick = applyManualMarkets;
-document.getElementById('reloadManualMarkets').onclick = reloadManualMarkets;
+if (scanMarketsBtn) {
+  scanMarketsBtn.onclick = () => runUiAction('scanMarkets', scanMarkets);
+}
+if (applyAutoMarketsBtn) {
+  applyAutoMarketsBtn.onclick = () => runUiAction('applyAutoMarkets', applyAutoMarkets);
+}
+if (applyManualMarketsBtn) {
+  applyManualMarketsBtn.onclick = () => runUiAction('applyManualMarkets', applyManualMarkets);
+}
+if (reloadManualMarketsBtn) {
+  reloadManualMarketsBtn.onclick = () => runUiAction('reloadManualMarkets', reloadManualMarkets);
+}
 
-document.getElementById('getJwt').onclick = async () => {
-  if (!api) return;
-  pushLog('正在获取 JWT Token...');
-  const r = await api.getJwt();
-  if (r.ok) {
-    pushLog('✅ JWT Token 获取成功！');
-    await refreshEnv();
-  } else {
-    pushLog(`❌ 获取 JWT 失败: ${r.message || '未知错误'}`);
-  }
-};
+if (getJwtBtn) {
+  getJwtBtn.onclick = () =>
+    runUiAction('getJwt', async () => {
+      if (!api) return;
+      if (getCurrentVenue() !== 'predict') {
+        pushLog('当前 .env 不是 Predict 模式，JWT 获取按钮已跳过。');
+        return;
+      }
+      pushLog('正在获取 JWT Token...');
+      const r = await api.getJwt();
+      if (r.ok) {
+        pushLog('✅ JWT Token 获取成功！');
+        await refreshEnv();
+      } else {
+        pushLog(`❌ 获取 JWT 失败: ${r.message || '未知错误'}`);
+      }
+    });
+}
 
-document.getElementById('reloadEnv').onclick = refreshEnv;
-document.getElementById('refreshPredictWallet').onclick = async () => {
-  await refreshPredictWalletStatus(true);
-};
-document.getElementById('refreshPolymarketPreflight').onclick = async () => {
-  await refreshPolymarketPreflight(true);
-};
-document.getElementById('saveEnv').onclick = async () => {
-  if (!api) return;
-  await api.writeEnv(envEditor.value || '');
-  pushLog('配置已保存');
-  await refreshPredictWalletStatus();
-  await refreshPolymarketPreflight();
-};
+if (reloadEnvBtn) {
+  reloadEnvBtn.onclick = () => runUiAction('reloadEnv', refreshEnv);
+}
+if (refreshPredictWalletBtn) {
+  refreshPredictWalletBtn.onclick = () => runUiAction('refreshPredictWallet', async () => {
+    await refreshPredictWalletStatus(true);
+  });
+}
+if (refreshPolymarketPreflightBtn) {
+  refreshPolymarketPreflightBtn.onclick = () => runUiAction('refreshPolymarketPreflight', async () => {
+    await refreshPolymarketPreflight(true);
+  });
+}
+if (saveEnvBtn) {
+  saveEnvBtn.onclick = () =>
+    runUiAction('saveEnv', async () => {
+      if (!api) return;
+      await api.writeEnv(envEditor.value || '');
+      pushLog('配置已保存');
+      await refreshEnv();
+    });
+}
 
 if (predictAutoApprovals) {
   predictAutoApprovals.onchange = () => {
@@ -793,6 +917,7 @@ if (selectAllMarkets) {
     if (marketSummary) {
       marketSummary.textContent = `共 ${lastRecommendations.length} 个推荐，已勾选 ${getCheckedTokenIds().length} 个`;
     }
+    syncButtonState();
   };
 }
 
@@ -805,6 +930,7 @@ marketCardGrid?.addEventListener('change', (event) => {
     if (marketSummary) {
       marketSummary.textContent = `共 ${lastRecommendations.length} 个推荐，已勾选 ${getCheckedTokenIds().length} 个`;
     }
+    syncButtonState();
   }
 });
 
@@ -857,17 +983,33 @@ if (!api) {
     pushLog(message);
   });
   api.onStatus((payload) => {
+    mmRunning = Boolean(payload?.running);
     if (status) {
-      status.textContent = payload?.running ? '运行中' : '未运行';
-      status.style.background = payload?.running ? '#065f46' : '#334155';
+      status.textContent = mmRunning ? '运行中' : '未运行';
+      status.style.background = mmRunning ? '#065f46' : '#334155';
     }
     renderRiskState(payload || {});
+    syncButtonState();
   });
+}
+
+if (marketVenue) {
+  marketVenue.onchange = () => {
+    const nextVenue = String(marketVenue.value || 'predict').toLowerCase();
+    if (lastRecommendations.length > 0 && lastRecommendationVenue && lastRecommendationVenue !== nextVenue) {
+      lastRecommendations = [];
+      renderMarketCards([], new Set(getConfiguredTokenIds()));
+      pushLog(`已清空 ${lastRecommendationVenue} 的旧扫描结果，请重新扫描 ${nextVenue} 市场。`);
+    }
+    renderPolymarketSelectionSummary();
+    syncButtonState();
+  };
 }
 
 pushLog('UI 已加载，可开始操作。');
 setApprovalStatus(approvalState);
 renderMarketCards([]);
+syncButtonState();
 refreshEnv();
 refreshStatus();
 
