@@ -21,6 +21,9 @@ const polySigner = document.getElementById('polySigner');
 const polyFunder = document.getElementById('polyFunder');
 const polySignatureType = document.getElementById('polySignatureType');
 const polyCreds = document.getElementById('polyCreds');
+const polyCredsMode = document.getElementById('polyCredsMode');
+const polyCredsRequirement = document.getElementById('polyCredsRequirement');
+const polyRelayerRequired = document.getElementById('polyRelayerRequired');
 const polyOpenOrders = document.getElementById('polyOpenOrders');
 const polyNativeBalance = document.getElementById('polyNativeBalance');
 const polyUsdcBalance = document.getElementById('polyUsdcBalance');
@@ -419,6 +422,16 @@ function renderPolymarketPreflight(payload) {
   if (polyCreds) {
     const mode = payload?.credsMode === 'explicit' ? '显式填写' : payload?.credsMode === 'auto-derive' ? '自动派生' : '未配置';
     polyCreds.textContent = payload?.credsReady ? `已就绪 (${mode})` : `缺失 (${mode})`;
+  }
+  if (polyCredsMode) {
+    polyCredsMode.textContent =
+      payload?.credsMode === 'explicit' ? '显式填写' : payload?.credsMode === 'auto-derive' ? '自动派生' : '未配置';
+  }
+  if (polyCredsRequirement) {
+    polyCredsRequirement.textContent = payload?.credsRequirement || 'Polymarket 用户 CLOB API 凭证（L2）';
+  }
+  if (polyRelayerRequired) {
+    polyRelayerRequired.textContent = payload?.builderRelayerKeyRequired ? '需要' : '不需要';
   }
   if (polyOpenOrders) {
     if (payload?.openOrderQueryOk === false && payload?.preflightError) {

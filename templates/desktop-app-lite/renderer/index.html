@@ -107,6 +107,18 @@
             <div id="polyCreds" class="wallet-value">--</div>
           </div>
           <div class="wallet-card">
+            <div class="wallet-title">凭证模式</div>
+            <div id="polyCredsMode" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">凭证要求</div>
+            <div id="polyCredsRequirement" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">Builder / Relayer Key</div>
+            <div id="polyRelayerRequired" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
             <div class="wallet-title">Open Orders</div>
             <div id="polyOpenOrders" class="wallet-value">--</div>
           </div>
@@ -147,7 +159,7 @@
         <div id="riskList" class="wallet-grid"></div>
       </section>
       <section class="hint">
-        模板只需填写必填项： Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>/<code>PREDICT_ACCOUNT_ADDRESS</code>（实盘再填 <code>JWT_TOKEN</code>）；Polymarket 填 <code>POLYMARKET_PRIVATE_KEY</code>，如使用代理签名再填 <code>POLYMARKET_FUNDER_ADDRESS</code>/<code>POLYMARKET_SIGNATURE_TYPE</code>。
+        模板只需填写必填项： Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>/<code>PREDICT_ACCOUNT_ADDRESS</code>（实盘再填 <code>JWT_TOKEN</code>）；Polymarket 填 <code>POLYMARKET_PRIVATE_KEY</code>，如使用代理签名再填 <code>POLYMARKET_FUNDER_ADDRESS</code>/<code>POLYMARKET_SIGNATURE_TYPE</code>。Polymarket 实盘需要的是 <code>用户 CLOB API 凭证（L2）</code>，不是 Builder / Relayer key。
       </section>
       <section>
         <div class="label">市场筛选与推荐</div>
