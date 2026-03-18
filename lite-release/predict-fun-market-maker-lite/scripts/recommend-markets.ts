@@ -762,6 +762,42 @@ function loadPolymarketPatternMemory(
   return penalties;
 }
 
+function loadPolymarketObservedQueueStats(
+  env: EnvMap,
+  envPath: string
+): Map<string, { filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }> {
+  const observed = new Map<string, { filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }>();
+  const metricsPath = env.get('MM_METRICS_PATH');
+  if (!metricsPath) {
+    return observed;
+  }
+  try {
+    const resolved = path.isAbsolute(metricsPath) ? metricsPath : path.resolve(path.dirname(envPath), metricsPath);
+    if (!fs.existsSync(resolved)) {
+      return observed;
+    }
+    const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
+      markets?: Array<{ tokenId?: string; filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }>;
+    };
+    for (const metric of raw.markets || []) {
+      const tokenId = String(metric.tokenId || '').trim();
+      if (!tokenId) continue;
+      const filled = Number(metric.filled || 0);
+      const cancelRate = Number(metric.cancelRate || 0);
+      const avgFillLifetimeMs = Number(metric.avgFillLifetimeMs || 0);
+      if (filled <= 0 && avgFillLifetimeMs <= 0) continue;
+      observed.set(tokenId, {
+        filled: filled > 0 ? filled : undefined,
+        cancelRate: Number.isFinite(cancelRate) ? cancelRate : undefined,
+        avgFillLifetimeMs: avgFillLifetimeMs > 0 ? avgFillLifetimeMs : undefined,
+      });
+    }
+  } catch (error) {
+    console.error('[Polymarket] 读取观测队列速度失败，已忽略:', error);
+  }
+  return observed;
+}
+
 function getPolymarketSelectorOptions(env: EnvMap) {
   return {
     polymarketRewardMinFitScore: readNumber(env, 'POLYMARKET_REWARD_MIN_FIT_SCORE', 0.6),
@@ -779,9 +815,19 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardTargetQueueHours: readNumber(env, 'POLYMARKET_REWARD_TARGET_QUEUE_HOURS', 1.5),
     polymarketRewardTargetQueueTolerance: readNumber(env, 'POLYMARKET_REWARD_TARGET_QUEUE_TOLERANCE', 0.5),
     polymarketRewardTargetPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_TARGET_PENALTY_MAX', 6),
+    polymarketObservedQueueMinSamples: readNumber(env, 'POLYMARKET_OBSERVED_QUEUE_MIN_SAMPLES', 3),
+    polymarketObservedQueueMaxWeight: readNumber(env, 'POLYMARKET_OBSERVED_QUEUE_MAX_WEIGHT', 0.65),
     polymarketRecentRiskBlockPenalty: readNumber(env, 'POLYMARKET_RECENT_RISK_BLOCK_PENALTY', 12),
     polymarketHourRiskBlockPenalty: readNumber(env, 'POLYMARKET_HOUR_RISK_BLOCK_PENALTY', 6),
     polymarketHourRiskSizeFactorMin: readNumber(env, 'POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN', 0.55),
+    polymarketEventRiskPenaltyWithinMs: readNumber(env, 'POLYMARKET_EVENT_RISK_PENALTY_WITHIN_MS', 4 * 60 * 60 * 1000),
+    polymarketEventRiskBlockWithinMs: readNumber(env, 'POLYMARKET_EVENT_RISK_BLOCK_WITHIN_MS', 30 * 60 * 1000),
+    polymarketEventRiskPenaltyMax: readNumber(env, 'POLYMARKET_EVENT_RISK_PENALTY_MAX', 6),
+    polymarketEventRiskSizeFactorMin: readNumber(env, 'POLYMARKET_EVENT_RISK_SIZE_FACTOR_MIN', 0.45),
+    polymarketCatalystRiskPenaltyWithinMs: readNumber(env, 'POLYMARKET_CATALYST_RISK_PENALTY_WITHIN_MS', 90 * 60 * 1000),
+    polymarketCatalystRiskBlockWithinMs: readNumber(env, 'POLYMARKET_CATALYST_RISK_BLOCK_WITHIN_MS', 10 * 60 * 1000),
+    polymarketCatalystRiskPenaltyMax: readNumber(env, 'POLYMARKET_CATALYST_RISK_PENALTY_MAX', 7),
+    polymarketCatalystRiskSizeFactorMin: readNumber(env, 'POLYMARKET_CATALYST_RISK_SIZE_FACTOR_MIN', 0.35),
     polymarketPatternMemoryMaxPenalty: readNumber(env, 'POLYMARKET_PATTERN_MEMORY_MAX_PENALTY', 8),
     polymarketPatternMemoryBlockPenalty: readNumber(env, 'POLYMARKET_PATTERN_MEMORY_BLOCK_PENALTY', 6),
     polymarketPatternMemoryTtlMs: readNumber(env, 'POLYMARKET_PATTERN_MEMORY_TTL_MS', 604800000),
@@ -1408,7 +1454,9 @@ async function main(): Promise<void> {
     readNumber(env, 'POLYMARKET_PATTERN_MEMORY_TTL_MS', 604800000),
     readNumber(env, 'POLYMARKET_PATTERN_MEMORY_MAX_PENALTY', 8)
   );
+  const observedQueueStats = loadPolymarketObservedQueueStats(env, args.envPath);
   polymarketSelectorOptions.polymarketRecentRiskPenalty = recentRiskPenalty;
+  polymarketSelectorOptions.polymarketObservedQueueStats = observedQueueStats;
   polymarketSelectorOptions.polymarketHourRiskPenalty = hourRiskPenalty;
   polymarketSelectorOptions.polymarketPatternMemoryPenalty = patternMemoryPenalty;
   const [minLiquidity, minVolume24h, maxSpread, minOrders] = getSelectorConfig(env, args.venue);
@@ -1552,6 +1600,9 @@ async function main(): Promise<void> {
       rewardRiskThrottleFactor: toFixedOrNull(incentive.riskThrottleFactor, 3),
       rewardHourRiskFactor: toFixedOrNull(incentive.hourRiskFactor, 3),
       rewardQueueHours: toFixedOrNull(incentive.queueHours, 2),
+      rewardQueueModel: incentive.queueModel,
+      rewardQueueConfidence: toFixedOrNull(incentive.queueConfidence, 3),
+      rewardObservedQueueHours: toFixedOrNull(incentive.observedQueueHours, 2),
       rewardFlowToQueuePerHour: toFixedOrNull(incentive.flowToQueuePerHour, 2),
       rewardTargetQueueHours: toFixedOrNull(incentive.targetQueueHours, 2),
       rewardTargetQueueFactor: toFixedOrNull(incentive.targetQueueFactor, 3),
@@ -1563,6 +1614,16 @@ async function main(): Promise<void> {
       marketStateReason: incentive.marketStateReason,
       eventRiskPenalty: toFixedOrNull(entry.market.polymarket_event_risk_penalty ?? null, 1),
       eventRiskReason: entry.market.polymarket_event_risk_reason || null,
+      eventRiskSource: entry.market.polymarket_event_risk_source || null,
+      eventTimeToCloseMinutes:
+        entry.market.polymarket_event_time_to_close_ms != null
+          ? Math.max(1, Math.ceil(Number(entry.market.polymarket_event_time_to_close_ms) / 60000))
+          : null,
+      eventTimeToCatalystMinutes:
+        entry.market.polymarket_event_time_to_catalyst_ms != null
+          ? Math.max(1, Math.ceil(Number(entry.market.polymarket_event_time_to_catalyst_ms) / 60000))
+          : null,
+      eventCatalystLabel: entry.market.polymarket_event_catalyst_label || null,
       eventRiskSizeFactor: toFixedOrNull(entry.market.polymarket_event_risk_size_factor ?? null, 3),
       recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
       recentFillPenaltyBps: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.fillPenaltyBps ?? null, 2),
@@ -1618,6 +1679,10 @@ async function main(): Promise<void> {
         3
       ),
       patternMemoryLearnedSize: toFixedOrNull(patternMemoryPenalty.get(entry.market.token_id)?.learnedSize ?? null, 3),
+      themeBucket: entry.market.polymarket_theme_bucket || null,
+      themeUtilization: toFixedOrNull(entry.market.polymarket_theme_utilization ?? null, 3),
+      themeRemainingBudget: toFixedOrNull(entry.market.polymarket_theme_remaining_budget ?? null, 2),
+      themeReason: entry.market.polymarket_theme_reason || null,
       liquidity24h:
         entry.market.liquidity_24h !== undefined && Number.isFinite(entry.market.liquidity_24h)
           ? Number(entry.market.liquidity_24h.toFixed(2))

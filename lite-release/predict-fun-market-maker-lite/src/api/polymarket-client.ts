@@ -43,6 +43,12 @@ interface GammaMarket {
   is_neg_risk?: boolean;
   endDate?: string;
   end_date?: string;
+  eventStartDate?: string;
+  event_start_date?: string;
+  eventEndDate?: string;
+  event_end_date?: string;
+  category?: string;
+  category_slug?: string;
   volume?: number | string;
   volume24hr?: number | string;
   liquidity?: number | string;
@@ -92,6 +98,8 @@ interface RewardSnapshot {
   rewardEpoch?: number;
   inGameMultiplier?: number;
   acceptingOrders?: boolean;
+  eventStartDate?: string;
+  eventEndDate?: string;
 }
 
 interface RewardState {
@@ -341,6 +349,8 @@ export class PolymarketAPI implements MakerApi {
             const rewardEpoch = toFiniteNumber(rewards.reward_epoch) || undefined;
             const inGameMultiplier = toFiniteNumber(rewards.in_game_multiplier) || undefined;
             const acceptingOrders = toOptionalBoolean(entry.accepting_orders);
+            const eventStartDate = String(rewards.event_start_date || '').trim() || undefined;
+            const eventEndDate = String(rewards.event_end_date || '').trim() || undefined;
             const rates = Array.isArray(rewards.rates) ? rewards.rates : [];
 
             let bestSnapshot: RewardSnapshot | null = null;
@@ -362,6 +372,8 @@ export class PolymarketAPI implements MakerApi {
                 rewardEpoch,
                 inGameMultiplier,
                 acceptingOrders,
+                eventStartDate,
+                eventEndDate,
               };
 
               if (tokenId) {
@@ -385,6 +397,8 @@ export class PolymarketAPI implements MakerApi {
                   rewardEpoch,
                   inGameMultiplier,
                   acceptingOrders,
+                  eventStartDate,
+                  eventEndDate,
                 };
               }
             }
@@ -455,6 +469,7 @@ export class PolymarketAPI implements MakerApi {
         : undefined;
       const volume24h = toFiniteNumber(item.volume24hr, item.volume);
       const liquidity24h = toFiniteNumber(item.liquidityNum, item.liquidity);
+      const marketCategory = String(item.category || item.category_slug || '').trim();
       const acceptingOrders = toOptionalBoolean(item.acceptingOrders, item.accepting_orders);
       const enableOrderBook = toOptionalBoolean(item.enableOrderBook, item.enable_order_book);
       const negRisk = toOptionalBoolean(item.negRisk, item.neg_risk, item.isNegRisk, item.is_neg_risk) ?? false;
@@ -479,7 +494,10 @@ export class PolymarketAPI implements MakerApi {
           market_url: marketUrl,
           market_slug: slug || undefined,
           outcome: String(outcomes[i] || ''),
-          end_date: String(item.endDate || item.end_date || ''),
+          end_date: String(item.endDate || item.end_date || rewards?.eventEndDate || ''),
+          event_start_date: String(item.eventStartDate || item.event_start_date || rewards?.eventStartDate || ''),
+          event_end_date: String(item.eventEndDate || item.event_end_date || rewards?.eventEndDate || ''),
+          market_category: marketCategory || undefined,
           is_neg_risk: negRisk,
           is_yield_bearing: false,
           fee_rate_bps: Number(this.config.feeBps || 0),

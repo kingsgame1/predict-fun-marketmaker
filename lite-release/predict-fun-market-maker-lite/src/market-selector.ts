@@ -28,6 +28,9 @@ export interface MarketSelectorOptions {
   polymarketRewardTargetQueueHours?: number;
   polymarketRewardTargetQueueTolerance?: number;
   polymarketRewardTargetPenaltyMax?: number;
+  polymarketObservedQueueStats?: Map<string, { filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }>;
+  polymarketObservedQueueMinSamples?: number;
+  polymarketObservedQueueMaxWeight?: number;
   polymarketRecentRiskBlockPenalty?: number;
   polymarketRecentRiskPenalty?: Map<
     string,
@@ -58,6 +61,10 @@ export interface MarketSelectorOptions {
   polymarketEventRiskBlockWithinMs?: number;
   polymarketEventRiskPenaltyMax?: number;
   polymarketEventRiskSizeFactorMin?: number;
+  polymarketCatalystRiskPenaltyWithinMs?: number;
+  polymarketCatalystRiskBlockWithinMs?: number;
+  polymarketCatalystRiskPenaltyMax?: number;
+  polymarketCatalystRiskSizeFactorMin?: number;
   polymarketPatternMemoryPenalty?: Map<
     string,
     {
@@ -117,6 +124,9 @@ interface PolymarketRewardProfile {
   hourlyTurnoverShares: number;
   queueHours: number;
   flowToQueuePerHour: number;
+  queueModel: 'volume-24h' | 'observed' | 'blended';
+  queueConfidence: number;
+  observedQueueHours: number | null;
   fastFlowPenalty: number;
   targetQueueHours: number;
   targetQueueFactor: number;
@@ -128,7 +138,10 @@ export interface PolymarketEventRiskState {
   penalty: number;
   reason: string;
   block: boolean;
+  source?: 'close' | 'catalyst';
   timeToCloseMs?: number;
+  timeToCatalystMs?: number;
+  catalystLabel?: string;
   sizeFactor: number;
 }
 
@@ -146,6 +159,65 @@ function formatDurationMs(durationMs: number): string {
   return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
 }
 
+function evaluateTimedRisk(
+  source: 'close' | 'catalyst',
+  label: string,
+  timeMs: number,
+  options: { penaltyWithinMs?: number; blockWithinMs?: number; penaltyMax?: number; sizeFactorMin?: number }
+): PolymarketEventRiskState {
+  const blockWithinMs = Math.max(0, Number(options.blockWithinMs || 0));
+  const penaltyWithinMs = Math.max(blockWithinMs, Number(options.penaltyWithinMs || 0));
+  const penaltyMax = Math.max(0, Number(options.penaltyMax || 0));
+  const sizeFactorMin = clamp(Number(options.sizeFactorMin ?? 0.45), 0.1, 1);
+  const isCatalyst = source === 'catalyst';
+  const timeField = isCatalyst ? { timeToCatalystMs: timeMs, catalystLabel: label } : { timeToCloseMs: timeMs };
+  if (timeMs <= 0) {
+    return {
+      penalty: penaltyMax,
+      reason: isCatalyst ? label + '窗口已开始或正在发生' : '市场已接近结束或结算窗口',
+      block: true,
+      source,
+      sizeFactor: sizeFactorMin,
+      ...timeField,
+    };
+  }
+  if (blockWithinMs > 0 && timeMs <= blockWithinMs) {
+    return {
+      penalty: penaltyMax,
+      reason: (isCatalyst ? '临近' + label : '临近事件窗口') + '，仅剩约' + formatDurationMs(timeMs),
+      block: true,
+      source,
+      sizeFactor: sizeFactorMin,
+      ...timeField,
+    };
+  }
+  if (penaltyWithinMs <= 0 || timeMs > penaltyWithinMs || penaltyMax <= 0) {
+    return { penalty: 0, reason: '', block: false, source, sizeFactor: 1, ...timeField };
+  }
+  const span = Math.max(1, penaltyWithinMs - blockWithinMs);
+  const ratio = clamp((penaltyWithinMs - timeMs) / span, 0, 1);
+  const penalty = penaltyMax * ratio;
+  const sizeFactor = 1 - (1 - sizeFactorMin) * ratio;
+  return {
+    penalty,
+    reason: (isCatalyst ? '临近' + label : '临近事件窗口') + '，剩余约' + formatDurationMs(timeMs) + ' (-' + penalty.toFixed(1) + ')',
+    block: false,
+    source,
+    sizeFactor,
+    ...timeField,
+  };
+}
+
+function pickStrongerEventRisk(current: PolymarketEventRiskState, next: PolymarketEventRiskState): PolymarketEventRiskState {
+  if (next.block && !current.block) return next;
+  if (!next.block && current.block) return current;
+  if (next.penalty > current.penalty + 1e-9) return next;
+  if (current.penalty > next.penalty + 1e-9) return current;
+  const currentTime = current.timeToCatalystMs ?? current.timeToCloseMs ?? Number.POSITIVE_INFINITY;
+  const nextTime = next.timeToCatalystMs ?? next.timeToCloseMs ?? Number.POSITIVE_INFINITY;
+  return nextTime < currentTime ? next : current;
+}
+
 export function evaluatePolymarketEventRisk(
   market: Market,
   options: {
@@ -153,41 +225,49 @@ export function evaluatePolymarketEventRisk(
     blockWithinMs?: number;
     penaltyMax?: number;
     sizeFactorMin?: number;
+    catalystPenaltyWithinMs?: number;
+    catalystBlockWithinMs?: number;
+    catalystPenaltyMax?: number;
+    catalystSizeFactorMin?: number;
   } = {}
 ): PolymarketEventRiskState {
+  let strongest: PolymarketEventRiskState = { penalty: 0, reason: '', block: false, sizeFactor: 1 };
   const endDate = String(market.end_date || '').trim();
-  if (!endDate) {
-    return { penalty: 0, reason: '', block: false, sizeFactor: 1 };
+  if (endDate) {
+    const endMs = Date.parse(endDate);
+    if (Number.isFinite(endMs)) {
+      strongest = pickStrongerEventRisk(
+        strongest,
+        evaluateTimedRisk('close', '事件收盘/结算窗口', endMs - Date.now(), {
+          penaltyWithinMs: options.penaltyWithinMs,
+          blockWithinMs: options.blockWithinMs,
+          penaltyMax: options.penaltyMax,
+          sizeFactorMin: options.sizeFactorMin,
+        })
+      );
+    }
   }
-  const endMs = Date.parse(endDate);
-  if (!Number.isFinite(endMs)) {
-    return { penalty: 0, reason: '', block: false, sizeFactor: 1 };
+  const catalysts = [
+    { label: '事件开始', value: String(market.event_start_date || '').trim() },
+    { label: '事件结束', value: String(market.event_end_date || '').trim() },
+  ];
+  for (const catalyst of catalysts) {
+    if (!catalyst.value) continue;
+    const catalystMs = Date.parse(catalyst.value);
+    if (!Number.isFinite(catalystMs)) continue;
+    const timeToCatalystMs = catalystMs - Date.now();
+    if (timeToCatalystMs <= 0 && catalyst.label !== '事件结束') continue;
+    strongest = pickStrongerEventRisk(
+      strongest,
+      evaluateTimedRisk('catalyst', catalyst.label, timeToCatalystMs, {
+        penaltyWithinMs: options.catalystPenaltyWithinMs,
+        blockWithinMs: options.catalystBlockWithinMs,
+        penaltyMax: options.catalystPenaltyMax,
+        sizeFactorMin: options.catalystSizeFactorMin,
+      })
+    );
   }
-  const timeToCloseMs = endMs - Date.now();
-  const blockWithinMs = Math.max(0, Number(options.blockWithinMs || 0));
-  const penaltyWithinMs = Math.max(blockWithinMs, Number(options.penaltyWithinMs || 0));
-  const penaltyMax = Math.max(0, Number(options.penaltyMax || 0));
-  const sizeFactorMin = clamp(Number(options.sizeFactorMin ?? 0.45), 0.1, 1);
-  if (timeToCloseMs <= 0) {
-    return { penalty: penaltyMax, reason: '市场已接近结束或结算窗口', block: true, timeToCloseMs, sizeFactor: sizeFactorMin };
-  }
-  if (blockWithinMs > 0 && timeToCloseMs <= blockWithinMs) {
-    return { penalty: penaltyMax, reason: '临近事件窗口，仅剩约' + formatDurationMs(timeToCloseMs), block: true, timeToCloseMs, sizeFactor: sizeFactorMin };
-  }
-  if (penaltyWithinMs <= 0 || timeToCloseMs > penaltyWithinMs || penaltyMax <= 0) {
-    return { penalty: 0, reason: '', block: false, timeToCloseMs, sizeFactor: 1 };
-  }
-  const span = Math.max(1, penaltyWithinMs - blockWithinMs);
-  const ratio = clamp((penaltyWithinMs - timeToCloseMs) / span, 0, 1);
-  const penalty = penaltyMax * ratio;
-  const sizeFactor = 1 - (1 - sizeFactorMin) * ratio;
-  return {
-    penalty,
-    reason: '临近事件窗口，剩余约' + formatDurationMs(timeToCloseMs) + ' (-' + penalty.toFixed(1) + ')',
-    block: false,
-    timeToCloseMs,
-    sizeFactor,
-  };
+  return strongest;
 }
 
 export class MarketSelector {
@@ -210,6 +290,9 @@ export class MarketSelector {
   private polymarketRewardTargetQueueHours: number;
   private polymarketRewardTargetQueueTolerance: number;
   private polymarketRewardTargetPenaltyMax: number;
+  private polymarketObservedQueueStats: Map<string, { filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }>;
+  private polymarketObservedQueueMinSamples: number;
+  private polymarketObservedQueueMaxWeight: number;
   private polymarketRecentRiskBlockPenalty: number;
   private polymarketRecentRiskPenalty: Map<
     string,
@@ -240,6 +323,10 @@ export class MarketSelector {
   private polymarketEventRiskBlockWithinMs: number;
   private polymarketEventRiskPenaltyMax: number;
   private polymarketEventRiskSizeFactorMin: number;
+  private polymarketCatalystRiskPenaltyWithinMs: number;
+  private polymarketCatalystRiskBlockWithinMs: number;
+  private polymarketCatalystRiskPenaltyMax: number;
+  private polymarketCatalystRiskSizeFactorMin: number;
   private polymarketPatternMemoryPenalty: Map<
     string,
     {
@@ -285,6 +372,9 @@ export class MarketSelector {
     this.polymarketRewardTargetQueueHours = options.polymarketRewardTargetQueueHours ?? 1.5;
     this.polymarketRewardTargetQueueTolerance = options.polymarketRewardTargetQueueTolerance ?? 0.5;
     this.polymarketRewardTargetPenaltyMax = options.polymarketRewardTargetPenaltyMax ?? 6;
+    this.polymarketObservedQueueStats = options.polymarketObservedQueueStats ?? new Map();
+    this.polymarketObservedQueueMinSamples = options.polymarketObservedQueueMinSamples ?? 3;
+    this.polymarketObservedQueueMaxWeight = options.polymarketObservedQueueMaxWeight ?? 0.65;
     this.polymarketRecentRiskBlockPenalty = options.polymarketRecentRiskBlockPenalty ?? 12;
     this.polymarketRecentRiskPenalty = options.polymarketRecentRiskPenalty ?? new Map();
     this.polymarketHourRiskPenalty = options.polymarketHourRiskPenalty ?? { penalty: 0, reason: '', hour: new Date().getHours() };
@@ -295,6 +385,10 @@ export class MarketSelector {
     this.polymarketEventRiskBlockWithinMs = options.polymarketEventRiskBlockWithinMs ?? 30 * 60 * 1000;
     this.polymarketEventRiskPenaltyMax = options.polymarketEventRiskPenaltyMax ?? 6;
     this.polymarketEventRiskSizeFactorMin = options.polymarketEventRiskSizeFactorMin ?? 0.45;
+    this.polymarketCatalystRiskPenaltyWithinMs = options.polymarketCatalystRiskPenaltyWithinMs ?? 90 * 60 * 1000;
+    this.polymarketCatalystRiskBlockWithinMs = options.polymarketCatalystRiskBlockWithinMs ?? 10 * 60 * 1000;
+    this.polymarketCatalystRiskPenaltyMax = options.polymarketCatalystRiskPenaltyMax ?? 7;
+    this.polymarketCatalystRiskSizeFactorMin = options.polymarketCatalystRiskSizeFactorMin ?? 0.35;
     this.polymarketPatternMemoryPenalty = options.polymarketPatternMemoryPenalty ?? new Map();
     this.polymarketPatternMemoryBlockPenalty = options.polymarketPatternMemoryBlockPenalty ?? 6;
   }
@@ -339,6 +433,10 @@ export class MarketSelector {
       blockWithinMs: this.polymarketEventRiskBlockWithinMs,
       penaltyMax: this.polymarketEventRiskPenaltyMax,
       sizeFactorMin: this.polymarketEventRiskSizeFactorMin,
+      catalystPenaltyWithinMs: this.polymarketCatalystRiskPenaltyWithinMs,
+      catalystBlockWithinMs: this.polymarketCatalystRiskBlockWithinMs,
+      catalystPenaltyMax: this.polymarketCatalystRiskPenaltyMax,
+      catalystSizeFactorMin: this.polymarketCatalystRiskSizeFactorMin,
     });
 
     market.polymarket_recent_risk_penalty = recentRisk?.penalty;
@@ -387,7 +485,10 @@ export class MarketSelector {
     market.polymarket_market_hour_risk_reason = marketHourRisk?.reason;
     market.polymarket_event_risk_penalty = eventRisk.penalty > 0 ? eventRisk.penalty : undefined;
     market.polymarket_event_risk_reason = eventRisk.reason || undefined;
+    market.polymarket_event_risk_source = eventRisk.source;
     market.polymarket_event_time_to_close_ms = eventRisk.timeToCloseMs;
+    market.polymarket_event_time_to_catalyst_ms = eventRisk.timeToCatalystMs;
+    market.polymarket_event_catalyst_label = eventRisk.catalystLabel || undefined;
     market.polymarket_event_risk_size_factor = eventRisk.sizeFactor < 1 ? eventRisk.sizeFactor : undefined;
     market.polymarket_reward_efficiency = rewardProfile.enabled ? rewardProfile.efficiency : undefined;
     market.polymarket_reward_net_efficiency = rewardProfile.enabled ? rewardProfile.netEfficiency : undefined;
@@ -399,6 +500,9 @@ export class MarketSelector {
     market.polymarket_reward_queue_target_factor = rewardProfile.enabled ? rewardProfile.targetQueueFactor : undefined;
     market.polymarket_reward_queue_target_penalty = rewardProfile.enabled ? rewardProfile.targetQueuePenalty : undefined;
     market.polymarket_reward_queue_target_reason = rewardProfile.enabled ? rewardProfile.targetQueueReason || undefined : undefined;
+    market.polymarket_reward_queue_model = rewardProfile.enabled ? rewardProfile.queueModel : undefined;
+    market.polymarket_reward_queue_confidence = rewardProfile.enabled ? rewardProfile.queueConfidence : undefined;
+    market.polymarket_reward_observed_queue_hours = rewardProfile.enabled ? rewardProfile.observedQueueHours ?? undefined : undefined;
 
     if (market.venue === 'polymarket' && market.polymarket_enable_order_book === false) {
       return { market, score: 0, reasons: ['Polymarket 市场未启用 orderbook'] };
@@ -694,6 +798,9 @@ export class MarketSelector {
         hourlyTurnoverShares: 0,
         queueHours: 0,
         flowToQueuePerHour: 0,
+        queueModel: 'volume-24h',
+        queueConfidence: 0.25,
+        observedQueueHours: null,
         fastFlowPenalty: 0,
         targetQueueHours: this.polymarketRewardTargetQueueHours,
         targetQueueFactor: 1,
@@ -750,11 +857,37 @@ export class MarketSelector {
       0,
       this.polymarketRewardCrowdingPenaltyMax
     );
-    const hourlyTurnoverShares = midPrice > 0 ? Number(market.volume_24h || 0) / midPrice / 24 : 0;
+    const volumeBasedHourlyTurnoverShares = midPrice > 0 ? Number(market.volume_24h || 0) / midPrice / 24 : 0;
+    const observedStats = this.polymarketObservedQueueStats.get(market.token_id);
+    const observedQueueHours =
+      observedStats && Number(observedStats.filled || 0) >= this.polymarketObservedQueueMinSamples && Number(observedStats.avgFillLifetimeMs || 0) > 0
+        ? Number(observedStats.avgFillLifetimeMs) / 3600000
+        : null;
+    const observedTurnoverShares =
+      observedQueueHours && observedQueueHours > 0 && queueAheadShares > 0 ? queueAheadShares / observedQueueHours : 0;
+    const observedBaseWeight =
+      observedQueueHours && observedQueueHours > 0
+        ? clamp(Number(observedStats?.filled || 0) / Math.max(1, this.polymarketObservedQueueMinSamples), 0, 1)
+        : 0;
+    const observedWeight =
+      observedTurnoverShares > 0
+        ? clamp(
+            observedBaseWeight * (1 - clamp(Number(observedStats?.cancelRate || 0) * 0.35, 0, 0.35)),
+            0,
+            this.polymarketObservedQueueMaxWeight
+          )
+        : 0;
+    const hourlyTurnoverShares =
+      observedWeight > 0 && observedTurnoverShares > 0
+        ? volumeBasedHourlyTurnoverShares * (1 - observedWeight) + observedTurnoverShares * observedWeight
+        : volumeBasedHourlyTurnoverShares;
     const queueHours =
       queueAheadShares > 0 && hourlyTurnoverShares > 0 ? queueAheadShares / hourlyTurnoverShares : Number.POSITIVE_INFINITY;
     const flowToQueuePerHour =
       queueAheadShares > 0 && hourlyTurnoverShares > 0 ? hourlyTurnoverShares / queueAheadShares : 0;
+    const queueModel =
+      observedWeight > 0.5 ? 'observed' : observedWeight > 0 ? 'blended' : 'volume-24h';
+    const queueConfidence = observedWeight > 0 ? clamp(0.35 + observedWeight, 0, 1) : 0.25;
     const fastFlowPenalty =
       Number.isFinite(queueHours) && queueHours < this.polymarketRewardMinQueueHours
         ? clamp(
@@ -821,6 +954,9 @@ export class MarketSelector {
       hourlyTurnoverShares,
       queueHours,
       flowToQueuePerHour,
+      queueModel,
+      queueConfidence,
+      observedQueueHours,
       fastFlowPenalty,
       targetQueueHours,
       targetQueueFactor,

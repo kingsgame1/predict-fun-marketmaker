@@ -527,6 +527,41 @@ function loadPolymarketHourRiskPenalty(
   }
 }
 
+function loadPolymarketObservedQueueStats(
+  metricsPath: string | undefined,
+  cwd: string
+): Map<string, { filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }> {
+  const observed = new Map<string, { filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }>();
+  if (!metricsPath) {
+    return observed;
+  }
+  try {
+    const resolved = path.isAbsolute(metricsPath) ? metricsPath : path.resolve(cwd, metricsPath);
+    if (!fs.existsSync(resolved)) {
+      return observed;
+    }
+    const raw = JSON.parse(fs.readFileSync(resolved, 'utf8')) as {
+      markets?: Array<{ tokenId?: string; filled?: number; cancelRate?: number; avgFillLifetimeMs?: number }>;
+    };
+    for (const metric of raw.markets || []) {
+      const tokenId = String(metric.tokenId || '').trim();
+      if (!tokenId) continue;
+      const filled = Number(metric.filled || 0);
+      const cancelRate = Number(metric.cancelRate || 0);
+      const avgFillLifetimeMs = Number(metric.avgFillLifetimeMs || 0);
+      if (filled <= 0 && avgFillLifetimeMs <= 0) continue;
+      observed.set(tokenId, {
+        filled: filled > 0 ? filled : undefined,
+        cancelRate: Number.isFinite(cancelRate) ? cancelRate : undefined,
+        avgFillLifetimeMs: avgFillLifetimeMs > 0 ? avgFillLifetimeMs : undefined,
+      });
+    }
+  } catch (error) {
+    console.error('[Polymarket] 读取观测队列速度失败，已忽略:', error);
+  }
+  return observed;
+}
+
 function loadPolymarketHourlyMarketRisk(
   metricsPath: string | undefined,
   cwd: string,
@@ -1218,6 +1253,8 @@ export class PolymarketMarketMakerBot {
       rewardTargetQueueHours: this.config.polymarketRewardTargetQueueHours ?? 1.5,
       rewardTargetQueueTolerance: this.config.polymarketRewardTargetQueueTolerance ?? 0.5,
       rewardTargetPenaltyMax: this.config.polymarketRewardTargetPenaltyMax ?? 6,
+      observedQueueMinSamples: this.config.polymarketObservedQueueMinSamples ?? 3,
+      observedQueueMaxWeight: this.config.polymarketObservedQueueMaxWeight ?? 0.65,
       recentRiskBlockPenalty: this.config.polymarketRecentRiskBlockPenalty ?? 12,
       patternMemoryMaxPenalty: this.config.polymarketPatternMemoryMaxPenalty ?? 8,
       patternMemoryBlockPenalty: this.config.polymarketPatternMemoryBlockPenalty ?? 6,
@@ -1231,10 +1268,19 @@ export class PolymarketMarketMakerBot {
       eventRiskPenaltyMax: this.config.polymarketEventRiskPenaltyMax ?? 6,
       eventRiskSizeFactorMin: this.config.polymarketEventRiskSizeFactorMin ?? 0.45,
       eventRiskRetreatMaxBps: this.config.polymarketEventRiskRetreatMaxBps ?? 10,
+      catalystRiskPenaltyWithinMs: this.config.polymarketCatalystRiskPenaltyWithinMs ?? 90 * 60 * 1000,
+      catalystRiskBlockWithinMs: this.config.polymarketCatalystRiskBlockWithinMs ?? 10 * 60 * 1000,
+      catalystRiskPenaltyMax: this.config.polymarketCatalystRiskPenaltyMax ?? 7,
+      catalystRiskSizeFactorMin: this.config.polymarketCatalystRiskSizeFactorMin ?? 0.35,
+      catalystRiskRetreatMaxBps: this.config.polymarketCatalystRiskRetreatMaxBps ?? 14,
       groupMaxExposureFactor: this.config.polymarketGroupMaxExposureFactor ?? 1.4,
       groupSoftExposureStart: this.config.polymarketGroupSoftExposureStart ?? 0.7,
       groupSizeFactorMin: this.config.polymarketGroupSizeFactorMin ?? 0.55,
       groupRetreatMaxBps: this.config.polymarketGroupRetreatMaxBps ?? 12,
+      themeMaxExposureFactor: this.config.polymarketThemeMaxExposureFactor ?? 2.2,
+      themeSoftExposureStart: this.config.polymarketThemeSoftExposureStart ?? 0.65,
+      themeSizeFactorMin: this.config.polymarketThemeSizeFactorMin ?? 0.5,
+      themeRetreatMaxBps: this.config.polymarketThemeRetreatMaxBps ?? 10,
       rewardPauseMs: this.config.polymarketRewardPauseMs ?? PolymarketMarketMakerBot.POLYMARKET_REWARD_PAUSE_MS,
     };
   }
@@ -1274,6 +1320,7 @@ export class PolymarketMarketMakerBot {
       safety.patternMemoryTtlMs,
       safety.patternMemoryMaxPenalty
     );
+    const observedQueueStats = loadPolymarketObservedQueueStats(this.config.mmMetricsPath, process.cwd());
     const hourRiskPenalty = loadPolymarketHourRiskPenalty(
       this.config.mmMetricsPath,
       process.cwd(),
@@ -1302,6 +1349,9 @@ export class PolymarketMarketMakerBot {
       polymarketRewardTargetQueueHours: safety.rewardTargetQueueHours,
       polymarketRewardTargetQueueTolerance: safety.rewardTargetQueueTolerance,
       polymarketRewardTargetPenaltyMax: safety.rewardTargetPenaltyMax,
+      polymarketObservedQueueStats: observedQueueStats,
+      polymarketObservedQueueMinSamples: safety.observedQueueMinSamples,
+      polymarketObservedQueueMaxWeight: safety.observedQueueMaxWeight,
       polymarketRecentRiskBlockPenalty: safety.recentRiskBlockPenalty,
       polymarketRecentRiskPenalty: recentRiskPenalty,
       polymarketPatternMemoryPenalty: patternMemoryPenalty,
@@ -1314,6 +1364,10 @@ export class PolymarketMarketMakerBot {
       polymarketEventRiskBlockWithinMs: safety.eventRiskBlockWithinMs,
       polymarketEventRiskPenaltyMax: safety.eventRiskPenaltyMax,
       polymarketEventRiskSizeFactorMin: safety.eventRiskSizeFactorMin,
+      polymarketCatalystRiskPenaltyWithinMs: safety.catalystRiskPenaltyWithinMs,
+      polymarketCatalystRiskBlockWithinMs: safety.catalystRiskBlockWithinMs,
+      polymarketCatalystRiskPenaltyMax: safety.catalystRiskPenaltyMax,
+      polymarketCatalystRiskSizeFactorMin: safety.catalystRiskSizeFactorMin,
     };
   }
 
@@ -1330,6 +1384,10 @@ export class PolymarketMarketMakerBot {
       blockWithinMs: safety.eventRiskBlockWithinMs,
       penaltyMax: safety.eventRiskPenaltyMax,
       sizeFactorMin: safety.eventRiskSizeFactorMin,
+      catalystPenaltyWithinMs: safety.catalystRiskPenaltyWithinMs,
+      catalystBlockWithinMs: safety.catalystRiskBlockWithinMs,
+      catalystPenaltyMax: safety.catalystRiskPenaltyMax,
+      catalystSizeFactorMin: safety.catalystRiskSizeFactorMin,
     });
     if (eventRisk.block) {
       return { skip: true, reason: eventRisk.reason || '临近事件窗口，暂不做市' };
