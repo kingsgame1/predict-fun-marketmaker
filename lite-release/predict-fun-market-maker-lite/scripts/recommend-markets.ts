@@ -768,7 +768,7 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardMinNetEfficiency: readNumber(env, 'POLYMARKET_REWARD_MIN_NET_EFFICIENCY', 0.0008),
     polymarketRewardNetCostBpsMultiplier: readNumber(env, 'POLYMARKET_REWARD_NET_COST_BPS_MULTIPLIER', 1),
     polymarketRewardRequireFit: env.get('POLYMARKET_REWARD_REQUIRE_FIT') !== 'false',
-    polymarketRewardRequireEnabled: env.get('POLYMARKET_REWARD_REQUIRE_ENABLED') === 'true',
+    polymarketRewardRequireEnabled: env.get('POLYMARKET_REWARD_REQUIRE_ENABLED') !== 'false',
     polymarketRewardMaxQueueMultiple: readNumber(env, 'POLYMARKET_REWARD_MAX_QUEUE_MULTIPLE', 12),
     polymarketRewardCrowdingPenaltyStart: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_START', 4),
     polymarketRewardCrowdingPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_MAX', 12),

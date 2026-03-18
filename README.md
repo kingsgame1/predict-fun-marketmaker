@@ -98,6 +98,8 @@ POLYMARKET_API_PASSPHRASE=可留空；若自动派生失败则手动填写
 说明：
 
 - 当前脚本实盘需要的是 Polymarket 用户 CLOB API 凭证（L2），不是 Builder / Relayer key。
+- 当前 `Polymarket` 自动推荐默认就是“奖励做市优先”，会优先过滤掉无激励或当前不适合拿激励的市场。
+- 当前 `Polymarket` 自动推荐默认就是“奖励做市优先”，会优先过滤掉无激励或当前不适合拿激励的市场。
 - 推荐先保留 `POLYMARKET_AUTO_DERIVE_API_KEY=true`，然后在 Lite App 点击 `检查 Polymarket 预检` 自动派生。
 - 如果自动派生失败：打开官方认证文档创建或派生 API 凭证，再填写 `POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE`。
 - 如果 funder/profile 有问题，先打开 [Polymarket Settings](https://polymarket.com/settings) 确认地址有效。

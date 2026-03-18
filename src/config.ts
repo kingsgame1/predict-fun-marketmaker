@@ -1223,7 +1223,7 @@ export function loadConfig(): Config {
     polymarketRewardMinNetEfficiency: parseFloat(process.env.POLYMARKET_REWARD_MIN_NET_EFFICIENCY || '0.0008'),
     polymarketRewardNetCostBpsMultiplier: parseFloat(process.env.POLYMARKET_REWARD_NET_COST_BPS_MULTIPLIER || '1'),
     polymarketRewardRequireFit: process.env.POLYMARKET_REWARD_REQUIRE_FIT !== 'false',
-    polymarketRewardRequireEnabled: process.env.POLYMARKET_REWARD_REQUIRE_ENABLED === 'true',
+    polymarketRewardRequireEnabled: process.env.POLYMARKET_REWARD_REQUIRE_ENABLED !== 'false',
     polymarketRewardPauseMs: parseInt(process.env.POLYMARKET_REWARD_PAUSE_MS || '180000'),
     polymarketRewardSizeCapMultiplier: parseFloat(process.env.POLYMARKET_REWARD_SIZE_CAP_MULTIPLIER || '1.25'),
     polymarketRewardNetSizeFactorMin: parseFloat(process.env.POLYMARKET_REWARD_NET_SIZE_FACTOR_MIN || '0.5'),
