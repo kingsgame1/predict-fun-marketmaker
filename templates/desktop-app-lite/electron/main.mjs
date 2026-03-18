@@ -342,6 +342,14 @@ setupPath();
 
 let win = null;
 let mmProcess = null;
+let mmRuntimeStatus = {
+  running: false,
+  venue: null,
+  lastError: '',
+  pausedMarkets: [],
+  lastPauseEvent: '',
+  lastUpdatedAt: 0,
+};
 
 // ============================================================
 // 配置文件操作
@@ -505,6 +513,7 @@ async function sanitizePolymarketConfiguredTokenIds() {
 // ============================================================
 
 function sendLog(message) {
+  updateRuntimeStatusFromLog(message);
   if (win && !win.isDestroyed()) {
     win.webContents.send('log', { ts: Date.now(), message });
   }
@@ -512,7 +521,93 @@ function sendLog(message) {
 
 function sendStatus() {
   if (win && !win.isDestroyed()) {
-    win.webContents.send('status', { running: Boolean(mmProcess) });
+    win.webContents.send('status', {
+      running: Boolean(mmProcess),
+      ...mmRuntimeStatus,
+    });
+  }
+}
+
+function resetRuntimeStatus(venue = null) {
+  mmRuntimeStatus = {
+    running: Boolean(mmProcess),
+    venue,
+    lastError: '',
+    pausedMarkets: [],
+    lastPauseEvent: '',
+    lastUpdatedAt: Date.now(),
+  };
+}
+
+function upsertPausedMarket(entry) {
+  const key = String(entry.token || entry.id || '').trim();
+  if (!key) return;
+  const next = {
+    token: key,
+    source: String(entry.source || 'risk'),
+    reason: String(entry.reason || 'paused'),
+    remaining: entry.remaining ?? '',
+  };
+  const index = mmRuntimeStatus.pausedMarkets.findIndex((item) => item.token === key);
+  if (index >= 0) {
+    mmRuntimeStatus.pausedMarkets[index] = next;
+  } else {
+    mmRuntimeStatus.pausedMarkets.unshift(next);
+    mmRuntimeStatus.pausedMarkets = mmRuntimeStatus.pausedMarkets.slice(0, 8);
+  }
+  mmRuntimeStatus.lastPauseEvent = `${next.token} ${next.reason}`;
+  mmRuntimeStatus.lastUpdatedAt = Date.now();
+}
+
+function updateRuntimeStatusFromLog(message) {
+  const text = String(message || '');
+  if (!text.includes('[MM]')) return;
+
+  if (/Fatal error:|exited code=|Error processing market/i.test(text)) {
+    mmRuntimeStatus.lastError = text.replace(/^\[MM\]\s*/u, '').trim();
+    mmRuntimeStatus.lastUpdatedAt = Date.now();
+  }
+
+  const rewardPause = text.match(/Polymarket 奖励门禁暂停\s+([A-Za-z0-9]{6,})\s+(\d+)s:\s+(.+)$/u);
+  if (rewardPause) {
+    upsertPausedMarket({
+      token: rewardPause[1],
+      source: 'reward-gate',
+      remaining: `${rewardPause[2]}s`,
+      reason: rewardPause[3],
+    });
+  }
+
+  const postOnlyPause = text.match(/Polymarket postOnly fuse\s+([A-Za-z0-9]{6,}):\s+(.+), pause\s+(\d+)s$/u);
+  if (postOnlyPause) {
+    upsertPausedMarket({
+      token: postOnlyPause[1],
+      source: 'post-only',
+      remaining: `${postOnlyPause[3]}s`,
+      reason: postOnlyPause[2],
+    });
+  }
+
+  const lossFuse = text.match(/\[PolymarketSafety\]\s+单市场亏损熔断:\s+token=([A-Za-z0-9]+)\s+(.+)$/u);
+  if (lossFuse) {
+    upsertPausedMarket({
+      token: lossFuse[1],
+      source: 'loss-fuse',
+      reason: `单市场亏损熔断 ${lossFuse[2]}`,
+    });
+  }
+
+  if (text.includes('Paused Market Reasons:')) {
+    mmRuntimeStatus.lastUpdatedAt = Date.now();
+  }
+  const pausedRow = text.match(/^\[MM\]\s+([A-Za-z0-9]{8,})\.\.\.\s+(\d+)s\s+\|\s+([^|]+)\|\s+(.+)$/u);
+  if (pausedRow) {
+    upsertPausedMarket({
+      token: pausedRow[1],
+      remaining: `${pausedRow[2]}s`,
+      source: pausedRow[3].trim(),
+      reason: pausedRow[4].trim(),
+    });
   }
 }
 
@@ -647,11 +742,16 @@ PRIVATE_KEY=${privateKey}
 
 # ---- 官方默认 API / WS（直接使用）----
 # 文档来源：https://docs.polymarket.com/
+# 当前脚本需要的是 Polymarket 用户 CLOB API 凭证（L2），不是 Builder/Relayer key。
+# 推荐先保留 POLYMARKET_AUTO_DERIVE_API_KEY=true，再在 Lite App 点击“检查 Polymarket 预检”自动派生。
 MM_VENUE=polymarket
 POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
 POLYMARKET_CLOB_URL=https://clob.polymarket.com
 POLYMARKET_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market
 POLYMARKET_CHAIN_ID=137
+POLYMARKET_API_KEY=
+POLYMARKET_API_SECRET=
+POLYMARKET_API_PASSPHRASE=
 POLYMARKET_AUTO_DERIVE_API_KEY=true
 POLYMARKET_MAX_MARKETS=120
 
@@ -790,11 +890,30 @@ async function runPredictWalletStatus() {
   }
 }
 
+async function runPolymarketPreflightStatus() {
+  const result = await runCommand(
+    getNpxCmd(),
+    ['tsx', 'scripts/check-polymarket-preflight.ts', '--env', envPath, '--json'],
+    'poly-preflight',
+    false
+  );
+  if (!result.ok) {
+    return { ok: false, message: result.stderr || result.stdout || 'polymarket preflight failed' };
+  }
+  try {
+    const payload = JSON.parse((result.stdout || '').trim());
+    return { ok: true, payload };
+  } catch {
+    return { ok: false, message: 'polymarket preflight json parse failed', raw: result.stdout };
+  }
+}
+
 async function startMM() {
   if (mmProcess) return { ok: false, message: '做市进程已在运行' };
 
   const envMap = parseEnv(readEnv());
   const venue = (envMap.get('MM_VENUE') || 'predict').trim().toLowerCase();
+  resetRuntimeStatus(venue);
   if (venue === 'predict') {
     const walletStatus = await runPredictWalletStatus();
     if (!walletStatus.ok) {
@@ -812,6 +931,21 @@ async function startMM() {
     }
     sendLog(
       `[wallet] signer=${info.signerAddress} predict=${info.predictAccountAddress} balance=${Number(info.balance).toFixed(6)} approvals=${info.approvalReady ? 'ready' : 'pending'}`
+    );
+  }
+
+  if (venue === 'polymarket') {
+    const preflightStatus = await runPolymarketPreflightStatus();
+    if (!preflightStatus.ok) {
+      return { ok: false, message: `Polymarket 预检失败: ${preflightStatus.message}` };
+    }
+    const info = preflightStatus.payload || {};
+    const coreIssues = Array.isArray(info.coreIssues) ? info.coreIssues : [];
+    if (coreIssues.length > 0) {
+      return { ok: false, message: `Polymarket 预检未通过: ${coreIssues.join('；')}` };
+    }
+    sendLog(
+      `[wallet] poly signer=${info.signerAddress || '--'} funder=${info.funderAddress || '--'} native=${Number(info.signerNativeBalance || 0).toFixed(4)} ${info.signerNativeSymbol || 'POL'} usdc=${Number(info.funderUsdcBalance || 0).toFixed(2)} ${info.funderUsdcSymbol || 'USDC.e'} allowance=${info.usdcAllowanceReady ? 'ready' : 'pending'} exchange=${info.exchangeApprovalReady ? 'ready' : 'pending'} negRisk=${info.negRiskExchangeApprovalReady ? 'ready' : 'pending'} creds=${info.credsReady ? 'ready' : 'missing'} openOrders=${info.openOrderCount || 0}`
     );
   }
 
@@ -854,11 +988,13 @@ async function startMM() {
     env: env,
   });
   mmProcess = spawn(spawnSpec.command, spawnSpec.args, spawnSpec.options);
+  mmRuntimeStatus.running = true;
   mmProcess.stdout.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.stderr.on('data', (d) => sendLog(`[MM] ${d.toString()}`));
   mmProcess.on('exit', (code) => {
     sendLog(`[MM] exited code=${code}`);
     mmProcess = null;
+    mmRuntimeStatus.running = false;
     sendStatus();
   });
   sendStatus();
@@ -868,6 +1004,7 @@ async function startMM() {
 function stopMM() {
   if (!mmProcess) return { ok: false, message: '做市进程未运行' };
   const proc = mmProcess;
+  mmRuntimeStatus.running = false;
   const timer = setTimeout(() => {
     if (mmProcess === proc && !proc.killed) {
       sendLog('[MM] 停止超时，强制结束进程');
@@ -1003,6 +1140,7 @@ ipcMain.handle('market:apply-auto', async (_, venue, top, scan) => {
 ipcMain.handle('market:set-manual', async (_, tokenIds) => await setManualMarketSelection(tokenIds));
 ipcMain.handle('market:get-manual', () => getManualMarketSelection());
 ipcMain.handle('predict:wallet-status', async () => await runPredictWalletStatus());
+ipcMain.handle('polymarket:preflight-status', async () => await runPolymarketPreflightStatus());
 ipcMain.handle('link:open', async (_, url) => {
   try {
     await shell.openExternal(url);

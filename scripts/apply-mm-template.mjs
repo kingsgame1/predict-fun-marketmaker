@@ -188,7 +188,7 @@ function buildPolymarketTemplate(existing) {
 POLYMARKET_PRIVATE_KEY=${privateKey}
 # 兼容字段（可留空；如有值可与 POLYMARKET_PRIVATE_KEY 一致）
 PRIVATE_KEY=${legacyPrivateKey}
-# [可选] 已有 API 凭证；留空则默认自动派生
+# [可选] Polymarket 用户 CLOB API 凭证（L2）；不是 Builder/Relayer key。留空则默认自动派生
 POLYMARKET_API_KEY=${apiKey}
 POLYMARKET_API_SECRET=${apiSecret}
 POLYMARKET_API_PASSPHRASE=${apiPassphrase}

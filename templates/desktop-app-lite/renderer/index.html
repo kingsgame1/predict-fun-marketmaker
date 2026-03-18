@@ -80,8 +80,74 @@
         </div>
         <div id="walletWarning" class="hint"></div>
       </section>
+      <section>
+        <div class="label">Polymarket 实盘前检查</div>
+        <div class="row">
+          <button id="refreshPolymarketPreflight">检查 Polymarket 预检</button>
+          <button id="openPolymarketAuthDocs">如何获取 API 凭证</button>
+          <button id="openPolymarketSettings">打开 Polymarket 设置</button>
+          <span id="polyPreflightStatus" class="badge">预检状态：待检查</span>
+          <span id="polyPreflightUpdatedAt" class="badge">最近更新：--</span>
+        </div>
+        <div class="wallet-grid">
+          <div class="wallet-card">
+            <div class="wallet-title">Signer 地址</div>
+            <div id="polySigner" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">Funder / Profile</div>
+            <div id="polyFunder" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">签名类型</div>
+            <div id="polySignatureType" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">API 凭证</div>
+            <div id="polyCreds" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">Open Orders</div>
+            <div id="polyOpenOrders" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">Signer Gas</div>
+            <div id="polyNativeBalance" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">USDC.e 余额</div>
+            <div id="polyUsdcBalance" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">USDC.e → CTF</div>
+            <div id="polyUsdcAllowance" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">CTF → Exchange</div>
+            <div id="polyExchangeApproval" class="wallet-value">--</div>
+          </div>
+          <div class="wallet-card">
+            <div class="wallet-title">CTF → NegRisk</div>
+            <div id="polyNegRiskApproval" class="wallet-value">--</div>
+          </div>
+        </div>
+        <div id="polyPreflightWarning" class="hint"></div>
+        <div id="polyCredentialGuide" class="hint"></div>
+        <div class="label">当前已选市场预检摘要</div>
+        <div id="polySelectionSummary" class="wallet-grid"></div>
+        <div id="polySelectionList" class="wallet-grid"></div>
+      </section>
+      <section>
+        <div class="label">做市风控状态</div>
+        <div class="row">
+          <span id="riskStatus" class="badge">风控状态：空闲</span>
+          <span id="riskUpdatedAt" class="badge">最近更新：--</span>
+        </div>
+        <div id="riskSummary" class="hint">当前暂无暂停市场。</div>
+        <div id="riskList" class="wallet-grid"></div>
+      </section>
       <section class="hint">
-        模板只需填写必填项： Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>/<code>PREDICT_ACCOUNT_ADDRESS</code>（实盘再填 <code>JWT_TOKEN</code>）；Polymarket 填 <code>POLYMARKET_PRIVATE_KEY</code>。API/WS 默认值按官方文档自动写入。
+        模板只需填写必填项： Predict 填 <code>API_KEY</code>/<code>PRIVATE_KEY</code>/<code>PREDICT_ACCOUNT_ADDRESS</code>（实盘再填 <code>JWT_TOKEN</code>）；Polymarket 填 <code>POLYMARKET_PRIVATE_KEY</code>，如使用代理签名再填 <code>POLYMARKET_FUNDER_ADDRESS</code>/<code>POLYMARKET_SIGNATURE_TYPE</code>。
       </section>
       <section>
         <div class="label">市场筛选与推荐</div>
@@ -105,7 +171,7 @@
           <button id="applyManualMarkets">应用手动勾选</button>
           <button id="reloadManualMarkets">读取当前已选</button>
         </div>
-        <div class="hint">推荐市场以卡片方式展示，优先贴近 Predict 网站的浏览体验。重点显示盘口价差、L1/L2 可挂金额、支撑率、断层和推荐原因。手动勾选后可直接写入 <code>MARKET_TOKEN_IDS</code>。</div>
+        <div class="hint">推荐市场以卡片方式展示。卡片会直接显示盘口、奖励效率、风险记忆与冷却状态，便于在应用前完成复核。</div>
         <div class="market-toolbar">
           <label class="select-all-pill">
             <input id="selectAllMarkets" type="checkbox" />

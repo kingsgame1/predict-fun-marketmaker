@@ -26,6 +26,9 @@ const POLYMARKET_CONTRACTS = {
   },
 } as const;
 
+const POLYMARKET_AUTH_DOC_URL = 'https://docs.polymarket.com/cn/api-reference/authentication';
+const POLYMARKET_SETTINGS_URL = 'https://polymarket.com/settings';
+
 type ChainId = keyof typeof POLYMARKET_CONTRACTS;
 
 function parseArgs(argv: string[]) {
@@ -112,6 +115,14 @@ async function main() {
     openOrderQueryOk: false,
     openOrderCount: 0,
     preflightError: '',
+    hasExplicitApiCreds: false,
+    autoDeriveApiKey,
+    credsMode: 'missing',
+    credsRequirement: 'Polymarket CLOB 用户 API 凭证（L2）',
+    builderRelayerKeyRequired: false,
+    credentialDocUrl: POLYMARKET_AUTH_DOC_URL,
+    settingsUrl: POLYMARKET_SETTINGS_URL,
+    credentialGuide: [] as string[],
     signerNativeSymbol: chainId === 137 ? 'POL' : 'native',
     signerNativeBalance: null,
     signerNativeBalanceWei: null,
@@ -131,6 +142,10 @@ async function main() {
     coreReady: false,
     updatedAt: Date.now(),
   };
+
+  const hasExplicitApiCreds = Boolean(env.get('POLYMARKET_API_KEY') && env.get('POLYMARKET_API_SECRET') && env.get('POLYMARKET_API_PASSPHRASE'));
+  payload.hasExplicitApiCreds = hasExplicitApiCreds;
+  payload.credsMode = hasExplicitApiCreds ? 'explicit' : autoDeriveApiKey ? 'auto-derive' : 'missing';
 
   const api = new PolymarketAPI({
     gammaUrl,
@@ -205,7 +220,7 @@ async function main() {
     payload.coreIssues.push(`交易预检失败: ${payload.preflightError}`);
   }
   if (!payload.credsReady) {
-    payload.coreIssues.push('Polymarket API 凭证未就绪。');
+    payload.coreIssues.push('Polymarket CLOB 用户 API 凭证未就绪。当前脚本下单/撤单/查单需要用户 L2 API 凭证，不需要 Builder/Relayer key。可先保持 POLYMARKET_AUTO_DERIVE_API_KEY=true 自动派生；若仍失败，请按下方指引手动创建或派生后填写 POLYMARKET_API_KEY / SECRET / PASSPHRASE。');
   }
   if (payload.chainReadError) {
     payload.coreIssues.push(`链上读取失败: ${payload.chainReadError}`);
@@ -227,6 +242,27 @@ async function main() {
     if (payload.negRiskExchangeApprovalSupported && !payload.negRiskExchangeApprovalReady) {
       payload.warnings.push('CTF -> NegRisk Exchange approvalForAll 未就绪，仅影响 neg risk 市场。');
     }
+  }
+
+  if (payload.credsReady) {
+    payload.credentialGuide = [
+      '当前 Polymarket 用户 CLOB API 凭证已就绪。当前脚本不需要 Builder/Relayer key。',
+      '若后续更换钱包或 funder/profile，建议重新点击“检查 Polymarket 预检”，确认 open orders 查询与凭证仍可用。',
+    ];
+  } else if (autoDeriveApiKey) {
+    payload.credentialGuide = [
+      '当前脚本实盘需要的是 Polymarket CLOB 用户 API 凭证（L2），不是 Builder/Relayer key。',
+      '推荐先保持 POLYMARKET_AUTO_DERIVE_API_KEY=true，然后点击“检查 Polymarket 预检”；脚本会尝试用私钥自动创建或派生 API 凭证。',
+      '如果自动派生失败：打开官方认证文档，按 Create API Credentials / Derive API Credentials 生成 POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE。',
+      '如果报 funder/profile 相关错误，先打开 Polymarket Settings 确认或激活你的 Profile / Funder 地址，再重试。',
+    ];
+  } else {
+    payload.credentialGuide = [
+      '你已关闭自动派生；当前脚本实盘需要的是 Polymarket CLOB 用户 API 凭证（L2），不是 Builder/Relayer key。',
+      '打开官方认证文档，按 Create API Credentials / Derive API Credentials 生成三项凭证。',
+      '将生成的 POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE 填入 .env 后，再点击“检查 Polymarket 预检”。',
+      '如果你使用 funder/profile 模式，先在 Polymarket Settings 确认对应地址有效。',
+    ];
   }
 
   payload.coreReady = payload.coreIssues.length === 0;

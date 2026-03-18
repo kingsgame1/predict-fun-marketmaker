@@ -742,11 +742,16 @@ PRIVATE_KEY=${privateKey}
 
 # ---- 官方默认 API / WS（直接使用）----
 # 文档来源：https://docs.polymarket.com/
+# 当前脚本需要的是 Polymarket 用户 CLOB API 凭证（L2），不是 Builder/Relayer key。
+# 推荐先保留 POLYMARKET_AUTO_DERIVE_API_KEY=true，再在 Lite App 点击“检查 Polymarket 预检”自动派生。
 MM_VENUE=polymarket
 POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
 POLYMARKET_CLOB_URL=https://clob.polymarket.com
 POLYMARKET_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market
 POLYMARKET_CHAIN_ID=137
+POLYMARKET_API_KEY=
+POLYMARKET_API_SECRET=
+POLYMARKET_API_PASSPHRASE=
 POLYMARKET_AUTO_DERIVE_API_KEY=true
 POLYMARKET_MAX_MARKETS=120
 

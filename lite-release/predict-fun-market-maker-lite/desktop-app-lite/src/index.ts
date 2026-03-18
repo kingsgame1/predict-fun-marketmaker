@@ -1395,7 +1395,7 @@ export class PolymarketMarketMakerBot {
         `sigType=${preflight.signatureType} creds=${preflight.credsReady ? 'ready' : 'missing'} openOrders=${preflight.openOrderCount}`
     );
     if (liveMode && !preflight.credsReady) {
-      throw new Error('Polymarket API credentials are not ready; cannot safely run live market making');
+      throw new Error('Polymarket 用户 CLOB API 凭证未就绪。当前脚本不需要 Builder/Relayer key，但需要用户 API key/secret/passphrase，或成功自动派生。请先保持 POLYMARKET_AUTO_DERIVE_API_KEY=true 并执行 Polymarket 预检；若仍失败，再按官方认证文档填写 POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE。');
     }
   }
 

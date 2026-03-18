@@ -993,9 +993,9 @@
 - `POLYMARKET_WS_RESET_ON_RECONNECT`：重连后清空缓存，触发 REST 回补。
 - `POLYMARKET_CACHE_TTL_MS`：市场列表缓存。
 - `POLYMARKET_PRIVATE_KEY`：签名私钥。
-- `POLYMARKET_API_KEY/SECRET/PASSPHRASE`：API 凭证。
+- `POLYMARKET_API_KEY/SECRET/PASSPHRASE`：Polymarket 用户 CLOB API 凭证（L2），用于下单 / 撤单 / 查单；不是 Builder / Relayer key。
 - `POLYMARKET_CHAIN_ID`：链 ID。
-- `POLYMARKET_AUTO_DERIVE_API_KEY`：自动派生。
+- `POLYMARKET_AUTO_DERIVE_API_KEY`：是否先用私钥自动创建或派生用户 API 凭证；若自动派生失败，再手动填写上面三项。
 
 ## 12. Polymarket
 

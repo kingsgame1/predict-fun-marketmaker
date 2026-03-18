@@ -28,6 +28,7 @@ const polyUsdcAllowance = document.getElementById('polyUsdcAllowance');
 const polyExchangeApproval = document.getElementById('polyExchangeApproval');
 const polyNegRiskApproval = document.getElementById('polyNegRiskApproval');
 const polyPreflightWarning = document.getElementById('polyPreflightWarning');
+const polyCredentialGuide = document.getElementById('polyCredentialGuide');
 const polySelectionSummary = document.getElementById('polySelectionSummary');
 const polySelectionList = document.getElementById('polySelectionList');
 const riskStatus = document.getElementById('riskStatus');
@@ -41,6 +42,8 @@ const tplPolymarketBtn = document.getElementById('tplPolymarket');
 const getJwtBtn = document.getElementById('getJwt');
 const refreshPredictWalletBtn = document.getElementById('refreshPredictWallet');
 const refreshPolymarketPreflightBtn = document.getElementById('refreshPolymarketPreflight');
+const openPolymarketAuthDocsBtn = document.getElementById('openPolymarketAuthDocs');
+const openPolymarketSettingsBtn = document.getElementById('openPolymarketSettings');
 const scanMarketsBtn = document.getElementById('scanMarkets');
 const applyAutoMarketsBtn = document.getElementById('applyAutoMarkets');
 const applyManualMarketsBtn = document.getElementById('applyManualMarkets');
@@ -53,6 +56,7 @@ let lastRecommendations = [];
 let lastRecommendationVenue = '';
 let approvalState = '待检查';
 let mmRunning = false;
+let lastPolymarketPreflightPayload = null;
 const busyActions = new Set();
 
 function shortenAddress(value) {
@@ -298,6 +302,7 @@ function renderPredictWalletStatus(payload) {
   if (walletAllowance) walletAllowance.textContent = approvalReady ? '已就绪' : '待授权';
 
   const warnings = [];
+  lastPolymarketPreflightPayload = payload || null;
   if (!payload?.predictAccountAddress) warnings.push('未配置 PREDICT_ACCOUNT_ADDRESS。');
   if (payload?.suspiciousPredictAccount) warnings.push('PREDICT_ACCOUNT_ADDRESS 与 signer 地址相同，疑似填错。');
   if (balance <= 0) warnings.push('Predict 账号 USDT 余额为 0。');
@@ -411,7 +416,10 @@ function renderPolymarketPreflight(payload) {
   if (polySigner) polySigner.textContent = shortenAddress(payload?.signerAddress || '--');
   if (polyFunder) polyFunder.textContent = shortenAddress(payload?.funderAddress || '--');
   if (polySignatureType) polySignatureType.textContent = payload?.signatureType == null ? '--' : String(payload.signatureType);
-  if (polyCreds) polyCreds.textContent = payload?.credsReady ? '已就绪' : '缺失';
+  if (polyCreds) {
+    const mode = payload?.credsMode === 'explicit' ? '显式填写' : payload?.credsMode === 'auto-derive' ? '自动派生' : '未配置';
+    polyCreds.textContent = payload?.credsReady ? `已就绪 (${mode})` : `缺失 (${mode})`;
+  }
   if (polyOpenOrders) {
     if (payload?.openOrderQueryOk === false && payload?.preflightError) {
       polyOpenOrders.textContent = '查询失败';
@@ -453,6 +461,10 @@ function renderPolymarketPreflight(payload) {
   if (Array.isArray(payload?.warnings) && payload.warnings.length > 0) warnings.push(...payload.warnings);
   if (payload?.preflightError && !warnings.includes(`交易预检失败: ${payload.preflightError}`)) warnings.push(`交易预检失败: ${payload.preflightError}`);
   if (polyPreflightWarning) polyPreflightWarning.textContent = warnings.join(' ');
+  if (polyCredentialGuide) {
+    const guide = Array.isArray(payload?.credentialGuide) ? payload.credentialGuide : [];
+    polyCredentialGuide.innerHTML = guide.length ? guide.map((line) => `<div>• ${escapeHtml(line)}</div>`).join('') : '';
+  }
 
   if (payload?.coreReady) {
     setPolymarketBadge('已就绪', 'ok');
@@ -496,6 +508,7 @@ async function refreshPolymarketPreflight(forceLog = false) {
   if (venue !== 'polymarket') {
     setPolymarketBadge('非 Polymarket 模式');
     if (polyPreflightWarning) polyPreflightWarning.textContent = '当前场馆不是 Polymarket，预检已跳过。';
+    if (polyCredentialGuide) polyCredentialGuide.innerHTML = '';
     renderPolymarketSelectionSummary();
     return;
   }
@@ -505,6 +518,7 @@ async function refreshPolymarketPreflight(forceLog = false) {
   if (!res?.ok) {
     setPolymarketBadge('检查失败', 'error');
     if (polyPreflightWarning) polyPreflightWarning.textContent = res?.message || '未知错误';
+    if (polyCredentialGuide) polyCredentialGuide.innerHTML = '';
     if (forceLog) pushLog(`Polymarket 预检失败: ${res?.message || 'unknown'}`);
     renderPolymarketSelectionSummary();
     return;
@@ -904,6 +918,20 @@ if (predictAutoApprovals) {
   predictAutoApprovals.onchange = () => {
     envEditor.value = upsertEnv(envEditor.value || '', 'PREDICT_AUTO_SET_APPROVALS', predictAutoApprovals.checked ? 'true' : 'false');
     pushLog(`已${predictAutoApprovals.checked ? '开启' : '关闭'} Predict 自动授权，记得点击“保存配置”。`);
+  };
+}
+
+if (openPolymarketAuthDocsBtn) {
+  openPolymarketAuthDocsBtn.onclick = async () => {
+    const url = lastPolymarketPreflightPayload?.credentialDocUrl || 'https://docs.polymarket.com/cn/api-reference/authentication';
+    if (api) await api.openExternal(url);
+  };
+}
+
+if (openPolymarketSettingsBtn) {
+  openPolymarketSettingsBtn.onclick = async () => {
+    const url = lastPolymarketPreflightPayload?.settingsUrl || 'https://polymarket.com/settings';
+    if (api) await api.openExternal(url);
   };
 }
 

@@ -90,7 +90,18 @@ Polymarket 必填：
 ```env
 POLYMARKET_PRIVATE_KEY=你的Polymarket私钥
 POLYMARKET_FUNDER_ADDRESS=你的Polymarket Profile / Funder 地址（建议填写，实盘推荐必填）
+POLYMARKET_API_KEY=可留空；若自动派生失败则手动填写
+POLYMARKET_API_SECRET=可留空；若自动派生失败则手动填写
+POLYMARKET_API_PASSPHRASE=可留空；若自动派生失败则手动填写
 ```
+
+说明：
+
+- 当前脚本实盘需要的是 Polymarket 用户 CLOB API 凭证（L2），不是 Builder / Relayer key。
+- 推荐先保留 `POLYMARKET_AUTO_DERIVE_API_KEY=true`，然后在 Lite App 点击 `检查 Polymarket 预检` 自动派生。
+- 如果自动派生失败：打开官方认证文档创建或派生 API 凭证，再填写 `POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE`。
+- 如果 funder/profile 有问题，先打开 [Polymarket Settings](https://polymarket.com/settings) 确认地址有效。
+- 官方认证文档：[Authentication](https://docs.polymarket.com/cn/api-reference/authentication)
 
 Polymarket 风控常用参数：
 
@@ -219,7 +230,18 @@ Polymarket：
 ```env
 POLYMARKET_PRIVATE_KEY=你的Polymarket私钥
 POLYMARKET_FUNDER_ADDRESS=你的Polymarket Profile / Funder 地址（建议填写，实盘推荐必填）
+POLYMARKET_API_KEY=可留空；若自动派生失败则手动填写
+POLYMARKET_API_SECRET=可留空；若自动派生失败则手动填写
+POLYMARKET_API_PASSPHRASE=可留空；若自动派生失败则手动填写
 ```
+
+说明：
+
+- 当前脚本实盘需要的是 Polymarket 用户 CLOB API 凭证（L2），不是 Builder / Relayer key。
+- 推荐先保留 `POLYMARKET_AUTO_DERIVE_API_KEY=true`，然后在 Lite App 点击 `检查 Polymarket 预检` 自动派生。
+- 如果自动派生失败：打开官方认证文档创建或派生 API 凭证，再填写 `POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE`。
+- 如果 funder/profile 有问题，先打开 [Polymarket Settings](https://polymarket.com/settings) 确认地址有效。
+- 官方认证文档：[Authentication](https://docs.polymarket.com/cn/api-reference/authentication)
 
 Polymarket 常用风控：
 
