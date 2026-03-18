@@ -1215,6 +1215,9 @@ export class PolymarketMarketMakerBot {
       rewardCrowdingPenaltyMax: this.config.polymarketRewardCrowdingPenaltyMax ?? 12,
       rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
       rewardFastFlowPenaltyMax: this.config.polymarketRewardFastFlowPenaltyMax ?? 8,
+      rewardTargetQueueHours: this.config.polymarketRewardTargetQueueHours ?? 1.5,
+      rewardTargetQueueTolerance: this.config.polymarketRewardTargetQueueTolerance ?? 0.5,
+      rewardTargetPenaltyMax: this.config.polymarketRewardTargetPenaltyMax ?? 6,
       recentRiskBlockPenalty: this.config.polymarketRecentRiskBlockPenalty ?? 12,
       patternMemoryMaxPenalty: this.config.polymarketPatternMemoryMaxPenalty ?? 8,
       patternMemoryBlockPenalty: this.config.polymarketPatternMemoryBlockPenalty ?? 6,
@@ -1296,6 +1299,9 @@ export class PolymarketMarketMakerBot {
       polymarketRewardCrowdingPenaltyMax: safety.rewardCrowdingPenaltyMax,
       polymarketRewardMinQueueHours: safety.rewardMinQueueHours,
       polymarketRewardFastFlowPenaltyMax: safety.rewardFastFlowPenaltyMax,
+      polymarketRewardTargetQueueHours: safety.rewardTargetQueueHours,
+      polymarketRewardTargetQueueTolerance: safety.rewardTargetQueueTolerance,
+      polymarketRewardTargetPenaltyMax: safety.rewardTargetPenaltyMax,
       polymarketRecentRiskBlockPenalty: safety.recentRiskBlockPenalty,
       polymarketRecentRiskPenalty: recentRiskPenalty,
       polymarketPatternMemoryPenalty: patternMemoryPenalty,
@@ -1346,6 +1352,9 @@ export class PolymarketMarketMakerBot {
     }
     if (profile.enabled && profile.crowdingMultiple > safety.rewardMaxQueueMultiple) {
       return { skip: true, reason: `奖励队列过厚 ${profile.crowdingMultiple.toFixed(1)}x` };
+    }
+    if (profile.enabled && profile.targetQueueFactor < 0.3) {
+      return { skip: true, reason: profile.targetQueueReason || '目标排队位置偏离过大' };
     }
     const hourRisk = loadPolymarketHourRiskPenalty(
       this.config.mmMetricsPath,

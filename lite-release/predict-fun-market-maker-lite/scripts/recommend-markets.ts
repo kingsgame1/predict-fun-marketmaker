@@ -107,6 +107,12 @@ interface PolymarketIncentiveSummary {
   hourRiskFactor: number | null;
   queueHours: number | null;
   flowToQueuePerHour: number | null;
+  targetQueueHours: number | null;
+  targetQueueFactor: number | null;
+  targetQueuePenalty: number | null;
+  targetQueueReason: string | null;
+  marketState: string | null;
+  marketStateReason: string | null;
 }
 
 function slugifyQuestion(question: string): string {
@@ -768,6 +774,9 @@ function getPolymarketSelectorOptions(env: EnvMap) {
     polymarketRewardCrowdingPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_CROWDING_PENALTY_MAX', 12),
     polymarketRewardMinQueueHours: readNumber(env, 'POLYMARKET_REWARD_MIN_QUEUE_HOURS', 0.75),
     polymarketRewardFastFlowPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX', 8),
+    polymarketRewardTargetQueueHours: readNumber(env, 'POLYMARKET_REWARD_TARGET_QUEUE_HOURS', 1.5),
+    polymarketRewardTargetQueueTolerance: readNumber(env, 'POLYMARKET_REWARD_TARGET_QUEUE_TOLERANCE', 0.5),
+    polymarketRewardTargetPenaltyMax: readNumber(env, 'POLYMARKET_REWARD_TARGET_PENALTY_MAX', 6),
     polymarketRecentRiskBlockPenalty: readNumber(env, 'POLYMARKET_RECENT_RISK_BLOCK_PENALTY', 12),
     polymarketHourRiskBlockPenalty: readNumber(env, 'POLYMARKET_HOUR_RISK_BLOCK_PENALTY', 6),
     polymarketHourRiskSizeFactorMin: readNumber(env, 'POLYMARKET_HOUR_RISK_SIZE_FACTOR_MIN', 0.55),
@@ -1246,6 +1255,12 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
       hourRiskFactor: null,
       queueHours: null,
       flowToQueuePerHour: null,
+      targetQueueHours: null,
+      targetQueueFactor: null,
+      targetQueuePenalty: null,
+      targetQueueReason: null,
+      marketState: null,
+      marketStateReason: null,
     };
   }
 
@@ -1278,6 +1293,12 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
   const queueHours = queueAheadShares > 0 && hourlyTurnoverShares > 0 ? queueAheadShares / hourlyTurnoverShares : null;
   const flowToQueuePerHour =
     queueAheadShares > 0 && hourlyTurnoverShares > 0 ? hourlyTurnoverShares / queueAheadShares : null;
+  const targetQueueHours = toFiniteNumber(market.polymarket_reward_queue_target_hours);
+  const targetQueueFactor = toFiniteNumber(market.polymarket_reward_queue_target_factor);
+  const targetQueuePenalty = toFiniteNumber(market.polymarket_reward_queue_target_penalty);
+  const targetQueueReason = String(market.polymarket_reward_queue_target_reason || '').trim() || null;
+  const marketState = String(market.polymarket_state || '').trim() || null;
+  const marketStateReason = String(market.polymarket_state_reason || '').trim() || null;
 
   return {
     enabled: true,
@@ -1301,6 +1322,12 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
     hourRiskFactor,
     queueHours,
     flowToQueuePerHour,
+    targetQueueHours,
+    targetQueueFactor,
+    targetQueuePenalty,
+    targetQueueReason,
+    marketState,
+    marketStateReason,
   };
 }
 
@@ -1498,6 +1525,12 @@ async function main(): Promise<void> {
       rewardHourRiskFactor: toFixedOrNull(incentive.hourRiskFactor, 3),
       rewardQueueHours: toFixedOrNull(incentive.queueHours, 2),
       rewardFlowToQueuePerHour: toFixedOrNull(incentive.flowToQueuePerHour, 2),
+      rewardTargetQueueHours: toFixedOrNull(incentive.targetQueueHours, 2),
+      rewardTargetQueueFactor: toFixedOrNull(incentive.targetQueueFactor, 3),
+      rewardTargetQueuePenalty: toFixedOrNull(incentive.targetQueuePenalty, 2),
+      rewardTargetQueueReason: incentive.targetQueueReason,
+      marketState: incentive.marketState,
+      marketStateReason: incentive.marketStateReason,
       recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
       recentFillPenaltyBps: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.fillPenaltyBps ?? null, 2),
       recentRiskThrottleFactor: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.riskThrottleFactor ?? null, 3),

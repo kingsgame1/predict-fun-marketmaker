@@ -1048,6 +1048,9 @@ export interface Config {
   polymarketRewardCrowdingPenaltyMax?: number;
   polymarketRewardMinQueueHours?: number;
   polymarketRewardFastFlowPenaltyMax?: number;
+  polymarketRewardTargetQueueHours?: number;
+  polymarketRewardTargetQueueTolerance?: number;
+  polymarketRewardTargetPenaltyMax?: number;
   polymarketRecentRiskBlockPenalty?: number;
   polymarketRecentRiskSizeFactorMin?: number;
   polymarketHourRiskLookbackDays?: number;
@@ -1071,6 +1074,14 @@ export interface Config {
   polymarketRewardQueueRetreatStart?: number;
   polymarketRewardQueueRetreatMaxBps?: number;
   polymarketRewardFastFlowRetreatMaxBps?: number;
+  polymarketRewardTargetRetreatMaxBps?: number;
+  polymarketRewardTargetSizeFactorMin?: number;
+  polymarketStateProbeSizeFactor?: number;
+  polymarketStateProbeRetreatBps?: number;
+  polymarketStateObserveSizeFactor?: number;
+  polymarketStateObserveRetreatBps?: number;
+  polymarketStateDefendSizeFactor?: number;
+  polymarketStateDefendRetreatBps?: number;
   polymarketCancelReasonDominanceThreshold?: number;
   polymarketCancelReasonRetreatMaxBps?: number;
   polymarketCancelReasonSizeFactorMin?: number;
@@ -1159,6 +1170,10 @@ export interface Market {
   polymarket_reward_effective_net_efficiency?: number;
   polymarket_reward_effective_net_daily_rate?: number;
   polymarket_reward_estimated_cost_bps?: number;
+  polymarket_reward_queue_target_hours?: number;
+  polymarket_reward_queue_target_factor?: number;
+  polymarket_reward_queue_target_penalty?: number;
+  polymarket_reward_queue_target_reason?: string;
   polymarket_recent_risk_penalty?: number;
   polymarket_recent_risk_reason?: string;
   polymarket_recent_risk_cooldown_remaining_ms?: number;
@@ -1210,6 +1225,9 @@ export interface Market {
   polymarket_group_utilization?: number;
   polymarket_group_remaining_budget?: number;
   polymarket_group_reason?: string;
+  polymarket_state?: 'OBSERVE' | 'PROBE' | 'EARN' | 'DEFEND' | 'EXIT' | 'COOLDOWN';
+  polymarket_state_reason?: string;
+  polymarket_state_since_ms?: number;
   polymarket_accepting_orders?: boolean;
   polymarket_tick_size?: number;
   polymarket_enable_order_book?: boolean;

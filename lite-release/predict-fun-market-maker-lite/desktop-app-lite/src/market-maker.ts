@@ -289,6 +289,15 @@ export class MarketMaker {
       lastUpdate: number;
     }
   > = new Map();
+  private polymarketExecutionState: Map<
+    string,
+    {
+      state: 'OBSERVE' | 'PROBE' | 'EARN' | 'DEFEND' | 'EXIT' | 'COOLDOWN';
+      reason: string;
+      since: number;
+      updatedAt: number;
+    }
+  > = new Map();
 
   // ===== Phase 1: 增强模块字段 =====
   // 为每个市场维护独立的估算器
@@ -437,9 +446,20 @@ export class MarketMaker {
       rewardMinNetEfficiency: this.config.polymarketRewardMinNetEfficiency ?? 0.0008,
       rewardNetSizeFactorMin: this.config.polymarketRewardNetSizeFactorMin ?? 0.5,
       rewardMinQueueHours: this.config.polymarketRewardMinQueueHours ?? 0.75,
+      rewardTargetQueueHours: this.config.polymarketRewardTargetQueueHours ?? 1.5,
+      rewardTargetQueueTolerance: this.config.polymarketRewardTargetQueueTolerance ?? 0.5,
+      rewardTargetPenaltyMax: this.config.polymarketRewardTargetPenaltyMax ?? 6,
       rewardQueueRetreatStart: this.config.polymarketRewardQueueRetreatStart ?? 3,
       rewardQueueRetreatMaxBps: this.config.polymarketRewardQueueRetreatMaxBps ?? 12,
       rewardFastFlowRetreatMaxBps: this.config.polymarketRewardFastFlowRetreatMaxBps ?? 8,
+      rewardTargetRetreatMaxBps: this.config.polymarketRewardTargetRetreatMaxBps ?? 6,
+      rewardTargetSizeFactorMin: this.config.polymarketRewardTargetSizeFactorMin ?? 0.65,
+      stateProbeSizeFactor: this.config.polymarketStateProbeSizeFactor ?? 0.55,
+      stateProbeRetreatBps: this.config.polymarketStateProbeRetreatBps ?? 3,
+      stateObserveSizeFactor: this.config.polymarketStateObserveSizeFactor ?? 0.3,
+      stateObserveRetreatBps: this.config.polymarketStateObserveRetreatBps ?? 10,
+      stateDefendSizeFactor: this.config.polymarketStateDefendSizeFactor ?? 0.5,
+      stateDefendRetreatBps: this.config.polymarketStateDefendRetreatBps ?? 7,
       cancelReasonDominanceThreshold: this.config.polymarketCancelReasonDominanceThreshold ?? 0.45,
       cancelReasonRetreatMaxBps: this.config.polymarketCancelReasonRetreatMaxBps ?? 10,
       cancelReasonSizeFactorMin: this.config.polymarketCancelReasonSizeFactorMin ?? 0.55,
@@ -804,6 +824,12 @@ export class MarketMaker {
       const shrinkFactor = 1 - (1 - hourMinFactor) * penaltyRatio;
       shares = Math.max(1, Math.floor(shares * shrinkFactor));
     }
+    const queueTargetFactor = this.clamp(Number(market.polymarket_reward_queue_target_factor || 1), 0.1, 1);
+    const queueTargetMinFactor = this.clamp(Number(this.config.polymarketRewardTargetSizeFactorMin || 0.65), 0.1, 1);
+    if (queueTargetFactor < 1) {
+      const shrinkFactor = Math.max(queueTargetMinFactor, queueTargetFactor);
+      shares = Math.max(1, Math.floor(shares * shrinkFactor));
+    }
     const netEfficiency = Number(
       market.polymarket_reward_effective_net_efficiency || market.polymarket_reward_net_efficiency || 0
     );
@@ -838,34 +864,152 @@ export class MarketMaker {
     return (l1MinShares + l2MinShares) / Math.max(1, reward.minShares);
   }
 
+  private getPolymarketRewardQueueHours(market: Market, orderbook: Orderbook): {
+    queueAheadShares: number;
+    hourlyTurnoverShares: number;
+    queueHours: number;
+    crowdingMultiple: number;
+  } {
+    const reward = this.getPolymarketRewardRule(market);
+    const crowdingMultiple = this.getPolymarketRewardCrowdingMultiple(market, orderbook);
+    const queueAheadShares = reward.enabled ? reward.minShares * Math.max(0, crowdingMultiple) : 0;
+    const mid = Number(orderbook.mid_price || 0);
+    const volume24h = Number(market.volume_24h || 0);
+    const hourlyTurnoverShares = mid > 0 ? volume24h / mid / 24 : 0;
+    const queueHours =
+      queueAheadShares > 0 && hourlyTurnoverShares > 0 ? queueAheadShares / hourlyTurnoverShares : Number.POSITIVE_INFINITY;
+    return { queueAheadShares, hourlyTurnoverShares, queueHours, crowdingMultiple };
+  }
+
+  private getPolymarketQueueTargetAdjustment(market: Market, orderbook: Orderbook): {
+    targetQueueHours: number;
+    queueHours: number;
+    queueAheadShares: number;
+    crowdingMultiple: number;
+    targetFactor: number;
+    targetPenalty: number;
+    retreatBps: number;
+    sizeFactor: number;
+    reason: string;
+  } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return {
+        targetQueueHours: 0,
+        queueHours: 0,
+        queueAheadShares: 0,
+        crowdingMultiple: 0,
+        targetFactor: 1,
+        targetPenalty: 0,
+        retreatBps: 0,
+        sizeFactor: 1,
+        reason: '',
+      };
+    }
+    const reward = this.getPolymarketRewardRule(market);
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const targetQueueHours = Math.max(0, Number(cfg.rewardTargetQueueHours || 0));
+    const tolerance = Math.max(0, Number(cfg.rewardTargetQueueTolerance || 0));
+    const penaltyMax = Math.max(0, Number(cfg.rewardTargetPenaltyMax || 0));
+    const retreatMaxBps = Math.max(0, Number(cfg.rewardTargetRetreatMaxBps || 0));
+    const sizeFactorMin = this.clamp(Number(cfg.rewardTargetSizeFactorMin || 0.65), 0.1, 1);
+    const queueStats = this.getPolymarketRewardQueueHours(market, orderbook);
+    if (!reward.enabled || targetQueueHours <= 0) {
+      return {
+        targetQueueHours,
+        queueHours: queueStats.queueHours,
+        queueAheadShares: queueStats.queueAheadShares,
+        crowdingMultiple: queueStats.crowdingMultiple,
+        targetFactor: 1,
+        targetPenalty: 0,
+        retreatBps: 0,
+        sizeFactor: 1,
+        reason: '',
+      };
+    }
+    const lowerQueueHours = targetQueueHours * Math.max(0.1, 1 - tolerance);
+    const upperQueueHours = targetQueueHours * (1 + tolerance);
+    if (!Number.isFinite(queueStats.queueHours) || queueStats.queueHours <= 0) {
+      return {
+        targetQueueHours,
+        queueHours: queueStats.queueHours,
+        queueAheadShares: queueStats.queueAheadShares,
+        crowdingMultiple: queueStats.crowdingMultiple,
+        targetFactor: 0.35,
+        targetPenalty: penaltyMax,
+        retreatBps: retreatMaxBps,
+        sizeFactor: sizeFactorMin,
+        reason: `排队过浅，目标约 ${targetQueueHours.toFixed(2)}h，当前无法形成稳定队列`,
+      };
+    }
+    if (queueStats.queueHours < lowerQueueHours) {
+      const ratio = this.clamp((lowerQueueHours - queueStats.queueHours) / Math.max(lowerQueueHours, 0.01), 0, 1);
+      const factor = this.clamp(1 - 0.65 * ratio, 0.35, 1);
+      return {
+        targetQueueHours,
+        queueHours: queueStats.queueHours,
+        queueAheadShares: queueStats.queueAheadShares,
+        crowdingMultiple: queueStats.crowdingMultiple,
+        targetFactor: factor,
+        targetPenalty: ratio * penaltyMax,
+        retreatBps: retreatMaxBps * ratio,
+        sizeFactor: 1 - (1 - sizeFactorMin) * ratio,
+        reason: `排队过浅，目标约 ${targetQueueHours.toFixed(2)}h，当前 ${queueStats.queueHours.toFixed(2)}h`,
+      };
+    }
+    if (queueStats.queueHours > upperQueueHours) {
+      const ratio = this.clamp((queueStats.queueHours - upperQueueHours) / Math.max(upperQueueHours, 0.01), 0, 1.5);
+      const factor = this.clamp(1 - 0.5 * Math.min(1, ratio), 0.5, 1);
+      return {
+        targetQueueHours,
+        queueHours: queueStats.queueHours,
+        queueAheadShares: queueStats.queueAheadShares,
+        crowdingMultiple: queueStats.crowdingMultiple,
+        targetFactor: factor,
+        targetPenalty: Math.min(penaltyMax, ratio * penaltyMax * 0.7),
+        retreatBps: 0,
+        sizeFactor: 1 - (1 - sizeFactorMin) * Math.min(1, ratio),
+        reason: `排队过深，目标约 ${targetQueueHours.toFixed(2)}h，当前 ${queueStats.queueHours.toFixed(2)}h`,
+      };
+    }
+    return {
+      targetQueueHours,
+      queueHours: queueStats.queueHours,
+      queueAheadShares: queueStats.queueAheadShares,
+      crowdingMultiple: queueStats.crowdingMultiple,
+      targetFactor: 1,
+      targetPenalty: 0,
+      retreatBps: 0,
+      sizeFactor: 1,
+      reason: `排队处于目标区间，当前 ${queueStats.queueHours.toFixed(2)}h / 目标 ${targetQueueHours.toFixed(2)}h`,
+    };
+  }
+
   private getPolymarketRewardQueueRetreatBps(market: Market, orderbook: Orderbook): number {
     if (this.config.mmVenue !== 'polymarket') {
       return 0;
     }
-    const crowdingMultiple = this.getPolymarketRewardCrowdingMultiple(market, orderbook);
+    const queueStats = this.getPolymarketRewardQueueHours(market, orderbook);
+    const crowdingMultiple = queueStats.crowdingMultiple;
     const cfg = this.getPolymarketExecutionSafetyConfig();
     const crowdingExtra = Math.max(0, crowdingMultiple - cfg.rewardQueueRetreatStart) * 2;
-    const reward = this.getPolymarketRewardRule(market);
-    const mid = Number(orderbook.mid_price || 0);
-    const volume24h = Number(market.volume_24h || 0);
-    const queueAheadShares = reward.enabled ? reward.minShares * Math.max(0, crowdingMultiple) : 0;
-    const hourlyTurnoverShares = mid > 0 ? volume24h / mid / 24 : 0;
-    const queueHours =
-      queueAheadShares > 0 && hourlyTurnoverShares > 0 ? queueAheadShares / hourlyTurnoverShares : Number.POSITIVE_INFINITY;
     const fastFlowExtra =
-      Number.isFinite(queueHours) && queueHours < cfg.rewardMinQueueHours
-        ? ((cfg.rewardMinQueueHours - queueHours) / Math.max(cfg.rewardMinQueueHours, 0.01)) *
+      Number.isFinite(queueStats.queueHours) && queueStats.queueHours < cfg.rewardMinQueueHours
+        ? ((cfg.rewardMinQueueHours - queueStats.queueHours) / Math.max(cfg.rewardMinQueueHours, 0.01)) *
           cfg.rewardFastFlowRetreatMaxBps
         : 0;
+    const queueTargetExtra = this.getPolymarketQueueTargetAdjustment(market, orderbook).retreatBps;
     const patternPenalty = Number(market.polymarket_pattern_memory_penalty || 0);
     const patternBlockPenalty = Math.max(1, Number(this.config.polymarketPatternMemoryBlockPenalty || 6));
     const patternRatio = this.clamp(patternPenalty / patternBlockPenalty, 0, 1);
     const patternDecayFactor = this.clamp(Number(market.polymarket_pattern_memory_decay_factor || 1), 0.15, 1);
     const patternExtra = patternRatio * Number(cfg.patternMemoryRetreatMaxBps || 0) * patternDecayFactor;
     return this.clamp(
-      crowdingExtra + fastFlowExtra + patternExtra,
+      crowdingExtra + fastFlowExtra + queueTargetExtra + patternExtra,
       0,
-      cfg.rewardQueueRetreatMaxBps + cfg.rewardFastFlowRetreatMaxBps + Number(cfg.patternMemoryRetreatMaxBps || 0)
+      cfg.rewardQueueRetreatMaxBps +
+        cfg.rewardFastFlowRetreatMaxBps +
+        Number(cfg.rewardTargetRetreatMaxBps || 0) +
+        Number(cfg.patternMemoryRetreatMaxBps || 0)
     );
   }
 
@@ -943,6 +1087,115 @@ export class MarketMaker {
       sizeFactor,
       retreatBps,
       reason: '事件组利用率 ' + (utilization * 100).toFixed(0) + '%',
+    };
+  }
+
+  private setPolymarketExecutionState(
+    tokenId: string,
+    nextState: 'OBSERVE' | 'PROBE' | 'EARN' | 'DEFEND' | 'EXIT' | 'COOLDOWN',
+    reason: string
+  ): { state: 'OBSERVE' | 'PROBE' | 'EARN' | 'DEFEND' | 'EXIT' | 'COOLDOWN'; reason: string; since: number; updatedAt: number } {
+    const now = Date.now();
+    const existing = this.polymarketExecutionState.get(tokenId);
+    if (existing && existing.state === nextState && existing.reason === reason) {
+      existing.updatedAt = now;
+      return existing;
+    }
+    const next = { state: nextState, reason, since: existing?.state === nextState ? existing.since : now, updatedAt: now };
+    this.polymarketExecutionState.set(tokenId, next);
+    if (!existing || existing.state !== nextState || existing.reason !== reason) {
+      this.recordMmEvent('POLYMARKET_STATE', `${nextState}: ${reason}`, tokenId);
+    }
+    return next;
+  }
+
+  private getPolymarketExecutionState(
+    market: Market,
+    orderbook: Orderbook
+  ): { state: 'OBSERVE' | 'PROBE' | 'EARN' | 'DEFEND' | 'EXIT' | 'COOLDOWN'; reason: string; retreatBps: number; sizeFactor: number; block: boolean } {
+    if (this.config.mmVenue !== 'polymarket') {
+      return { state: 'EARN', reason: '', retreatBps: 0, sizeFactor: 1, block: false };
+    }
+    const tokenId = market.token_id;
+    if (this.isPaused(tokenId)) {
+      const reason = this.pauseReasons.get(tokenId)?.reason || '冷却中';
+      this.setPolymarketExecutionState(tokenId, 'COOLDOWN', reason);
+      return { state: 'COOLDOWN', reason, retreatBps: 0, sizeFactor: 0, block: true };
+    }
+    const eventRisk = this.getPolymarketEventRiskAdjustment(market);
+    if (eventRisk.block || market.polymarket_accepting_orders === false || market.polymarket_enable_order_book === false) {
+      const reason =
+        eventRisk.reason ||
+        (market.polymarket_accepting_orders === false ? '市场当前不接受下单' : 'orderbook 未启用');
+      this.setPolymarketExecutionState(tokenId, 'EXIT', reason);
+      return { state: 'EXIT', reason, retreatBps: Math.max(0, eventRisk.retreatBps), sizeFactor: 0, block: true };
+    }
+
+    const cfg = this.getPolymarketExecutionSafetyConfig();
+    const reward = this.getPolymarketRewardRule(market);
+    const queueTarget = this.getPolymarketQueueTargetAdjustment(market, orderbook);
+    const lifecycle = this.getPolymarketLifecycleSnapshot(tokenId);
+    const placedEvents = lifecycle.placed + lifecycle.canceled + lifecycle.filled;
+    const effectiveNetEfficiency = Number(market.polymarket_reward_effective_net_efficiency || 0);
+    const recentPenalty = Number(market.polymarket_recent_risk_penalty || 0);
+    const patternPenalty = Number(market.polymarket_pattern_memory_penalty || 0);
+    const hourPenalty = Math.max(
+      Number(market.polymarket_hour_risk_penalty || 0),
+      Number(market.polymarket_market_hour_risk_penalty || 0)
+    );
+    const totalRiskPenalty = recentPenalty + patternPenalty + hourPenalty + Number(market.polymarket_event_risk_penalty || 0);
+    const minNetEfficiency = Math.max(1e-6, Number(cfg.rewardMinNetEfficiency || 0.0008));
+    const stateProbeSizeFactor = this.clamp(Number(cfg.stateProbeSizeFactor || 0.55), 0.1, 1);
+    const stateObserveSizeFactor = this.clamp(Number(cfg.stateObserveSizeFactor || 0.3), 0.1, 1);
+    const stateDefendSizeFactor = this.clamp(Number(cfg.stateDefendSizeFactor || 0.5), 0.1, 1);
+
+    if (!reward.enabled || effectiveNetEfficiency <= minNetEfficiency * 0.5) {
+      const reason = !reward.enabled ? '当前无有效流动性激励' : `有效净奖励偏弱 ${(effectiveNetEfficiency * 100).toFixed(2)}%/日`;
+      this.setPolymarketExecutionState(tokenId, 'OBSERVE', reason);
+      return {
+        state: 'OBSERVE',
+        reason,
+        retreatBps: Number(cfg.stateObserveRetreatBps || 0),
+        sizeFactor: stateObserveSizeFactor,
+        block: false,
+      };
+    }
+    if (totalRiskPenalty >= Math.max(4, Number(cfg.rewardTargetPenaltyMax || 6)) || lifecycle.cancelRate >= 0.92) {
+      const reason =
+        totalRiskPenalty >= Math.max(4, Number(cfg.rewardTargetPenaltyMax || 6))
+          ? `综合风险偏高 ${totalRiskPenalty.toFixed(1)}`
+          : `撤单率偏高 ${(lifecycle.cancelRate * 100).toFixed(0)}%`;
+      this.setPolymarketExecutionState(tokenId, 'DEFEND', reason);
+      return {
+        state: 'DEFEND',
+        reason,
+        retreatBps: Number(cfg.stateDefendRetreatBps || 0) + queueTarget.retreatBps,
+        sizeFactor: Math.min(stateDefendSizeFactor, queueTarget.sizeFactor),
+        block: false,
+      };
+    }
+    if (placedEvents < Math.max(3, Number(cfg.minAttempts || 6) / 2) || queueTarget.targetFactor < 0.6) {
+      const reason =
+        placedEvents < Math.max(3, Number(cfg.minAttempts || 6) / 2)
+          ? `试探阶段，样本不足 ${placedEvents}`
+          : queueTarget.reason || '排队位置偏离目标';
+      this.setPolymarketExecutionState(tokenId, 'PROBE', reason);
+      return {
+        state: 'PROBE',
+        reason,
+        retreatBps: Number(cfg.stateProbeRetreatBps || 0) + queueTarget.retreatBps,
+        sizeFactor: Math.min(stateProbeSizeFactor, queueTarget.sizeFactor),
+        block: false,
+      };
+    }
+    const reason = queueTarget.reason || '奖励质量稳定';
+    this.setPolymarketExecutionState(tokenId, 'EARN', reason);
+    return {
+      state: 'EARN',
+      reason,
+      retreatBps: queueTarget.retreatBps,
+      sizeFactor: queueTarget.sizeFactor,
+      block: false,
     };
   }
 
@@ -4028,6 +4281,9 @@ export class MarketMaker {
   }
 
   private getPolymarketLifecycleSnapshot(tokenId: string): {
+    placed: number;
+    canceled: number;
+    filled: number;
     cancelRate: number;
     avgCancelLifetimeMs: number;
     avgFillLifetimeMs: number;
@@ -4036,6 +4292,9 @@ export class MarketMaker {
   } {
     if (this.config.mmVenue !== 'polymarket') {
       return {
+        placed: 0,
+        canceled: 0,
+        filled: 0,
         cancelRate: 0,
         avgCancelLifetimeMs: 0,
         avgFillLifetimeMs: 0,
@@ -4046,6 +4305,9 @@ export class MarketMaker {
     const state = this.polymarketOrderLifecycleState.get(tokenId);
     if (!state) {
       return {
+        placed: 0,
+        canceled: 0,
+        filled: 0,
         cancelRate: 0,
         avgCancelLifetimeMs: 0,
         avgFillLifetimeMs: 0,
@@ -4072,6 +4334,9 @@ export class MarketMaker {
     const lifetimePenalty = shortLifetimePenaltyMax * lifetimePenaltyRatio;
 
     return {
+      placed: state.placed,
+      canceled: state.canceled,
+      filled: state.filled,
       cancelRate,
       avgCancelLifetimeMs,
       avgFillLifetimeMs,
@@ -4372,6 +4637,7 @@ export class MarketMaker {
     const riskThrottle = Math.min(riskLocal, riskGlobal);
     const lifecycle = this.getPolymarketLifecycleSnapshot(market.token_id);
     const cancelReasons = this.getPolymarketCancelReasonSnapshot(market.token_id);
+    const stateEntry = this.polymarketExecutionState.get(market.token_id);
     const riskOnlyFarThreshold = Math.max(0, this.config.mmRiskThrottleOnlyFarThreshold ?? 0);
     const riskOnlyFarActive = riskOnlyFarThreshold > 0 && riskThrottle <= riskOnlyFarThreshold;
     const burstEntry = this.cancelBurst.get(market.token_id);
@@ -4409,6 +4675,13 @@ export class MarketMaker {
       cancelUnsafe: cancelReasons.unsafe,
       cancelOther: cancelReasons.other,
       cancelReasonTotal: cancelReasons.total,
+      polymarketState: stateEntry?.state,
+      polymarketStateReason: stateEntry?.reason,
+      polymarketStateSince: stateEntry?.since,
+      rewardQueueTargetHours: market.polymarket_reward_queue_target_hours,
+      rewardQueueTargetFactor: market.polymarket_reward_queue_target_factor,
+      rewardQueueTargetPenalty: market.polymarket_reward_queue_target_penalty,
+      rewardQueueTargetReason: market.polymarket_reward_queue_target_reason,
       noFillPenaltyBps: this.getNoFillPenalty(market.token_id).spreadBps,
       autoTune: this.getAutoTuneSnapshot(market.token_id),
       wsHealthScore: wsHealth.score,
@@ -5382,6 +5655,17 @@ export class MarketMaker {
     if (groupBudgetAdjustment.retreatBps > 0) {
       touchBufferBps += groupBudgetAdjustment.retreatBps;
     }
+    const polymarketState = this.getPolymarketExecutionState(market, orderbook);
+    market.polymarket_state = polymarketState.state;
+    market.polymarket_state_reason = polymarketState.reason || undefined;
+    const stateEntry = this.polymarketExecutionState.get(market.token_id);
+    market.polymarket_state_since_ms = stateEntry?.since;
+    if (polymarketState.block) {
+      return null;
+    }
+    if (polymarketState.retreatBps > 0) {
+      touchBufferBps += polymarketState.retreatBps;
+    }
     const secondBid = this.getLevelPrice(orderbook.bids, 1, 'bids');
     const secondAsk = this.getLevelPrice(orderbook.asks, 1, 'asks');
     const fixedCents = Math.max(0, this.config.mmTouchBufferFixedCents ?? 0);
@@ -5601,6 +5885,17 @@ export class MarketMaker {
     }
     if (groupBudgetAdjustment.sizeFactor < 1) {
       shares = Math.max(1, Math.floor(shares * groupBudgetAdjustment.sizeFactor));
+    }
+    const polymarketState = this.getPolymarketExecutionState(market, orderbook);
+    market.polymarket_state = polymarketState.state;
+    market.polymarket_state_reason = polymarketState.reason || undefined;
+    const stateEntry = this.polymarketExecutionState.get(market.token_id);
+    market.polymarket_state_since_ms = stateEntry?.since;
+    if (polymarketState.block || polymarketState.sizeFactor <= 0) {
+      return { shares: 0, usdt: 0 };
+    }
+    if (polymarketState.sizeFactor < 1) {
+      shares = Math.max(1, Math.floor(shares * polymarketState.sizeFactor));
     }
 
     if (depthCap > 0) {
@@ -5942,6 +6237,13 @@ export class MarketMaker {
     }
     this.maybePauseForWsHealth(tokenId);
     if (this.isPaused(tokenId)) {
+      if (this.config.mmVenue === 'polymarket') {
+        const reason = this.pauseReasons.get(tokenId)?.reason || '冷却中';
+        const state = this.setPolymarketExecutionState(tokenId, 'COOLDOWN', reason);
+        market.polymarket_state = state.state;
+        market.polymarket_state_reason = state.reason;
+        market.polymarket_state_since_ms = state.since;
+      }
       if (this.config.mmWsHealthCancelOnPause) {
         await this.cancelOrdersForMarket(tokenId);
       }
@@ -6021,6 +6323,9 @@ export class MarketMaker {
 
     let prices = this.calculatePrices(market, orderbook);
     if (!prices) {
+      if (this.config.mmVenue === 'polymarket' && (market.polymarket_state === 'EXIT' || market.polymarket_state === 'COOLDOWN')) {
+        await this.cancelOrdersForMarket(tokenId);
+      }
       if (spreadJump) {
         console.log(`⚠️ Spread jump detected for ${tokenId}, pausing quoting...`);
         await this.cancelOrdersForMarket(tokenId);
@@ -8476,6 +8781,7 @@ export class MarketMaker {
       this.safeModeExitUntil,
       this.mmMetrics,
       this.pointsOrderbookCache,
+      this.polymarketExecutionState,
       this.perMarketVolatility,
       this.perMarketOrderFlow,
       this.perMarketReversion,

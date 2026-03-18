@@ -15,6 +15,7 @@
     "template:predict": "node scripts/apply-mm-template.mjs predict",
     "market:recommend": "tsx scripts/recommend-markets.ts",
     "market:apply": "tsx scripts/recommend-markets.ts --apply",
+    "metrics:replay:polymarket": "tsx scripts/replay-polymarket-metrics.ts",
     "app:install": "npm --prefix desktop-app-lite install",
     "app:dev": "npm --prefix desktop-app-lite run dev"
   },

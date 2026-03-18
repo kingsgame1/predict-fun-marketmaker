@@ -1232,6 +1232,9 @@ export function loadConfig(): Config {
     polymarketRewardCrowdingPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_CROWDING_PENALTY_MAX || '12'),
     polymarketRewardMinQueueHours: parseFloat(process.env.POLYMARKET_REWARD_MIN_QUEUE_HOURS || '0.75'),
     polymarketRewardFastFlowPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX || '8'),
+    polymarketRewardTargetQueueHours: parseFloat(process.env.POLYMARKET_REWARD_TARGET_QUEUE_HOURS || '1.5'),
+    polymarketRewardTargetQueueTolerance: parseFloat(process.env.POLYMARKET_REWARD_TARGET_QUEUE_TOLERANCE || '0.5'),
+    polymarketRewardTargetPenaltyMax: parseFloat(process.env.POLYMARKET_REWARD_TARGET_PENALTY_MAX || '6'),
     polymarketRecentRiskBlockPenalty: parseFloat(process.env.POLYMARKET_RECENT_RISK_BLOCK_PENALTY || '12'),
     polymarketRecentRiskSizeFactorMin: parseFloat(process.env.POLYMARKET_RECENT_RISK_SIZE_FACTOR_MIN || '0.45'),
     polymarketHourRiskLookbackDays: parseInt(process.env.POLYMARKET_HOUR_RISK_LOOKBACK_DAYS || '7'),
@@ -1255,6 +1258,14 @@ export function loadConfig(): Config {
     polymarketRewardQueueRetreatStart: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_START || '3'),
     polymarketRewardQueueRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_QUEUE_RETREAT_MAX_BPS || '12'),
     polymarketRewardFastFlowRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_FAST_FLOW_RETREAT_MAX_BPS || '8'),
+    polymarketRewardTargetRetreatMaxBps: parseFloat(process.env.POLYMARKET_REWARD_TARGET_RETREAT_MAX_BPS || '6'),
+    polymarketRewardTargetSizeFactorMin: parseFloat(process.env.POLYMARKET_REWARD_TARGET_SIZE_FACTOR_MIN || '0.65'),
+    polymarketStateProbeSizeFactor: parseFloat(process.env.POLYMARKET_STATE_PROBE_SIZE_FACTOR || '0.55'),
+    polymarketStateProbeRetreatBps: parseFloat(process.env.POLYMARKET_STATE_PROBE_RETREAT_BPS || '3'),
+    polymarketStateObserveSizeFactor: parseFloat(process.env.POLYMARKET_STATE_OBSERVE_SIZE_FACTOR || '0.3'),
+    polymarketStateObserveRetreatBps: parseFloat(process.env.POLYMARKET_STATE_OBSERVE_RETREAT_BPS || '10'),
+    polymarketStateDefendSizeFactor: parseFloat(process.env.POLYMARKET_STATE_DEFEND_SIZE_FACTOR || '0.5'),
+    polymarketStateDefendRetreatBps: parseFloat(process.env.POLYMARKET_STATE_DEFEND_RETREAT_BPS || '7'),
     polymarketCancelReasonDominanceThreshold: parseFloat(
       process.env.POLYMARKET_CANCEL_REASON_DOMINANCE_THRESHOLD || '0.45'
     ),
@@ -1384,6 +1395,15 @@ export function loadConfig(): Config {
     if ((config.polymarketRewardFastFlowPenaltyMax ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_FAST_FLOW_PENALTY_MAX must be >= 0');
     }
+    if ((config.polymarketRewardTargetQueueHours ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_TARGET_QUEUE_HOURS must be >= 0');
+    }
+    if ((config.polymarketRewardTargetQueueTolerance ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_TARGET_QUEUE_TOLERANCE must be >= 0');
+    }
+    if ((config.polymarketRewardTargetPenaltyMax ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_TARGET_PENALTY_MAX must be >= 0');
+    }
     if ((config.polymarketRecentRiskBlockPenalty ?? 0) < 0) {
       throw new Error('POLYMARKET_RECENT_RISK_BLOCK_PENALTY must be >= 0');
     }
@@ -1425,6 +1445,30 @@ export function loadConfig(): Config {
     }
     if ((config.polymarketRewardFastFlowRetreatMaxBps ?? 0) < 0) {
       throw new Error('POLYMARKET_REWARD_FAST_FLOW_RETREAT_MAX_BPS must be >= 0');
+    }
+    if ((config.polymarketRewardTargetRetreatMaxBps ?? 0) < 0) {
+      throw new Error('POLYMARKET_REWARD_TARGET_RETREAT_MAX_BPS must be >= 0');
+    }
+    if ((config.polymarketRewardTargetSizeFactorMin ?? 0) <= 0 || (config.polymarketRewardTargetSizeFactorMin ?? 0) > 1) {
+      throw new Error('POLYMARKET_REWARD_TARGET_SIZE_FACTOR_MIN must be within (0, 1]');
+    }
+    if ((config.polymarketStateProbeSizeFactor ?? 0) <= 0 || (config.polymarketStateProbeSizeFactor ?? 0) > 1) {
+      throw new Error('POLYMARKET_STATE_PROBE_SIZE_FACTOR must be within (0, 1]');
+    }
+    if ((config.polymarketStateProbeRetreatBps ?? 0) < 0) {
+      throw new Error('POLYMARKET_STATE_PROBE_RETREAT_BPS must be >= 0');
+    }
+    if ((config.polymarketStateObserveSizeFactor ?? 0) <= 0 || (config.polymarketStateObserveSizeFactor ?? 0) > 1) {
+      throw new Error('POLYMARKET_STATE_OBSERVE_SIZE_FACTOR must be within (0, 1]');
+    }
+    if ((config.polymarketStateObserveRetreatBps ?? 0) < 0) {
+      throw new Error('POLYMARKET_STATE_OBSERVE_RETREAT_BPS must be >= 0');
+    }
+    if ((config.polymarketStateDefendSizeFactor ?? 0) <= 0 || (config.polymarketStateDefendSizeFactor ?? 0) > 1) {
+      throw new Error('POLYMARKET_STATE_DEFEND_SIZE_FACTOR must be within (0, 1]');
+    }
+    if ((config.polymarketStateDefendRetreatBps ?? 0) < 0) {
+      throw new Error('POLYMARKET_STATE_DEFEND_RETREAT_BPS must be >= 0');
     }
     if (
       (config.polymarketCancelReasonDominanceThreshold ?? 0) < 0 ||

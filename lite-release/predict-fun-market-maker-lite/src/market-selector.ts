@@ -25,6 +25,9 @@ export interface MarketSelectorOptions {
   polymarketRewardCrowdingPenaltyMax?: number;
   polymarketRewardMinQueueHours?: number;
   polymarketRewardFastFlowPenaltyMax?: number;
+  polymarketRewardTargetQueueHours?: number;
+  polymarketRewardTargetQueueTolerance?: number;
+  polymarketRewardTargetPenaltyMax?: number;
   polymarketRecentRiskBlockPenalty?: number;
   polymarketRecentRiskPenalty?: Map<
     string,
@@ -115,6 +118,10 @@ interface PolymarketRewardProfile {
   queueHours: number;
   flowToQueuePerHour: number;
   fastFlowPenalty: number;
+  targetQueueHours: number;
+  targetQueueFactor: number;
+  targetQueuePenalty: number;
+  targetQueueReason: string;
 }
 
 export interface PolymarketEventRiskState {
@@ -200,6 +207,9 @@ export class MarketSelector {
   private polymarketRewardCrowdingPenaltyMax: number;
   private polymarketRewardMinQueueHours: number;
   private polymarketRewardFastFlowPenaltyMax: number;
+  private polymarketRewardTargetQueueHours: number;
+  private polymarketRewardTargetQueueTolerance: number;
+  private polymarketRewardTargetPenaltyMax: number;
   private polymarketRecentRiskBlockPenalty: number;
   private polymarketRecentRiskPenalty: Map<
     string,
@@ -272,6 +282,9 @@ export class MarketSelector {
     this.polymarketRewardCrowdingPenaltyMax = options.polymarketRewardCrowdingPenaltyMax ?? 12;
     this.polymarketRewardMinQueueHours = options.polymarketRewardMinQueueHours ?? 0.75;
     this.polymarketRewardFastFlowPenaltyMax = options.polymarketRewardFastFlowPenaltyMax ?? 8;
+    this.polymarketRewardTargetQueueHours = options.polymarketRewardTargetQueueHours ?? 1.5;
+    this.polymarketRewardTargetQueueTolerance = options.polymarketRewardTargetQueueTolerance ?? 0.5;
+    this.polymarketRewardTargetPenaltyMax = options.polymarketRewardTargetPenaltyMax ?? 6;
     this.polymarketRecentRiskBlockPenalty = options.polymarketRecentRiskBlockPenalty ?? 12;
     this.polymarketRecentRiskPenalty = options.polymarketRecentRiskPenalty ?? new Map();
     this.polymarketHourRiskPenalty = options.polymarketHourRiskPenalty ?? { penalty: 0, reason: '', hour: new Date().getHours() };
@@ -382,6 +395,10 @@ export class MarketSelector {
     market.polymarket_reward_effective_net_efficiency = rewardProfile.enabled ? rewardProfile.effectiveNetEfficiency : undefined;
     market.polymarket_reward_effective_net_daily_rate = rewardProfile.enabled ? rewardProfile.effectiveNetDailyRate : undefined;
     market.polymarket_reward_estimated_cost_bps = rewardProfile.enabled ? rewardProfile.estimatedCostBps : undefined;
+    market.polymarket_reward_queue_target_hours = rewardProfile.enabled ? rewardProfile.targetQueueHours : undefined;
+    market.polymarket_reward_queue_target_factor = rewardProfile.enabled ? rewardProfile.targetQueueFactor : undefined;
+    market.polymarket_reward_queue_target_penalty = rewardProfile.enabled ? rewardProfile.targetQueuePenalty : undefined;
+    market.polymarket_reward_queue_target_reason = rewardProfile.enabled ? rewardProfile.targetQueueReason || undefined : undefined;
 
     if (market.venue === 'polymarket' && market.polymarket_enable_order_book === false) {
       return { market, score: 0, reasons: ['Polymarket 市场未启用 orderbook'] };
@@ -594,6 +611,10 @@ export class MarketSelector {
           `成交流速过快，降权: 队列约 ${rewardProfile.queueHours.toFixed(2)}h / ${rewardProfile.flowToQueuePerHour.toFixed(2)}x每小时`
         );
       }
+      if (rewardProfile.targetQueuePenalty > 0) {
+        score -= rewardProfile.targetQueuePenalty;
+        reasons.push(`目标排队位置偏离，降权: ${rewardProfile.targetQueueReason}`);
+      }
     }
     if (recentRisk && recentRisk.penalty > 0) {
       score -= recentRisk.penalty;
@@ -608,12 +629,12 @@ export class MarketSelector {
       );
     }
     if (hourRisk.penalty > 0) {
+      score -= hourRisk.penalty;
+      reasons.push(`分时段风险，降权: ${hourRisk.reason}`);
+    }
     if (eventRisk.penalty > 0) {
       score -= eventRisk.penalty;
       reasons.push(eventRisk.reason || '临近事件窗口，降权');
-    }
-      score -= hourRisk.penalty;
-      reasons.push(`分时段风险，降权: ${hourRisk.reason}`);
     }
 
     reasons.push(`24h流动性: $${liquidity.toFixed(0)}`);
@@ -674,6 +695,10 @@ export class MarketSelector {
         queueHours: 0,
         flowToQueuePerHour: 0,
         fastFlowPenalty: 0,
+        targetQueueHours: this.polymarketRewardTargetQueueHours,
+        targetQueueFactor: 1,
+        targetQueuePenalty: 0,
+        targetQueueReason: '',
       };
     }
 
@@ -739,6 +764,34 @@ export class MarketSelector {
             this.polymarketRewardFastFlowPenaltyMax
           )
         : 0;
+    const targetQueueHours = Math.max(0, this.polymarketRewardTargetQueueHours);
+    const targetTolerance = Math.max(0, this.polymarketRewardTargetQueueTolerance);
+    const lowerQueueHours = targetQueueHours > 0 ? targetQueueHours * Math.max(0.1, 1 - targetTolerance) : 0;
+    const upperQueueHours = targetQueueHours > 0 ? targetQueueHours * (1 + targetTolerance) : 0;
+    let targetQueueFactor = 1;
+    let targetQueuePenalty = 0;
+    let targetQueueReason = '';
+    if (targetQueueHours > 0) {
+      if (!Number.isFinite(queueHours) || queueHours <= 0) {
+        targetQueueFactor = 0.35;
+        targetQueuePenalty = this.polymarketRewardTargetPenaltyMax;
+        targetQueueReason = `排队过浅，目标约 ${targetQueueHours.toFixed(2)}h，当前无法形成稳定队列`;
+      } else if (queueHours < lowerQueueHours) {
+        const ratio = clamp((lowerQueueHours - queueHours) / Math.max(lowerQueueHours, 0.01), 0, 1);
+        targetQueueFactor = clamp(1 - 0.65 * ratio, 0.35, 1);
+        targetQueuePenalty = ratio * this.polymarketRewardTargetPenaltyMax;
+        targetQueueReason = `排队过浅，目标约 ${targetQueueHours.toFixed(2)}h，当前 ${queueHours.toFixed(2)}h`;
+      } else if (queueHours > upperQueueHours) {
+        const ratio = clamp((queueHours - upperQueueHours) / Math.max(upperQueueHours, 0.01), 0, 1.5);
+        targetQueueFactor = clamp(1 - 0.5 * Math.min(1, ratio), 0.5, 1);
+        targetQueuePenalty = Math.min(this.polymarketRewardTargetPenaltyMax, ratio * this.polymarketRewardTargetPenaltyMax * 0.7);
+        targetQueueReason = `排队过深，目标约 ${targetQueueHours.toFixed(2)}h，当前 ${queueHours.toFixed(2)}h`;
+      }
+    }
+    const adjustedEffectiveNetEfficiency = effectiveNetEfficiency * targetQueueFactor;
+    const adjustedEffectiveNetDailyRate = adjustedEffectiveNetEfficiency * capitalEstimateUsd;
+    const adjustedEfficiencyBonus =
+      adjustedEffectiveNetEfficiency > 0 ? Math.min(6, Math.log10(adjustedEffectiveNetEfficiency * 100 + 1) * 4) : 0;
 
     return {
       enabled,
@@ -758,17 +811,21 @@ export class MarketSelector {
       efficiency,
       netEfficiency,
       netDailyRate,
-      effectiveNetEfficiency,
-      effectiveNetDailyRate,
+      effectiveNetEfficiency: adjustedEffectiveNetEfficiency,
+      effectiveNetDailyRate: adjustedEffectiveNetDailyRate,
       estimatedCostBps,
       riskThrottleFactor,
       hourRiskFactor,
-      efficiencyBonus,
+      efficiencyBonus: adjustedEfficiencyBonus,
       queueAheadShares,
       hourlyTurnoverShares,
       queueHours,
       flowToQueuePerHour,
       fastFlowPenalty,
+      targetQueueHours,
+      targetQueueFactor,
+      targetQueuePenalty,
+      targetQueueReason,
     };
   }
 
