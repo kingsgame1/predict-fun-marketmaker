@@ -218,7 +218,11 @@ AUTO_CONFIRM=false
 # ---- 市场筛选（可选）----
 MARKET_TOKEN_IDS=${marketIds}
 
-# ---- Polymarket 奖励与风控（默认已收紧，可按需微调）----
+# ---- Polymarket 奖励与风控（v2.2.1 保守实盘基线）----
+# 说明：
+# 1) 默认就是“奖励做市优先”，不会优先推荐无激励市场
+# 2) 默认会同时看有效净奖励、目标排队位置、近期风险、长期模式和事件窗口
+# 3) 如果你还没有稳定实盘样本，不建议把这些参数调得更激进
 POLYMARKET_REWARD_REQUIRE_ENABLED=true
 POLYMARKET_REWARD_REQUIRE_FIT=true
 POLYMARKET_REWARD_MIN_FIT_SCORE=0.6

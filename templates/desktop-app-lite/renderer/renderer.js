@@ -33,6 +33,7 @@ const polyNegRiskApproval = document.getElementById('polyNegRiskApproval');
 const polyPreflightWarning = document.getElementById('polyPreflightWarning');
 const polyCredentialGuide = document.getElementById('polyCredentialGuide');
 const polySelectionSummary = document.getElementById('polySelectionSummary');
+const polySelectionDiagnostics = document.getElementById('polySelectionDiagnostics');
 const polySelectionList = document.getElementById('polySelectionList');
 const riskStatus = document.getElementById('riskStatus');
 const riskUpdatedAt = document.getElementById('riskUpdatedAt');
@@ -321,7 +322,7 @@ function renderPredictWalletStatus(payload) {
 }
 
 function renderPolymarketSelectionSummary() {
-  if (!polySelectionSummary || !polySelectionList) return;
+  if (!polySelectionSummary || !polySelectionList || !polySelectionDiagnostics) return;
   const venue = getCurrentVenue();
   if (venue !== 'polymarket') {
     polySelectionSummary.innerHTML = `
@@ -330,6 +331,7 @@ function renderPolymarketSelectionSummary() {
         <div class="hint">当前场馆不是 Polymarket，已跳过该摘要。</div>
       </div>
     `;
+    polySelectionDiagnostics.innerHTML = '';
     polySelectionList.innerHTML = '';
     return;
   }
@@ -342,6 +344,7 @@ function renderPolymarketSelectionSummary() {
         <div class="hint">当前未配置 MARKET_TOKEN_IDS。先扫描并应用市场后，这里会显示奖励效率、风险记忆与冷却摘要。</div>
       </div>
     `;
+    polySelectionDiagnostics.innerHTML = '';
     polySelectionList.innerHTML = '';
     return;
   }
@@ -355,6 +358,7 @@ function renderPolymarketSelectionSummary() {
         <div class="hint">当前已选 ${selectedIds.length} 个市场，但它们不在本次扫描结果里。先重新扫描当前时段市场，再复核奖励效率和风险记忆。</div>
       </div>
     `;
+    polySelectionDiagnostics.innerHTML = '';
     polySelectionList.innerHTML = '';
     return;
   }
@@ -366,6 +370,12 @@ function renderPolymarketSelectionSummary() {
   const patternValues = numericValues(matched, 'patternMemoryPenalty');
   const hourValues = numericValues(matched, 'hourRiskPenalty');
   const marketHourValues = numericValues(matched, 'marketHourRiskPenalty');
+  const eventValues = numericValues(matched, 'eventRiskPenalty');
+  const queueFactorValues = numericValues(matched, 'rewardTargetQueueFactor');
+  const passCount = matched.filter((item) => item.rewardDiagnostic === 'pass').length;
+  const watchCount = matched.filter((item) => item.rewardDiagnostic === 'watch').length;
+  const defendCount = matched.filter((item) => item.rewardDiagnostic === 'defend').length;
+  const blockCount = matched.filter((item) => item.rewardDiagnostic === 'block').length;
 
   const summaryCards = [
     { title: '已选市场', value: `${matched.length}/${selectedIds.length}`, hint: selectedIds.length > matched.length ? `有 ${selectedIds.length - matched.length} 个已选市场不在本次扫描结果中` : '已选市场均已命中本次扫描结果' },
@@ -374,6 +384,8 @@ function renderPolymarketSelectionSummary() {
     { title: '冷却中的市场', value: cooldownValues.filter((x) => x > 0).length ? `${cooldownValues.filter((x) => x > 0).length} 个` : '0 个', hint: cooldownValues.some((x) => x > 0) ? `最长剩余 ${formatNum(Math.max(...cooldownValues), 0)}m` : '当前无市场处于近期冷却' },
     { title: '最高长期模式', value: patternValues.length ? `-${formatNum(Math.max(...patternValues), 1)}` : '--', hint: '反映长期撤单模式记忆的持续影响' },
     { title: '最高时段风险', value: hourValues.length || marketHourValues.length ? `-${formatNum(Math.max(0, ...hourValues, ...marketHourValues), 1)}` : '--', hint: '当前小时历史风险越高，越不适合实盘挂单' },
+    { title: '最高事件风险', value: eventValues.length ? `-${formatNum(Math.max(...eventValues), 1)}` : '--', hint: '临近结算或关键事件窗口时，系统会主动缩单、退后或拦截' },
+    { title: '最差队列偏离', value: queueFactorValues.length ? `${formatNum(Math.min(...queueFactorValues), 2)}x` : '--', hint: '越接近 1x 越贴近目标排队位置，越低说明当前排队过快或过厚' },
   ];
 
   polySelectionSummary.innerHTML = summaryCards
@@ -388,23 +400,53 @@ function renderPolymarketSelectionSummary() {
     )
     .join('');
 
+  const diagnosticCards = [
+    { title: '适合直接做奖励', value: `${passCount} 个`, hint: '状态稳定，当前更接近 EARN / PASS' },
+    { title: '试挂观察', value: `${watchCount} 个`, hint: '建议小尺寸试挂，先验证 postOnly、队列和冷却情况' },
+    { title: '防守运行', value: `${defendCount} 个`, hint: '建议更保守 retreat 与更小尺寸，仅在必要时参与' },
+    { title: '应拦截', value: `${blockCount} 个`, hint: '当前不适合奖励做市，建议不要启动或先替换市场' },
+  ];
+
+  polySelectionDiagnostics.innerHTML = diagnosticCards
+    .map(
+      (item) => `
+        <div class="wallet-card">
+          <div class="wallet-title">${escapeHtml(item.title)}</div>
+          <div class="wallet-value">${escapeHtml(item.value)}</div>
+          <div class="hint">${escapeHtml(item.hint)}</div>
+        </div>
+      `
+    )
+    .join('');
+
   polySelectionList.innerHTML = matched
     .slice(0, 8)
     .map((item) => {
+      const diagnostic = item.rewardDiagnostic || 'watch';
+      const diagnosticLabel =
+        diagnostic === 'pass' ? '适合做奖励' : diagnostic === 'defend' ? '防守运行' : diagnostic === 'block' ? '应拦截' : '试挂观察';
       const lines = [
         `有效净效率 ${item.rewardEffectiveNetEfficiency == null ? '--' : `${formatPct(Number(item.rewardEffectiveNetEfficiency) * 100, 2)}/日`}`,
+        `奖励诊断 ${diagnosticLabel}`,
+        `市场状态 ${item.marketState || '--'}`,
+        `目标排队 ${item.rewardTargetQueueHours == null ? '--' : `${formatNum(item.rewardTargetQueueHours, 2)}h`} / 偏离系数 ${item.rewardTargetQueueFactor == null ? '--' : `${formatNum(item.rewardTargetQueueFactor, 2)}x`}`,
         `近期风险 ${item.recentRiskPenalty == null ? '--' : `-${formatNum(item.recentRiskPenalty, 1)}`}`,
         `冷却 ${item.recentRiskCooldownMinutes == null || Number(item.recentRiskCooldownMinutes) <= 0 ? '无' : `${formatNum(item.recentRiskCooldownMinutes, 0)}m`}`,
         `长期模式 ${item.patternMemoryPenalty == null ? '--' : `-${formatNum(item.patternMemoryPenalty, 1)}`}`,
         `时段风险 ${item.hourRiskPenalty == null ? '--' : `-${formatNum(item.hourRiskPenalty, 1)}`}`,
+        `事件风险 ${item.eventRiskPenalty == null ? '--' : `-${formatNum(item.eventRiskPenalty, 1)}`}`,
       ];
       return `
         <div class="wallet-card">
           <div class="wallet-title">${escapeHtml(item.question || item.tokenId)}</div>
           <div class="wallet-value">${escapeHtml(shortenAddress(item.tokenId || '--'))}</div>
           <div class="hint">${escapeHtml(lines.join(' | '))}</div>
+          ${item.rewardDiagnosticReason ? `<div class="hint">诊断结论: ${escapeHtml(item.rewardDiagnosticReason)}</div>` : ''}
+          ${item.marketStateReason ? `<div class="hint">状态原因: ${escapeHtml(item.marketStateReason)}</div>` : ''}
+          ${item.rewardTargetQueueReason ? `<div class="hint">目标排队: ${escapeHtml(item.rewardTargetQueueReason)}</div>` : ''}
           ${item.recentRiskReason ? `<div class="hint">近期风险: ${escapeHtml(item.recentRiskReason)}</div>` : ''}
           ${item.recentRiskCooldownReason ? `<div class="hint">冷却原因: ${escapeHtml(item.recentRiskCooldownReason)}</div>` : ''}
+          ${item.eventRiskReason ? `<div class="hint">事件风险: ${escapeHtml(item.eventRiskReason)}</div>` : ''}
           ${item.patternMemoryReason ? `<div class="hint">长期模式: ${escapeHtml(item.patternMemoryReason)}</div>` : ''}
         </div>
       `;
@@ -610,12 +652,19 @@ function renderMarketCards(items, selected = new Set()) {
     const patternUnsafe = item.patternMemoryUnsafe == null ? null : Number(item.patternMemoryUnsafe);
     const patternLearnedRetreat = item.patternMemoryLearnedRetreat == null ? null : Number(item.patternMemoryLearnedRetreat);
     const patternLearnedSize = item.patternMemoryLearnedSize == null ? null : Number(item.patternMemoryLearnedSize);
+    const eventRiskPenalty = item.eventRiskPenalty == null ? null : Number(item.eventRiskPenalty);
+    const rewardTargetQueueHours = item.rewardTargetQueueHours == null ? null : Number(item.rewardTargetQueueHours);
+    const rewardTargetQueueFactor = item.rewardTargetQueueFactor == null ? null : Number(item.rewardTargetQueueFactor);
+    const rewardTargetQueuePenalty = item.rewardTargetQueuePenalty == null ? null : Number(item.rewardTargetQueuePenalty);
+    const marketState = item.marketState || null;
 
     const riskChip = riskPenalty && riskPenalty > 0 ? `<span class="status-chip" style="background:#7f1d1d;border-color:#b91c1c;">近期风险 -${escapeHtml(formatNum(riskPenalty, 1))}</span>` : '';
     const cooldownChip = cooldownMinutes && cooldownMinutes > 0 ? `<span class="status-chip" style="background:#78350f;border-color:#d97706;">冷却 ${escapeHtml(formatNum(cooldownMinutes, 0))}m</span>` : '';
     const hourRiskChip = hourRiskPenalty && hourRiskPenalty > 0 ? `<span class="status-chip" style="background:#312e81;border-color:#6366f1;">时段风险 -${escapeHtml(formatNum(hourRiskPenalty, 1))}</span>` : '';
     const marketHourRiskChip = marketHourRiskPenalty && marketHourRiskPenalty > 0 ? `<span class="status-chip" style="background:#1e3a8a;border-color:#3b82f6;">市场时段风险 -${escapeHtml(formatNum(marketHourRiskPenalty, 1))}</span>` : '';
     const patternMemoryChip = patternMemoryPenalty && patternMemoryPenalty > 0 ? `<span class="status-chip" style="background:#3f1d7a;border-color:#8b5cf6;">长期模式 -${escapeHtml(formatNum(patternMemoryPenalty, 1))}${patternMemoryTtlHours && patternMemoryTtlHours > 0 ? ` / ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h` : ''}</span>` : '';
+    const eventRiskChip = eventRiskPenalty && eventRiskPenalty > 0 ? `<span class="status-chip" style="background:#7c2d12;border-color:#ea580c;">事件风险 -${escapeHtml(formatNum(eventRiskPenalty, 1))}</span>` : '';
+    const stateChip = marketState ? `<span class="status-chip" style="background:#0f172a;border-color:#475569;">状态 ${escapeHtml(marketState)}</span>` : '';
     const patternMixSummary = [
       patternAggressive != null ? `激进${formatPct(patternAggressive * 100, 0)}` : null,
       patternUnsafe != null ? `不安全${formatPct(patternUnsafe * 100, 0)}` : null,
@@ -638,8 +687,12 @@ function renderMarketCards(items, selected = new Set()) {
           <div class="metric-subvalue">估算成本 ${item.rewardEstimatedCostBps == null ? '--' : `${formatNum(item.rewardEstimatedCostBps, 2)}bps`} / 风险缩放 ${item.rewardRiskThrottleFactor == null ? '--' : `${formatNum(item.rewardRiskThrottleFactor, 3)}x`} / 时段系数 ${item.rewardHourRiskFactor == null ? '--' : `${formatNum(item.rewardHourRiskFactor, 3)}x`}</div>
           <div class="metric-subvalue">撤单率 ${item.recentCancelRate == null ? '--' : `${formatPct(Number(item.recentCancelRate) * 100, 0)}`} / 平均撤单寿命 ${item.recentAvgCancelLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgCancelLifetimeMs) / 60000, 1)}m`} / 平均成交寿命 ${item.recentAvgFillLifetimeMs == null ? '--' : `${formatNum(Number(item.recentAvgFillLifetimeMs) / 60000, 1)}m`}</div>
           <div class="metric-subvalue">队列耗时 ${item.rewardQueueHours == null ? '--' : `${formatNum(item.rewardQueueHours, 2)}h`} / 流速倍率 ${item.rewardFlowToQueuePerHour == null ? '--' : `${formatNum(item.rewardFlowToQueuePerHour, 2)}x/h`}</div>
+          <div class="metric-subvalue">目标排队 ${rewardTargetQueueHours == null ? '--' : `${formatNum(rewardTargetQueueHours, 2)}h`} / 偏离系数 ${rewardTargetQueueFactor == null ? '--' : `${formatNum(rewardTargetQueueFactor, 3)}x`} / 偏离罚分 ${rewardTargetQueuePenalty == null ? '--' : formatNum(rewardTargetQueuePenalty, 2)}</div>
+          ${item.rewardDiagnostic ? `<div class="metric-subvalue">奖励诊断 ${escapeHtml(item.rewardDiagnostic)}${item.rewardDiagnosticReason ? ` / ${escapeHtml(item.rewardDiagnosticReason)}` : ''}</div>` : ''}
+          ${item.marketStateReason ? `<div class="metric-subvalue">市场状态 ${escapeHtml(item.marketStateReason)}</div>` : ''}
           ${item.recentRiskReason ? `<div class="metric-subvalue">风险记忆 ${escapeHtml(item.recentRiskReason)}</div>` : ''}
           ${item.recentRiskCooldownReason ? `<div class="metric-subvalue">冷却 ${escapeHtml(item.recentRiskCooldownReason)}${cooldownMinutes && cooldownMinutes > 0 ? ` / ${escapeHtml(formatNum(cooldownMinutes, 0))}m` : ''}</div>` : ''}
+          ${item.eventRiskReason ? `<div class="metric-subvalue">事件风险 ${escapeHtml(item.eventRiskReason)}</div>` : ''}
           ${item.marketHourRiskReason ? `<div class="metric-subvalue">市场时段风险 ${escapeHtml(item.marketHourRiskReason)}</div>` : ''}
           ${item.patternMemoryReason ? `<div class="metric-subvalue">长期模式 ${escapeHtml(item.patternMemoryReason)}${item.patternMemoryDominantReason ? ` / 主导撤单 ${escapeHtml(item.patternMemoryDominantReason)}` : ''}${item.patternMemoryDominance == null ? '' : ` / 主导度 ${escapeHtml(formatPct(Number(item.patternMemoryDominance) * 100, 0))}`}${patternMemoryDecayFactor == null ? '' : ` / 衰减系数 ${escapeHtml(formatNum(patternMemoryDecayFactor, 3))}x`}${patternMemoryTtlHours == null ? '' : ` / 剩余 ${escapeHtml(formatNum(patternMemoryTtlHours, 1))}h`}</div>` : ''}
           ${patternMixSummary ? `<div class="metric-subvalue">长期模式构成 ${escapeHtml(patternMixSummary)}</div>` : ''}
@@ -659,7 +712,9 @@ function renderMarketCards(items, selected = new Set()) {
             ${cooldownChip}
             ${hourRiskChip}
             ${marketHourRiskChip}
+            ${eventRiskChip}
             ${patternMemoryChip}
+            ${stateChip}
           </div>
           <h3 class="market-card-title">${escapeHtml(item.question || '--')}</h3>
         </div>

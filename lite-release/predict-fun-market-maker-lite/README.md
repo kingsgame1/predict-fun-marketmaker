@@ -99,11 +99,12 @@ POLYMARKET_API_PASSPHRASE=可留空；若自动派生失败则手动填写
 
 - 当前脚本实盘需要的是 Polymarket 用户 CLOB API 凭证（L2），不是 Builder / Relayer key。
 - 当前 `Polymarket` 自动推荐默认就是“奖励做市优先”，会优先过滤掉无激励或当前不适合拿激励的市场。
-- 当前 `Polymarket` 自动推荐默认就是“奖励做市优先”，会优先过滤掉无激励或当前不适合拿激励的市场。
+- 当前 `Polymarket` 默认参数已经收口为 `v2.2.1 保守实盘基线`，核心优先级是：有效净奖励 > 目标排队位置 > 近期/长期风险 > 事件窗口。
 - 推荐先保留 `POLYMARKET_AUTO_DERIVE_API_KEY=true`，然后在 Lite App 点击 `检查 Polymarket 预检` 自动派生。
 - 如果自动派生失败：打开官方认证文档创建或派生 API 凭证，再填写 `POLYMARKET_API_KEY / POLYMARKET_API_SECRET / POLYMARKET_API_PASSPHRASE`。
 - 如果 funder/profile 有问题，先打开 [Polymarket Settings](https://polymarket.com/settings) 确认地址有效。
 - 官方认证文档：[Authentication](https://docs.polymarket.com/cn/api-reference/authentication)
+- Lite App 的 `当前已选市场奖励做市诊断` 会直接显示：奖励诊断、市场状态、目标排队偏离、事件风险、冷却和长期模式，建议在启动前先看这一块。
 
 Polymarket 风控常用参数：
 

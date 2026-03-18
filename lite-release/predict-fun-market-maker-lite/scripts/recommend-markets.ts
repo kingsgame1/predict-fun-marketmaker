@@ -111,6 +111,8 @@ interface PolymarketIncentiveSummary {
   targetQueueFactor: number | null;
   targetQueuePenalty: number | null;
   targetQueueReason: string | null;
+  rewardDiagnostic: 'pass' | 'watch' | 'defend' | 'block';
+  rewardDiagnosticReason: string | null;
   marketState: string | null;
   marketStateReason: string | null;
 }
@@ -1259,6 +1261,8 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
       targetQueueFactor: null,
       targetQueuePenalty: null,
       targetQueueReason: null,
+      rewardDiagnostic: 'block',
+      rewardDiagnosticReason: '当前无流动性激励，不适合奖励做市',
       marketState: null,
       marketStateReason: null,
     };
@@ -1299,6 +1303,28 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
   const targetQueueReason = String(market.polymarket_reward_queue_target_reason || '').trim() || null;
   const marketState = String(market.polymarket_state || '').trim() || null;
   const marketStateReason = String(market.polymarket_state_reason || '').trim() || null;
+  const eventRiskPenalty = Math.max(0, toFiniteNumber(market.polymarket_event_risk_penalty));
+  const recentRiskPenalty = Math.max(0, toFiniteNumber(market.polymarket_recent_risk_penalty));
+  const cooldownRemainingMs = Math.max(0, toFiniteNumber(market.polymarket_recent_risk_cooldown_remaining_ms));
+  let rewardDiagnostic: 'pass' | 'watch' | 'defend' | 'block' = 'pass';
+  let rewardDiagnosticReason: string | null = null;
+
+  if (cooldownRemainingMs > 0 || marketState === 'COOLDOWN' || marketState === 'EXIT') {
+    rewardDiagnostic = 'block';
+    rewardDiagnosticReason = marketStateReason || targetQueueReason || '市场处于冷却或退出状态';
+  } else if ((targetQueueFactor > 0 && targetQueueFactor < 0.72) || eventRiskPenalty >= 4) {
+    rewardDiagnostic = 'defend';
+    rewardDiagnosticReason = targetQueueReason || marketStateReason || '目标排队位置偏离过大，需明显退后并缩单';
+  } else if (
+    (effectiveNetEfficiency > 0 && effectiveNetEfficiency < 0.001) ||
+    recentRiskPenalty >= 4 ||
+    marketState === 'PROBE' ||
+    marketState === 'DEFEND' ||
+    marketState === 'OBSERVE'
+  ) {
+    rewardDiagnostic = 'watch';
+    rewardDiagnosticReason = marketStateReason || targetQueueReason || '奖励净效率或风险状态一般，建议先试挂观察';
+  }
 
   return {
     enabled: true,
@@ -1326,6 +1352,8 @@ function getPolymarketIncentiveSummary(market: Market, orderbook: Orderbook | un
     targetQueueFactor,
     targetQueuePenalty,
     targetQueueReason,
+    rewardDiagnostic,
+    rewardDiagnosticReason,
     marketState,
     marketStateReason,
   };
@@ -1529,8 +1557,13 @@ async function main(): Promise<void> {
       rewardTargetQueueFactor: toFixedOrNull(incentive.targetQueueFactor, 3),
       rewardTargetQueuePenalty: toFixedOrNull(incentive.targetQueuePenalty, 2),
       rewardTargetQueueReason: incentive.targetQueueReason,
+      rewardDiagnostic: incentive.rewardDiagnostic,
+      rewardDiagnosticReason: incentive.rewardDiagnosticReason,
       marketState: incentive.marketState,
       marketStateReason: incentive.marketStateReason,
+      eventRiskPenalty: toFixedOrNull(entry.market.polymarket_event_risk_penalty ?? null, 1),
+      eventRiskReason: entry.market.polymarket_event_risk_reason || null,
+      eventRiskSizeFactor: toFixedOrNull(entry.market.polymarket_event_risk_size_factor ?? null, 3),
       recentRiskPenalty: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.penalty ?? null, 1),
       recentFillPenaltyBps: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.fillPenaltyBps ?? null, 2),
       recentRiskThrottleFactor: toFixedOrNull(recentRiskPenalty.get(entry.market.token_id)?.riskThrottleFactor ?? null, 3),
