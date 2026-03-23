@@ -1,6 +1,6 @@
 {
   "name": "predict-fun-market-maker-lite-app",
-  "version": "2.2.1",
+  "version": "2.1.1",
   "private": true,
   "type": "module",
   "main": "electron/main.mjs",
