@@ -12,7 +12,7 @@ import {
   UnifiedState,
   type UnifiedMarketMakerConfig,
   type UnifiedAction
-} from './strategies/unified-strategy.js';
+} from './strategies/unified-market-maker-strategy.js';
 
 // 两阶段循环对冲策略
 import {
