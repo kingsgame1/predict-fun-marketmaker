@@ -690,12 +690,23 @@ export class MarketMaker {
    * bid侧：价格 > levelPrice 的所有档位的累计股数
    * ask侧：价格 < levelPrice 的所有档位的累计股数
    */
-  private sumFrontDepth(levels: OrderbookEntry[] | undefined, levelPrice: number, side: 'bids' | 'asks'): number {
+  private sumFrontDepth(levels: OrderbookEntry[] | undefined, levelPrice: number, side: 'bids' | 'asks', tokenId?: string): number {
     if (!Array.isArray(levels) || levelPrice <= 0) return 0;
+    // H1 FIX: 收集自己的挂单价格，排除自挂单深度
+    const myOrderPrices = new Set<number>();
+    if (tokenId) {
+      for (const [, o] of this.openOrders) {
+        if (o.token_id === tokenId) {
+          myOrderPrices.add(Number(o.price));
+        }
+      }
+    }
     let sum = 0;
     for (const entry of levels) {
       const p = Number(entry.price || 0);
       const s = Number(entry.shares || (entry as any).size || 0);
+      // 跳过自己的挂单
+      if (myOrderPrices.has(p)) continue;
       if (side === 'bids') {
         // bid侧：比levelPrice高的（更靠近盘口）累计
         if (p > levelPrice) sum += s;
@@ -1572,12 +1583,14 @@ export class MarketMaker {
     try {
       if (this.api.getOrders) {
         const orders = await this.api.getOrders(makerAddress);
-        this.openOrders.clear();
+        // H6 FIX: 先构建新Map，成功后再赋值，避免中途异常导致openOrders被清空
+        const newOpenOrders = new Map<string, Order>();
         for (const order of orders) {
           if (order.status === 'OPEN') {
-            this.openOrders.set(order.order_hash, order);
+            newOpenOrders.set(order.order_hash, order);
           }
         }
+        this.openOrders = newOpenOrders;
       } else if (!this.warnedNoOrderSync) {
         console.log('⚠️  当前交易所不支持获取 Open Orders，改为本地订单追踪');
         this.warnedNoOrderSync = true;
@@ -2036,13 +2049,13 @@ export class MarketMaker {
     return now - lastAt >= minInterval && now >= cooldownUntil;
   }
 
-  private markAction(tokenId: string): void {
+  private async markAction(tokenId: string): Promise<void> {
     this.lastActionAt.set(tokenId, Date.now());
     if (this.config.mmActionBurstLimit) {
       this.recordActionBurst(tokenId);
     }
     if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceCleanup) {
-      void this.cancelOrdersForMarket(tokenId);
+      await this.cancelOrdersForMarket(tokenId);
     }
   }
 
@@ -3807,6 +3820,7 @@ export class MarketMaker {
     dangerousThresholdCents: number; // 离盘口多近视为危险（触发紧急撤单）
     baseBufferBoost: number;      // 新市场基础缓冲加成倍数（预防式）
     quoteLevel: number;           // 挂单档位：激进=3(第3档), 保守=4(第4档)
+    tierRetreatCents: number;    // v24: 档位退让距离（美分），避免裸挂在第N档
   } {
     const isAggressive = this.config.mmTradingMode === 'aggressive';
     if (isAggressive) {
@@ -3827,6 +3841,7 @@ export class MarketMaker {
         dangerousThresholdCents: 5.0,       // v21: 从4.5提高到5.0
         baseBufferBoost: 1.20,
         quoteLevel: 3,                      // 动态第3档（v17=4太深，v18=3贴近盘口积分更好）
+        tierRetreatCents: 1.5,              // v24: 退让1.5c，不裸挂第N档
       };
     }
     // 保守模式 v21: 更保守的默认值减少被吃概率
@@ -3846,7 +3861,64 @@ export class MarketMaker {
       dangerousThresholdCents: 6.0,       // v21: 从5.0提高到6.0
       baseBufferBoost: 1.30,
       quoteLevel: 4,                      // 动态第4档（v17=5太深，v18=4积分更好）
+      tierRetreatCents: 1.5,              // v24: 退让1.5c，不裸挂第N档
     };
+  }
+
+  /** 统一的保守/激进模式判断 — 消除 isConservative/isConservative2/v23IsConservative 命名不一致 */
+  private get isConservative(): boolean {
+    return this.config.mmTradingMode !== 'aggressive';
+  }
+
+  /** 获取指定 token_id 上自己已挂单的价格集合（用于排除自己的单） */
+  private getMyOrderPrices(tokenId: string): Set<number> {
+    const prices = new Set<number>();
+    for (const [, o] of this.openOrders) {
+      if (o.token_id === tokenId) {
+        prices.add(Number(o.price));
+      }
+    }
+    return prices;
+  }
+
+  /**
+   * v27: 统一的 BBO + 距离验证（替代4处重复代码）
+   * @returns 被拒绝的价格列表 [{side, label, reason}]
+   */
+  private validatePriceDistance(
+    bid: number, ask: number,
+    book: Orderbook, tokenId: string,
+    isTierPriced: boolean, label: string
+  ): { bid: number; ask: number; rejected: string[] } {
+    const rejected: string[] = [];
+    let safeBid = bid;
+    let safeAsk = ask;
+
+    if (isTierPriced) {
+      // v27: tierPriced路径 — 只检查BBO，不检查硬距离
+      // 档位定价本身就保证了安全（挂在第N档），不需要额外的距离检查
+      if (safeBid > 0 && book.best_bid && safeBid >= book.best_bid) {
+        rejected.push(`${label} BID >= BBO`);
+        safeBid = 0;
+      }
+      if (safeAsk > 0 && book.best_ask && safeAsk <= book.best_ask) {
+        rejected.push(`${label} ASK <= BBO`);
+        safeAsk = 0;
+      }
+    } else {
+      // nonTierPriced路径: 动态绝对距离
+      const minDist = this.getDynamicAbsoluteMin(tokenId, book) / 100;
+      if (safeBid > 0 && book.best_bid && (book.best_bid - safeBid) < minDist) {
+        rejected.push(`${label} BID离盘口${((book.best_bid - safeBid)*100).toFixed(2)}c < ${(minDist*100).toFixed(1)}c`);
+        safeBid = 0;
+      }
+      if (safeAsk > 0 && book.best_ask && (safeAsk - book.best_ask) < minDist) {
+        rejected.push(`${label} ASK离盘口${((safeAsk - book.best_ask)*100).toFixed(2)}c < ${(minDist*100).toFixed(1)}c`);
+        safeAsk = 0;
+      }
+    }
+
+    return { bid: safeBid, ask: safeAsk, rejected };
   }
 
   // ==================== Layer 2: 动态市场筛选 ====================
@@ -4121,8 +4193,8 @@ export class MarketMaker {
         }
         if (rank < minRank) {
           console.warn(`🚨 v22位移撤单: ${tokenId.slice(0, 8)} BUY $${price.toFixed(4)} 排名第${rank + 1} < ${minRank + 1}，紧急撤单!`);
-          this.displacementCancelUntil.set(tokenId, now + 1000);
           await this.cancelOrdersForMarket(tokenId);
+          this.displacementCancelUntil.set(tokenId, now + 1000); // 只在撤单调用完成后设冷却（无论成功失败，避免频繁重试）
           return;
         }
       }
@@ -4137,8 +4209,8 @@ export class MarketMaker {
         }
         if (rank < minRank) {
           console.warn(`🚨 v22位移撤单: ${tokenId.slice(0, 8)} SELL $${price.toFixed(4)} 排名第${rank + 1} < ${minRank + 1}，紧急撤单!`);
-          this.displacementCancelUntil.set(tokenId, now + 1000);
           await this.cancelOrdersForMarket(tokenId);
+          this.displacementCancelUntil.set(tokenId, now + 1000); // 只在撤单调用完成后设冷却
           return;
         }
       }
@@ -4295,38 +4367,20 @@ export class MarketMaker {
    * v23: 重新计算价格后的硬距离验证
    * 用新盘口数据重新检查价格是否安全
    */
+  /**
+   * v27: 重算后验证 — 直接调用 validatePriceDistance，逻辑与其他3处完全一致
+   */
   private revalidatePricesAfterRecalc(
     yesBid: number, yesAsk: number, yesBook: Orderbook, isYesTierPriced: boolean, _yesLabel: string,
     noBid: number, noAsk: number, noBook: Orderbook, isNoTierPriced: boolean, _noLabel: string
   ): { yesBid: number; yesAsk: number; noBid: number; noAsk: number } | null {
-    const isConservative = this.config.mmTradingMode !== 'aggressive';
-    const mode = this.getModeParams();
-    const hardMin = mode.absoluteMinBufferCents / 100;
-    // 保守模式tierPriced用floor，激进模式tierPriced不做距离检查(只检查BBO)
-    const tierFloor = isConservative ? hardMin * 0.5 : 0;
-    let yB = yesBid, yA = yesAsk, nB = noBid, nA = noAsk;
-
     // YES验证
-    const yesMinDist = isYesTierPriced ? tierFloor : hardMin;
-    if (yB > 0 && yesBook.best_bid && yesMinDist > 0 && (yesBook.best_bid - yB) < yesMinDist) {
-      console.warn(`🛑 v23重算验证: YES bid离盘口${((yesBook.best_bid - yB)*100).toFixed(2)}c < ${(yesMinDist*100).toFixed(2)}c，拒绝!`);
-      yB = 0;
-    }
-    if (yA > 0 && yesBook.best_ask && yesMinDist > 0 && (yA - yesBook.best_ask) < yesMinDist) {
-      console.warn(`🛑 v23重算验证: YES ask离盘口${((yA - yesBook.best_ask)*100).toFixed(2)}c < ${(yesMinDist*100).toFixed(2)}c，拒绝!`);
-      yA = 0;
-    }
+    const yesResult = this.validatePriceDistance(yesBid, yesAsk, yesBook, '', isYesTierPriced, 'v23重算 YES');
+    for (const r of yesResult.rejected) console.warn(`🛑 ${r}，拒绝!`);
     // NO验证
-    const noMinDist = isNoTierPriced ? tierFloor : hardMin;
-    if (nB > 0 && noBook.best_bid && noMinDist > 0 && (noBook.best_bid - nB) < noMinDist) {
-      console.warn(`🛑 v23重算验证: NO bid离盘口${((noBook.best_bid - nB)*100).toFixed(2)}c < ${(noMinDist*100).toFixed(2)}c，拒绝!`);
-      nB = 0;
-    }
-    if (nA > 0 && noBook.best_ask && noMinDist > 0 && (nA - noBook.best_ask) < noMinDist) {
-      console.warn(`🛑 v23重算验证: NO ask离盘口${((nA - noBook.best_ask)*100).toFixed(2)}c < ${(noMinDist*100).toFixed(2)}c，拒绝!`);
-      nA = 0;
-    }
-    return { yesBid: yB, yesAsk: yA, noBid: nB, noAsk: nA };
+    const noResult = this.validatePriceDistance(noBid, noAsk, noBook, '', isNoTierPriced, 'v23重算 NO');
+    for (const r of noResult.rejected) console.warn(`🛑 ${r}，拒绝!`);
+    return { yesBid: yesResult.bid, yesAsk: yesResult.ask, noBid: noResult.bid, noAsk: noResult.ask };
   }
 
   private getDynamicAbsoluteMin(tokenId: string, orderbook: Orderbook): number {
@@ -6544,8 +6598,8 @@ export class MarketMaker {
         // 智能填补：如果第N-1档和第N档之间gap过大，插在中间成为新第N档
         //   例: 第2档=99.0, 第3档=98.8, gap=2c > 阈值 → 挂(99.0+98.8)/2=98.9
 
-        let targetBid = levelBidPrice; // 直接用第N档价格，不退让
-        let targetAsk = levelAskPrice;
+        let targetBid = levelBidPrice - mode.tierRetreatCents / 100; // v24: 退让1.5c避免裸挂
+        let targetAsk = levelAskPrice + mode.tierRetreatCents / 100;
 
         // ====== 智能填补：第N-1档和第N档之间gap过大时插中间 ======
         const prevLevelBid = this.getLevelPrice(orderbook.bids, level - 2, 'bids'); // 第N-1档
@@ -6593,8 +6647,8 @@ export class MarketMaker {
         // 计算我们挂单位置前方（closer to BBO）有多少流动性
         // 智能填补时用填补位作为基准，否则用原始档位价格
         const minFrontShares = mode.minFrontDepth; // 激进4000, 保守6000
-        const frontBidDepth = this.sumFrontDepth(orderbook.bids, effectiveBidRef, 'bids');
-        const frontAskDepth = this.sumFrontDepth(orderbook.asks, effectiveAskRef, 'asks');
+        const frontBidDepth = this.sumFrontDepth(orderbook.bids, effectiveBidRef, 'bids', market.token_id);
+        const frontAskDepth = this.sumFrontDepth(orderbook.asks, effectiveAskRef, 'asks', market.token_id);
         if (frontBidDepth < minFrontShares || frontAskDepth < minFrontShares) {
           // 前方流动性不足 → 档位数据不可靠，不挂单
           console.log(`📊 前方深度不足: bid前${frontBidDepth}股 ask前${frontAskDepth}股 (需${minFrontShares}) → 跳过`);
@@ -7101,7 +7155,7 @@ export class MarketMaker {
     return Math.round(baseMs * mult);
   }
 
-  private trimExcessOrders(tokenId: string, orders: Order[]): Order[] {
+  private async trimExcessOrders(tokenId: string, orders: Order[]): Promise<Order[]> {
     const maxOrders = this.getEffectiveMaxOrdersPerMarket();
     if (orders.length <= maxOrders) {
       return orders;
@@ -7112,7 +7166,7 @@ export class MarketMaker {
     const cancel = sorted.slice(maxOrders);
 
     for (const order of cancel) {
-      void this.cancelOrder(order);
+      await this.cancelOrder(order);
     }
 
     return keep;
@@ -7293,7 +7347,7 @@ export class MarketMaker {
     // 缓存订单簿用于积分优化
     this.pointsOrderbookCache.set(tokenId, orderbook);
     this.pointsOrderbookCacheTs.set(tokenId, Date.now());
-    this.checkCancelOnDisplacement(tokenId, orderbook); // v22: 缓存更新时检查位移撤单
+    await this.checkCancelOnDisplacement(tokenId, orderbook); // v24: await — 撤单必须完成后才能继续
 
     if (!this.lastFillAt.has(tokenId)) {
       this.lastFillAt.set(tokenId, Date.now());
@@ -7524,7 +7578,7 @@ export class MarketMaker {
     let existingOrders = Array.from(this.openOrders.values()).filter(
       (o) => o.token_id === tokenId && o.status === 'OPEN'
     );
-    existingOrders = this.trimExcessOrders(tokenId, existingOrders);
+    existingOrders = await this.trimExcessOrders(tokenId, existingOrders);
 
     const existingBids = existingOrders
       .filter((o) => o.side === 'BUY')
@@ -8341,6 +8395,8 @@ export class MarketMaker {
       return false;
     }
 
+    // H4 FIX: 网络错误重试1次（timeout/ECONNRESET等瞬态错误）
+    for (let attempt = 0; attempt <= 1; attempt++) {
     let payload: any;
     try {
       if (side === 'BUY' && this.config.mmVenue === 'predict') {
@@ -8682,12 +8738,21 @@ export class MarketMaker {
         );
         return false;
       }
+      // H4 FIX: 网络瞬态错误重试1次
+      const isNetworkError = /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|socket hang up|network|timeout/i.test(message);
+      if (isNetworkError && attempt === 0) {
+        console.warn(`⚠️ placeLimitOrder网络错误，500ms后重试: ${message}`);
+        await this.sleep(500);
+        continue; // 重试
+      }
       console.error(`Error placing ${side} order: ${message}`);
       throw (error instanceof Error ? error : new Error(message));
     }
+    } // end retry loop
+    return false;
   }
 
-  async cancelOrdersForMarket(tokenId: string): Promise<void> {
+  async cancelOrdersForMarket(tokenId: string): Promise<boolean> {
     const ordersToCancel = Array.from(this.openOrders.values()).filter(
       (o) => o.token_id === tokenId && o.status === 'OPEN'
     );
@@ -8696,6 +8761,12 @@ export class MarketMaker {
     if (this.isLayerRestoreActive(tokenId) && this.config.mmLayerRestoreForceRefresh) {
       this.markAction(tokenId);
     }
+    // H2 FIX: 返回是否所有订单都成功撤销
+    // 检查是否还有残留的OPEN订单（说明有撤单失败）
+    const remaining = Array.from(this.openOrders.values()).filter(
+      (o) => o.token_id === tokenId && o.status === 'OPEN'
+    );
+    return remaining.length === 0;
   }
 
   async cancelAllOpenOrders(): Promise<void> {
@@ -8995,12 +9066,24 @@ export class MarketMaker {
         this.updateFillPressure(tokenId, absDelta);
         this.lastFillAt.set(tokenId, Date.now());
         this.recordAutoTuneEvent(tokenId, 'FILLED');
-        // FIX: 订单被吃后即时清理 openOrders 中对应 token 的订单
-        for (const [hash, openOrder] of this.openOrders.entries()) {
-          if (openOrder.token_id === tokenId) {
-            this.openOrders.delete(hash);
+        // v24 FIX C5: 检测到成交 → 立即取消该token所有挂单（不猜测哪侧成交）
+        // 旧代码用delta方向猜成交侧并只删除该侧 → 猜错会留下孤儿订单
+        // 孤儿订单无法被bot追踪/取消，被吃时无安全响应 → 直接损失
+        // 新方案：成交=不安全信号 → 取消所有 + 冷却 → 下个主循环重新走完整防护
+        await this.cancelOrdersForMarket(tokenId);
+        // 也取消YES/NO子token的挂单
+        const fillMarket = this.marketByToken.get(tokenId);
+        if (fillMarket?.outcomes) {
+          for (const outcome of fillMarket.outcomes) {
+            if (outcome.onChainId && outcome.onChainId !== tokenId) {
+              await this.cancelOrdersForMarket(outcome.onChainId);
+            }
           }
         }
+        // 成交后强制冷却，避免立即重新挂单又被吃
+        const fillCooldown = this.getModeParams().fillCooldownMs;
+        this.markCooldown(tokenId, fillCooldown);
+        console.warn(`🚨 v24成交保护: ${tokenId.slice(0,8)} 检测到成交，取消所有挂单+冷却${Math.round(fillCooldown/60000)}分钟`);
         if (this.config.mmVenue === 'polymarket') {
           this.recordPolymarketLifecycleEvent(tokenId, 'FILLED', undefined);
         }
@@ -9958,12 +10041,12 @@ export class MarketMaker {
     if (yesTokenId && yesTokenId !== market.token_id) {
       this.pointsOrderbookCache.set(yesTokenId, yesOrderbook);
       this.pointsOrderbookCacheTs.set(yesTokenId, Date.now());
-      this.checkCancelOnDisplacement(yesTokenId, yesOrderbook); // v22: 缓存更新时检查位移撤单
+      await this.checkCancelOnDisplacement(yesTokenId, yesOrderbook); // v24: await撤单
     }
     if (noTokenId && noTokenId !== market.token_id) {
       this.pointsOrderbookCache.set(noTokenId, noOrderbook);
       this.pointsOrderbookCacheTs.set(noTokenId, Date.now());
-      this.checkCancelOnDisplacement(noTokenId, noOrderbook); // v22: 缓存更新时检查位移撤单
+      await this.checkCancelOnDisplacement(noTokenId, noOrderbook); // v24: await撤单
     }
 
     if (this.isUnsafeBook(yesOrderbook) || this.isUnsafeBook(noOrderbook)) {
@@ -10078,96 +10161,20 @@ export class MarketMaker {
       return;
     }
 
-    // ===== 最终硬距离验证 =====
-    // v17: 档位定价(tierPriced)也要求至少1.5c距离检查
-    // 非档位定价：任何报价离盘口低于动态绝对最低距离 → 拒绝挂单
+    // ===== v27: 最终硬距离验证（统一调用 validatePriceDistance） =====
     let rejectedAny = false;
     const isYesTierPriced = yesQuotePrices?.tierPriced === true;
     const isNoTierPriced = noQuotePrices?.tierPriced === true;
 
-    if (!isYesTierPriced) {
-      const yesHardMinDist = this.getDynamicAbsoluteMin(yesTokenId, yesOrderbook) / 100;
-      if (yesBid > 0 && yesOrderbook.best_bid && (yesOrderbook.best_bid - yesBid) < yesHardMinDist) {
-        console.warn(`🛑 硬距离验证: YES bid 离盘口${((yesOrderbook.best_bid - yesBid) * 100).toFixed(2)}c < ${(yesHardMinDist * 100).toFixed(1)}c，拒绝!`);
-        yesBid = 0;
-        rejectedAny = true;
-      }
-      if (yesAsk > 0 && yesOrderbook.best_ask && (yesAsk - yesOrderbook.best_ask) < yesHardMinDist) {
-        console.warn(`🛑 硬距离验证: YES ask 离盘口${((yesAsk - yesOrderbook.best_ask) * 100).toFixed(2)}c < ${(yesHardMinDist * 100).toFixed(1)}c，拒绝!`);
-        yesAsk = 0;
-        rejectedAny = true;
-      }
-    } else {
-      // v23: 保守模式加绝对距离兜底，激进模式只检查不穿越BBO
-      const isConservative = this.config.mmTradingMode !== 'aggressive';
-      const yesTierMinDist = isConservative ? (this.getDynamicAbsoluteMin(yesTokenId, yesOrderbook) / 100) * 0.5 : 0;
-      if (yesBid > 0 && yesOrderbook.best_bid) {
-        const yesBidDist = (yesOrderbook.best_bid - yesBid);
-        if (yesBid >= yesOrderbook.best_bid) {
-          console.warn(`🛑 档位BBO验证: YES bid >= BBO，拒绝!`);
-          yesBid = 0;
-          rejectedAny = true;
-        } else if (isConservative && yesTierMinDist > 0 && yesBidDist < yesTierMinDist) {
-          console.warn(`🛑 档位距离兜底: YES bid离盘口${(yesBidDist * 100).toFixed(2)}c < 最低${(yesTierMinDist * 100).toFixed(2)}c，拒绝!`);
-          yesBid = 0;
-          rejectedAny = true;
-        }
-      }
-      if (yesAsk > 0 && yesOrderbook.best_ask) {
-        const yesAskDist = (yesAsk - yesOrderbook.best_ask);
-        if (yesAsk <= yesOrderbook.best_ask) {
-          console.warn(`🛑 档位BBO验证: YES ask <= BBO，拒绝!`);
-          yesAsk = 0;
-          rejectedAny = true;
-        } else if (isConservative && yesTierMinDist > 0 && yesAskDist < yesTierMinDist) {
-          console.warn(`🛑 档位距离兜底: YES ask离盘口${(yesAskDist * 100).toFixed(2)}c < 最低${(yesTierMinDist * 100).toFixed(2)}c，拒绝!`);
-          yesAsk = 0;
-          rejectedAny = true;
-        }
-      }
-    }
+    const yesValidation = this.validatePriceDistance(yesBid, yesAsk, yesOrderbook, yesTokenId, isYesTierPriced, '硬距离 YES');
+    for (const r of yesValidation.rejected) { console.warn(`🛑 ${r}，拒绝!`); rejectedAny = true; }
+    yesBid = yesValidation.bid;
+    yesAsk = yesValidation.ask;
 
-    if (!isNoTierPriced) {
-      const noHardMinDist = this.getDynamicAbsoluteMin(noTokenId, noOrderbook) / 100;
-      if (noBid > 0 && noOrderbook.best_bid && (noOrderbook.best_bid - noBid) < noHardMinDist) {
-        console.warn(`🛑 硬距离验证: NO bid 离盘口${((noOrderbook.best_bid - noBid) * 100).toFixed(2)}c < ${(noHardMinDist * 100).toFixed(1)}c，拒绝!`);
-        noBid = 0;
-        rejectedAny = true;
-      }
-      if (noAsk > 0 && noOrderbook.best_ask && (noAsk - noOrderbook.best_ask) < noHardMinDist) {
-        console.warn(`🛑 硬距离验证: NO ask 离盘口${((noAsk - noOrderbook.best_ask) * 100).toFixed(2)}c < ${(noHardMinDist * 100).toFixed(1)}c，拒绝!`);
-        noAsk = 0;
-        rejectedAny = true;
-      }
-    } else {
-      // v23: 保守模式NO档位加绝对距离兜底，激进模式只检查不穿越BBO
-      const isConservative2 = this.config.mmTradingMode !== 'aggressive';
-      const noTierMinDist = isConservative2 ? (this.getDynamicAbsoluteMin(noTokenId, noOrderbook) / 100) * 0.5 : 0;
-      if (noBid > 0 && noOrderbook.best_bid) {
-        const noBidDist = (noOrderbook.best_bid - noBid);
-        if (noBid >= noOrderbook.best_bid) {
-          console.warn(`🛑 档位BBO验证: NO bid >= BBO，拒绝!`);
-          noBid = 0;
-          rejectedAny = true;
-        } else if (isConservative2 && noTierMinDist > 0 && noBidDist < noTierMinDist) {
-          console.warn(`🛑 档位距离兜底: NO bid离盘口${(noBidDist * 100).toFixed(2)}c < 最低${(noTierMinDist * 100).toFixed(2)}c，拒绝!`);
-          noBid = 0;
-          rejectedAny = true;
-        }
-      }
-      if (noAsk > 0 && noOrderbook.best_ask) {
-        const noAskDist = (noAsk - noOrderbook.best_ask);
-        if (noAsk <= noOrderbook.best_ask) {
-          console.warn(`🛑 档位BBO验证: NO ask <= BBO，拒绝!`);
-          noAsk = 0;
-          rejectedAny = true;
-        } else if (isConservative2 && noTierMinDist > 0 && noAskDist < noTierMinDist) {
-          console.warn(`🛑 档位距离兜底: NO ask离盘口${(noAskDist * 100).toFixed(2)}c < 最低${(noTierMinDist * 100).toFixed(2)}c，拒绝!`);
-          noAsk = 0;
-          rejectedAny = true;
-        }
-      }
-    }
+    const noValidation = this.validatePriceDistance(noBid, noAsk, noOrderbook, noTokenId, isNoTierPriced, '硬距离 NO');
+    for (const r of noValidation.rejected) { console.warn(`🛑 ${r}，拒绝!`); rejectedAny = true; }
+    noBid = noValidation.bid;
+    noAsk = noValidation.ask;
 
     if (rejectedAny && yesBid <= 0 && yesAsk <= 0 && noBid <= 0 && noAsk <= 0) {
       console.warn(`🛑 硬距离验证: 所有报价都被拒绝，放弃本轮`);
@@ -10179,10 +10186,18 @@ export class MarketMaker {
     let sellOrderSize = analysis.sellOrderSize;
 
     // v22: 并行取消两个 token_id 的订单（原来串行，浪费一倍延迟）
-    await Promise.all([
+    // H2 FIX: 检查撤单是否成功，有残留订单则放弃本轮
+    const [yesCancelOk, noCancelOk] = await Promise.all([
       this.cancelOrdersForMarket(yesTokenId),
       this.cancelOrdersForMarket(noTokenId),
     ]);
+    if (!yesCancelOk || !noCancelOk) {
+      const failedTokens = [];
+      if (!yesCancelOk) failedTokens.push('YES');
+      if (!noCancelOk) failedTokens.push('NO');
+      console.warn(`🛑 撤单未完全成功(${failedTokens.join(', ')}有残留订单)，放弃本轮以防重复挂单`);
+      return;
+    }
 
     // FIX: 取消订单后并行重新获取最新 orderbook 并更新缓存
     // 从获取 orderbook 到这里已经过了 1-3 秒（计算价格 + 取消订单的 API 调用）
@@ -10199,12 +10214,12 @@ export class MarketMaker {
       if (yesTokenId && yesTokenId !== market.token_id) {
         this.pointsOrderbookCache.set(yesTokenId, freshYesBook);
         this.pointsOrderbookCacheTs.set(yesTokenId, Date.now());
-        this.checkCancelOnDisplacement(yesTokenId, freshYesBook); // v22: 缓存更新时检查位移撤单
+        await this.checkCancelOnDisplacement(yesTokenId, freshYesBook); // v24: await撤单
       }
       if (noTokenId && noTokenId !== market.token_id) {
         this.pointsOrderbookCache.set(noTokenId, freshNoBook);
         this.pointsOrderbookCacheTs.set(noTokenId, Date.now());
-        this.checkCancelOnDisplacement(noTokenId, freshNoBook); // v22: 缓存更新时检查位移撤单
+        await this.checkCancelOnDisplacement(noTokenId, freshNoBook); // v24: await撤单
       }
     } catch (e) {
       console.warn(`⚠️ 刷新 orderbook 失败，使用旧数据: ${e instanceof Error ? e.message : String(e)}`);
@@ -10222,7 +10237,7 @@ export class MarketMaker {
         Math.abs(freshNoBook.best_bid - noOrderbook.best_bid) > 0.001;
       if (yesBidMoved || noBidMoved) {
         console.log(`📊 v23重新计算: YES盘口${yesOrderbook.best_bid?.toFixed(4)}→${freshYesBook.best_bid?.toFixed(4)} NO盘口${noOrderbook.best_bid?.toFixed(4)}→${freshNoBook.best_bid?.toFixed(4)}`);
-        // 用新orderbook重新计算YES价格
+        // v24: 用新orderbook重新计算YES价格 — 如果返回null说明市场不安全，必须放弃
         if (yesQuotePrices && freshYesBook.best_bid) {
           const newYesQuote = this.calculatePrices(yesMarket, freshYesBook);
           if (newYesQuote) {
@@ -10230,9 +10245,14 @@ export class MarketMaker {
             if (yesAsk > 0) yesAsk = newYesQuote.askPrice;
             yesSpread = newYesQuote.spread;
             v23Recalc = true;
+          } else {
+            // v24 FIX: calculatePrices返回null=市场不安全，不能用旧价格下单
+            console.warn(`🛑 v24重新计算: YES calculatePrices返回null（市场不安全），放弃YES侧!`);
+            yesBid = 0;
+            yesAsk = 0;
           }
         }
-        // 用新orderbook重新计算NO价格
+        // v24: 用新orderbook重新计算NO价格 — 同理
         if (noQuotePrices && freshNoBook.best_bid) {
           const newNoQuote = this.calculatePrices(noMarket, freshNoBook);
           if (newNoQuote) {
@@ -10240,6 +10260,10 @@ export class MarketMaker {
             if (noAsk > 0) noAsk = newNoQuote.askPrice;
             noSpread = newNoQuote.spread;
             v23Recalc = true;
+          } else {
+            console.warn(`🛑 v24重新计算: NO calculatePrices返回null（市场不安全），放弃NO侧!`);
+            noBid = 0;
+            noAsk = 0;
           }
         }
         if (v23Recalc) {
@@ -10261,88 +10285,74 @@ export class MarketMaker {
         }
       }
     } catch (e) {
-      console.warn(`⚠️ v23重新计算失败，继续用原价格: ${e instanceof Error ? e.message : String(e)}`);
+      console.warn(`⚠️ v23重新计算失败，放弃本轮以防用旧价格下单: ${e instanceof Error ? e.message : String(e)}`);
+      return;
     }
 
     // v21: 根据前档厚度动态缩小订单 — 前档越薄，单量越小
     const v21Mode = this.getModeParams();
     const minFrontShares = v21Mode.minFrontDepth;
-    if (buyOrderSize > 0 && freshYesBook.bids) {
-      let frontBidShares = 0;
-      for (let i = 0; i < v21Mode.quoteLevel - 1 && i < freshYesBook.bids.length; i++) {
-        frontBidShares += Number(freshYesBook.bids[i]?.shares || 0);
+    if (buyOrderSize > 0) {
+      // v26 fix: 同时检查YES和NO的bids前档，取更保守值
+      let yesFrontBidShares = 0;
+      let noFrontBidShares = 0;
+      if (freshYesBook.bids) {
+        for (let i = 0; i < v21Mode.quoteLevel - 1 && i < freshYesBook.bids.length; i++) {
+          yesFrontBidShares += Number(freshYesBook.bids[i]?.shares || 0);
+        }
       }
-      // 前档深度比例: 0(无保护) ~ 2+(超厚保护)
-      const frontRatio = minFrontShares > 0 ? frontBidShares / minFrontShares : 1;
+      if (freshNoBook.bids) {
+        for (let i = 0; i < v21Mode.quoteLevel - 1 && i < freshNoBook.bids.length; i++) {
+          noFrontBidShares += Number(freshNoBook.bids[i]?.shares || 0);
+        }
+      }
+      const yesRatio = minFrontShares > 0 ? yesFrontBidShares / minFrontShares : 1;
+      const noRatio = minFrontShares > 0 ? noFrontBidShares / minFrontShares : 1;
+      const frontRatio = Math.min(yesRatio, noRatio); // 取更保守的
       if (frontRatio < 0.5) {
-        // 前档不到一半 → 缩到25%
         buyOrderSize = Math.max(1, Math.floor(buyOrderSize * 0.25));
-        console.log(`📐 v21缩单: BUY前档比${frontRatio.toFixed(2)} < 0.5，缩单到${buyOrderSize}`);
+        console.log(`📐 v21缩单: BUY前档比${frontRatio.toFixed(2)}(YES=${yesRatio.toFixed(2)},NO=${noRatio.toFixed(2)}) < 0.5，缩单到${buyOrderSize}`);
       } else if (frontRatio < 1.0) {
-        // 前档未达标 → 缩到50%
         buyOrderSize = Math.max(1, Math.floor(buyOrderSize * 0.5));
-        console.log(`📐 v21缩单: BUY前档比${frontRatio.toFixed(2)} < 1.0，缩单到${buyOrderSize}`);
+        console.log(`📐 v21缩单: BUY前档比${frontRatio.toFixed(2)}(YES=${yesRatio.toFixed(2)},NO=${noRatio.toFixed(2)}) < 1.0，缩单到${buyOrderSize}`);
       }
     }
-    if (sellOrderSize > 0 && freshYesBook.asks) {
-      let frontAskShares = 0;
-      for (let i = 0; i < mode.quoteLevel - 1 && i < freshYesBook.asks.length; i++) {
-        frontAskShares += Number(freshYesBook.asks[i]?.shares || 0);
+    if (sellOrderSize > 0) {
+      // v26 fix: 同时检查YES和NO的asks前档，取更保守值
+      let yesFrontAskShares = 0;
+      let noFrontAskShares = 0;
+      if (freshYesBook.asks) {
+        for (let i = 0; i < v21Mode.quoteLevel - 1 && i < freshYesBook.asks.length; i++) {
+          yesFrontAskShares += Number(freshYesBook.asks[i]?.shares || 0);
+        }
       }
-      const frontRatio = minFrontShares > 0 ? frontAskShares / minFrontShares : 1;
+      if (freshNoBook.asks) {
+        for (let i = 0; i < v21Mode.quoteLevel - 1 && i < freshNoBook.asks.length; i++) {
+          noFrontAskShares += Number(freshNoBook.asks[i]?.shares || 0);
+        }
+      }
+      const yesRatio = minFrontShares > 0 ? yesFrontAskShares / minFrontShares : 1;
+      const noRatio = minFrontShares > 0 ? noFrontAskShares / minFrontShares : 1;
+      const frontRatio = Math.min(yesRatio, noRatio); // 取更保守的
       if (frontRatio < 0.5) {
         sellOrderSize = Math.max(1, Math.floor(sellOrderSize * 0.25));
-        console.log(`📐 v21缩单: SELL前档比${frontRatio.toFixed(2)} < 0.5，缩单到${sellOrderSize}`);
+        console.log(`📐 v21缩单: SELL前档比${frontRatio.toFixed(2)}(YES=${yesRatio.toFixed(2)},NO=${noRatio.toFixed(2)}) < 0.5，缩单到${sellOrderSize}`);
       } else if (frontRatio < 1.0) {
         sellOrderSize = Math.max(1, Math.floor(sellOrderSize * 0.5));
-        console.log(`📐 v21缩单: SELL前档比${frontRatio.toFixed(2)} < 1.0，缩单到${sellOrderSize}`);
+        console.log(`📐 v21缩单: SELL前档比${frontRatio.toFixed(2)}(YES=${yesRatio.toFixed(2)},NO=${noRatio.toFixed(2)}) < 1.0，缩单到${sellOrderSize}`);
       }
     }
 
-    // FIX: 用最新 orderbook 重新做硬距离验证
-    // v17: 档位定价(tierPriced)也要求至少1.5c距离
-    if (isYesTierPriced) {
-      // v18: 档位挂单只检查不超出盘口
-      if (yesBid > 0 && freshYesBook.best_bid && yesBid >= freshYesBook.best_bid) {
-        console.warn(`🛑 档位下单前: YES bid >= 最新BBO，放弃!`);
-        yesBid = 0;
-      }
-      if (yesAsk > 0 && freshYesBook.best_ask && yesAsk <= freshYesBook.best_ask) {
-        console.warn(`🛑 档位下单前: YES ask <= 最新BBO，放弃!`);
-        yesAsk = 0;
-      }
-    } else {
-      const freshYesHardMinDist = this.getDynamicAbsoluteMin(yesTokenId, freshYesBook) / 100;
-      if (yesBid > 0 && freshYesBook.best_bid && (freshYesBook.best_bid - yesBid) < freshYesHardMinDist) {
-        console.warn(`🛑 下单前验证: YES bid 离最新盘口${((freshYesBook.best_bid - yesBid) * 100).toFixed(2)}c < ${(freshYesHardMinDist * 100).toFixed(1)}c，放弃!`);
-        yesBid = 0;
-      }
-      if (yesAsk > 0 && freshYesBook.best_ask && (yesAsk - freshYesBook.best_ask) < freshYesHardMinDist) {
-        console.warn(`🛑 下单前验证: YES ask 离最新盘口${((yesAsk - freshYesBook.best_ask) * 100).toFixed(2)}c < ${(freshYesHardMinDist * 100).toFixed(1)}c，放弃!`);
-        yesAsk = 0;
-      }
-    }
-    if (isNoTierPriced) {
-      // v18: 档位挂单只检查不超出盘口
-      if (noBid > 0 && freshNoBook.best_bid && noBid >= freshNoBook.best_bid) {
-        console.warn(`🛑 档位下单前: NO bid >= 最新BBO，放弃!`);
-        noBid = 0;
-      }
-      if (noAsk > 0 && freshNoBook.best_ask && noAsk <= freshNoBook.best_ask) {
-        console.warn(`🛑 档位下单前: NO ask <= 最新BBO，放弃!`);
-        noAsk = 0;
-      }
-    } else {
-      const freshNoHardMinDist = this.getDynamicAbsoluteMin(noTokenId, freshNoBook) / 100;
-      if (noBid > 0 && freshNoBook.best_bid && (freshNoBook.best_bid - noBid) < freshNoHardMinDist) {
-        console.warn(`🛑 下单前验证: NO bid 离最新盘口${((freshNoBook.best_bid - noBid) * 100).toFixed(2)}c < ${(freshNoHardMinDist * 100).toFixed(1)}c，放弃!`);
-        noBid = 0;
-      }
-      if (noAsk > 0 && freshNoBook.best_ask && (noAsk - freshNoBook.best_ask) < freshNoHardMinDist) {
-        console.warn(`🛑 下单前验证: NO ask 离最新盘口${((noAsk - freshNoBook.best_ask) * 100).toFixed(2)}c < ${(freshNoHardMinDist * 100).toFixed(1)}c，放弃!`);
-        noAsk = 0;
-      }
-    }
+    // v27: 用最新 orderbook 重新做硬距离验证（统一调用 validatePriceDistance）
+    const preYesValidation = this.validatePriceDistance(yesBid, yesAsk, freshYesBook, yesTokenId, isYesTierPriced, '下单前 YES');
+    for (const r of preYesValidation.rejected) console.warn(`🛑 ${r}，放弃!`);
+    yesBid = preYesValidation.bid;
+    yesAsk = preYesValidation.ask;
+
+    const preNoValidation = this.validatePriceDistance(noBid, noAsk, freshNoBook, noTokenId, isNoTierPriced, '下单前 NO');
+    for (const r of preNoValidation.rejected) console.warn(`🛑 ${r}，放弃!`);
+    noBid = preNoValidation.bid;
+    noAsk = preNoValidation.ask;
 
     // 如果刷新后所有报价都不安全，放弃本轮
     if (yesBid <= 0 && yesAsk <= 0 && noBid <= 0 && noAsk <= 0) {
@@ -10350,46 +10360,39 @@ export class MarketMaker {
       return;
     }
 
-    // v23: 4个订单并行下达 — 每个单有独立的placeLimitOrder内BBO验证
-    // 之前串行4个单，最后一个可能离计算价格已经5秒了
-    const placePromises: Promise<boolean>[] = [];
+    // H3 FIX: 改为顺序下单，避免并行写入 openOrders 竞态
+    // 之前用 Promise.all 并行4个单，导致 openOrders.set() 竞态
+    const placeResults: boolean[] = [];
     const placeLabels: string[] = [];
 
     if (analysis.shouldPlaceBuyOrders && buyOrderSize > 0) {
       if (yesBid > 0.01) {
         placeLabels.push('YES BUY');
-        placePromises.push(
-          this.placeLimitOrder(yesMarket, 'BUY', yesBid, buyOrderSize, yesSpread, yesQuotePrices)
-            .catch(e => { console.warn(`⚠️ placeLimitOrder异常(YES BUY): ${e instanceof Error ? e.message : String(e)}`); return false; })
-        );
+        try {
+          placeResults.push(await this.placeLimitOrder(yesMarket, 'BUY', yesBid, buyOrderSize, yesSpread, yesQuotePrices));
+        } catch (e) { console.warn(`⚠️ placeLimitOrder异常(YES BUY): ${e instanceof Error ? e.message : String(e)}`); placeResults.push(false); }
       }
       if (noBid > 0.01) {
         placeLabels.push('NO BUY');
-        placePromises.push(
-          this.placeLimitOrder(noMarket, 'BUY', noBid, buyOrderSize, noSpread, noQuotePrices)
-            .catch(e => { console.warn(`⚠️ placeLimitOrder异常(NO BUY): ${e instanceof Error ? e.message : String(e)}`); return false; })
-        );
+        try {
+          placeResults.push(await this.placeLimitOrder(noMarket, 'BUY', noBid, buyOrderSize, noSpread, noQuotePrices));
+        } catch (e) { console.warn(`⚠️ placeLimitOrder异常(NO BUY): ${e instanceof Error ? e.message : String(e)}`); placeResults.push(false); }
       }
     }
     if (analysis.shouldPlaceSellOrders && sellOrderSize > 0) {
       if (yesAsk > 0.01 && yesAsk < 0.99 && unifiedPosition.yes_amount > 0) {
         placeLabels.push('YES SELL');
-        placePromises.push(
-          this.placeLimitOrder(yesMarket, 'SELL', yesAsk, sellOrderSize, yesSpread, yesQuotePrices)
-            .catch(e => { console.warn(`⚠️ placeLimitOrder异常(YES SELL): ${e instanceof Error ? e.message : String(e)}`); return false; })
-        );
+        try {
+          placeResults.push(await this.placeLimitOrder(yesMarket, 'SELL', yesAsk, sellOrderSize, yesSpread, yesQuotePrices));
+        } catch (e) { console.warn(`⚠️ placeLimitOrder异常(YES SELL): ${e instanceof Error ? e.message : String(e)}`); placeResults.push(false); }
       }
       if (noAsk > 0.01 && noAsk < 0.99 && unifiedPosition.no_amount > 0) {
         placeLabels.push('NO SELL');
-        placePromises.push(
-          this.placeLimitOrder(noMarket, 'SELL', noAsk, sellOrderSize, noSpread, noQuotePrices)
-            .catch(e => { console.warn(`⚠️ placeLimitOrder异常(NO SELL): ${e instanceof Error ? e.message : String(e)}`); return false; })
-        );
+        try {
+          placeResults.push(await this.placeLimitOrder(noMarket, 'SELL', noAsk, sellOrderSize, noSpread, noQuotePrices));
+        } catch (e) { console.warn(`⚠️ placeLimitOrder异常(NO SELL): ${e instanceof Error ? e.message : String(e)}`); placeResults.push(false); }
       }
     }
-
-    // 并行等所有下单完成
-    const placeResults = await Promise.all(placePromises);
     let placedYesBid = placeLabels.includes('YES BUY') && placeResults[placeLabels.indexOf('YES BUY')] === true;
     let placedNoBid = placeLabels.includes('NO BUY') && placeResults[placeLabels.indexOf('NO BUY')] === true;
     let placedYesAsk = placeLabels.includes('YES SELL') && placeResults[placeLabels.indexOf('YES SELL')] === true;
@@ -10397,116 +10400,94 @@ export class MarketMaker {
 
     console.log(`✅ 统一策略挂单完成（使用 calculatePrices 安全报价）`);
 
-    // ===== 下单后即时安全验证 =====
-    // FIX: 并行获取+缩短等待到200ms（WS cancel-on-dirty已覆盖主要风险）
+    // ===== v27: 下单后即时安全验证（tierPriced无硬距离，只查BBO+前档+排名） =====
     try {
-      await new Promise(r => setTimeout(r, 200)); // v22: 从500ms缩到200ms（WS cancel-on-displacement已覆盖主要风险）
+      await new Promise(r => setTimeout(r, 200));
       const [verifyYesBook, verifyNoBook] = await Promise.all([
         this.api.getOrderbook(yesTokenId),
         this.api.getOrderbook(noTokenId),
       ]);
       let needCancel = false;
+      const postMode = this.getModeParams(); // 只调用一次
 
-      // v23: 保守模式tierPriced加距离兜底，激进模式只检查不穿越BBO
-      const v23IsConservative = this.config.mmTradingMode !== 'aggressive';
+      // --- YES 侧验证 ---
       if (isYesTierPriced) {
-        const v23Mode = this.getModeParams();
-        const v23TierFloor = v23IsConservative ? (v23Mode.absoluteMinBufferCents / 100) * 0.5 : 0;
-        if (placedYesBid && verifyYesBook.best_bid) {
-          if (yesBid >= verifyYesBook.best_bid) {
-            console.warn(`🛑 下单后验证: YES BID >= 最新BBO，撤单!`);
-            needCancel = true;
-          } else if (v23IsConservative && v23TierFloor > 0 && (verifyYesBook.best_bid - yesBid) < v23TierFloor) {
-            console.warn(`🛑 下单后验证: YES BID离盘口${((verifyYesBook.best_bid - yesBid)*100).toFixed(2)}c < 最低${(v23TierFloor*100).toFixed(2)}c，撤单!`);
-            needCancel = true;
-          }
+        // tierPriced: BBO检查（无硬距离）
+        if (placedYesBid && verifyYesBook.best_bid && yesBid >= verifyYesBook.best_bid) {
+          console.warn(`🛑 下单后验证: YES BID >= 最新BBO，撤单!`);
+          needCancel = true;
         }
-        // v20: 检查YES BID前档是否被吃掉 — 如果我们的单变成第1/2档就不安全
+        if (placedYesAsk && verifyYesBook.best_ask && yesAsk <= verifyYesBook.best_ask) {
+          console.warn(`🛑 下单后验证: YES ASK <= 最新BBO，撤单!`);
+          needCancel = true;
+        }
+        // 前档深度检查（排除自己的挂单）
+        const yesMyPrices = this.getMyOrderPrices(yesTokenId);
         if (!needCancel && placedYesBid && verifyYesBook.bids) {
-          const mode = this.getModeParams();
-          const frontLevels = mode.quoteLevel - 1;
-          if (frontLevels <= 0) {
-            // 防御: quoteLevel=1时无前档可检查，跳过
-          } else {
+          const frontLevels = postMode.quoteLevel - 1;
+          if (frontLevels > 0) {
             let frontRemaining = 0;
             for (let i = 0; i < frontLevels && i < verifyYesBook.bids.length; i++) {
               const p = Number(verifyYesBook.bids[i]?.price || 0);
-              if (p > yesBid) {
+              if (p > yesBid && !yesMyPrices.has(p)) {
                 frontRemaining += Number(verifyYesBook.bids[i]?.shares || 0);
               }
             }
-            if (frontRemaining < Math.floor(mode.minFrontDepth * 0.3)) {
-              console.warn(`🛑 下单后验证: YES BID前档仅剩${frontRemaining}股 < ${(mode.minFrontDepth * 0.3).toFixed(0)}股，前档被吃!`);
+            if (frontRemaining < Math.floor(postMode.minFrontDepth * 0.3)) {
+              console.warn(`🛑 下单后验证: YES BID前档仅剩${frontRemaining}股 < ${Math.floor(postMode.minFrontDepth * 0.3)}股，前档被吃!`);
               needCancel = true;
             }
           }
         }
-        // v21: 检查我的单在订单簿中的实际排名
+        // BID排名检查（排除自己的挂单）
         if (!needCancel && placedYesBid && verifyYesBook.bids) {
-          const mode = this.getModeParams();
           let myRank = 0;
           for (const entry of verifyYesBook.bids) {
             const p = Number(entry?.price || 0);
-            if (p > yesBid) {
+            if (p > yesBid && !yesMyPrices.has(p)) {
               myRank++;
             } else {
               break;
             }
           }
-          const minRank = mode.quoteLevel - 1; // 至少前面有N-1个价格层级
-          if (myRank < minRank) {
-            console.warn(`🛑 v21排名验证: YES BID实际排名第${myRank+1} < 需要${minRank+1}，前面保护不足!`);
+          if (myRank < postMode.quoteLevel - 1) {
+            console.warn(`🛑 v21排名验证: YES BID实际排名第${myRank+1} < 需要${postMode.quoteLevel}，前面保护不足!`);
             needCancel = true;
           }
         }
-        if (placedYesAsk && verifyYesBook.best_ask) {
-          if (yesAsk <= verifyYesBook.best_ask) {
-            console.warn(`🛑 下单后验证: YES ASK <= 最新BBO，撤单!`);
-            needCancel = true;
-          } else if (v23IsConservative && v23TierFloor > 0 && (yesAsk - verifyYesBook.best_ask) < v23TierFloor) {
-            console.warn(`🛑 下单后验证: YES ASK离盘口${((yesAsk - verifyYesBook.best_ask)*100).toFixed(2)}c < 最低${(v23TierFloor*100).toFixed(2)}c，撤单!`);
-            needCancel = true;
-          }
-        }
-        // v20: 检查YES ASK前档是否被吃掉 — 如果我们的单变成第1/2档就不安全
         if (!needCancel && placedYesAsk && verifyYesBook.asks) {
-          const mode = this.getModeParams();
-          const frontLevels = mode.quoteLevel - 1;
-          if (frontLevels <= 0) {
-            // 防御: quoteLevel=1时无前档可检查，跳过
-          } else {
+          const frontLevels = postMode.quoteLevel - 1;
+          if (frontLevels > 0) {
             let frontRemaining = 0;
             for (let i = 0; i < frontLevels && i < verifyYesBook.asks.length; i++) {
               const p = Number(verifyYesBook.asks[i]?.price || 0);
-              if (p < yesAsk) {
+              if (p < yesAsk && !yesMyPrices.has(p)) {
                 frontRemaining += Number(verifyYesBook.asks[i]?.shares || 0);
               }
             }
-            if (frontRemaining < Math.floor(mode.minFrontDepth * 0.3)) {
-              console.warn(`🛑 下单后验证: YES ASK前档仅剩${frontRemaining}股 < ${(mode.minFrontDepth * 0.3).toFixed(0)}股，前档被吃!`);
+            if (frontRemaining < Math.floor(postMode.minFrontDepth * 0.3)) {
+              console.warn(`🛑 下单后验证: YES ASK前档仅剩${frontRemaining}股 < ${Math.floor(postMode.minFrontDepth * 0.3)}股，前档被吃!`);
               needCancel = true;
             }
           }
         }
-        // v21: 检查我的单在订单簿中的实际排名 (ASK侧)
         if (!needCancel && placedYesAsk && verifyYesBook.asks) {
-          const mode = this.getModeParams();
           let myRank = 0;
           for (const entry of verifyYesBook.asks) {
             const p = Number(entry?.price || 0);
-            if (p < yesAsk) {
+            if (p < yesAsk && !yesMyPrices.has(p)) {
               myRank++;
             } else {
               break;
             }
           }
-          const minRank = mode.quoteLevel - 1;
-          if (myRank < minRank) {
-            console.warn(`🛑 v21排名验证: YES ASK实际排名第${myRank+1} < 需要${minRank+1}，前面保护不足!`);
+          if (myRank < postMode.quoteLevel - 1) {
+            console.warn(`🛑 v21排名验证: YES ASK实际排名第${myRank+1} < 需要${postMode.quoteLevel}，前面保护不足!`);
             needCancel = true;
           }
         }
       } else {
+        // nonTierPriced: 动态距离检查
         const verifyYesMinDist = this.getDynamicAbsoluteMin(yesTokenId, verifyYesBook) / 100;
         if (placedYesBid && verifyYesBook.best_bid && (verifyYesBook.best_bid - yesBid) < verifyYesMinDist) {
           console.warn(`🛑 下单后验证: YES BID 离最新盘口${((verifyYesBook.best_bid - yesBid) * 100).toFixed(2)}c < ${(verifyYesMinDist * 100).toFixed(1)}c，立刻撤单!`);
@@ -10517,100 +10498,77 @@ export class MarketMaker {
           needCancel = true;
         }
       }
+
+      // --- NO 侧验证 ---
       if (isNoTierPriced) {
-        const v23NoMode = this.getModeParams();
-        const v23NoTierFloor = v23IsConservative ? (v23NoMode.absoluteMinBufferCents / 100) * 0.5 : 0;
-        if (placedNoBid && verifyNoBook.best_bid) {
-          if (noBid >= verifyNoBook.best_bid) {
-            console.warn(`🛑 下单后验证: NO BID >= 最新BBO，撤单!`);
-            needCancel = true;
-          } else if (v23IsConservative && v23NoTierFloor > 0 && (verifyNoBook.best_bid - noBid) < v23NoTierFloor) {
-            console.warn(`🛑 下单后验证: NO BID离盘口${((verifyNoBook.best_bid - noBid)*100).toFixed(2)}c < 最低${(v23NoTierFloor*100).toFixed(2)}c，撤单!`);
-            needCancel = true;
-          }
+        if (placedNoBid && verifyNoBook.best_bid && noBid >= verifyNoBook.best_bid) {
+          console.warn(`🛑 下单后验证: NO BID >= 最新BBO，撤单!`);
+          needCancel = true;
         }
-        // v20: 检查NO BID前档是否被吃掉 — 如果我们的单变成第1/2档就不安全
+        if (placedNoAsk && verifyNoBook.best_ask && noAsk <= verifyNoBook.best_ask) {
+          console.warn(`🛑 下单后验证: NO ASK <= 最新BBO，撤单!`);
+          needCancel = true;
+        }
+        const noMyPrices = this.getMyOrderPrices(noTokenId);
         if (!needCancel && placedNoBid && verifyNoBook.bids) {
-          const mode = this.getModeParams();
-          const frontLevels = mode.quoteLevel - 1;
-          if (frontLevels <= 0) {
-            // 防御: quoteLevel=1时无前档可检查，跳过
-          } else {
+          const frontLevels = postMode.quoteLevel - 1;
+          if (frontLevels > 0) {
             let frontRemaining = 0;
             for (let i = 0; i < frontLevels && i < verifyNoBook.bids.length; i++) {
               const p = Number(verifyNoBook.bids[i]?.price || 0);
-              if (p > noBid) {
+              if (p > noBid && !noMyPrices.has(p)) {
                 frontRemaining += Number(verifyNoBook.bids[i]?.shares || 0);
               }
             }
-            if (frontRemaining < Math.floor(mode.minFrontDepth * 0.3)) {
-              console.warn(`🛑 下单后验证: NO BID前档仅剩${frontRemaining}股 < ${(mode.minFrontDepth * 0.3).toFixed(0)}股，前档被吃!`);
+            if (frontRemaining < Math.floor(postMode.minFrontDepth * 0.3)) {
+              console.warn(`🛑 下单后验证: NO BID前档仅剩${frontRemaining}股 < ${Math.floor(postMode.minFrontDepth * 0.3)}股，前档被吃!`);
               needCancel = true;
             }
           }
         }
-        // v21: 检查我的单在订单簿中的实际排名
         if (!needCancel && placedNoBid && verifyNoBook.bids) {
-          const mode = this.getModeParams();
           let myRank = 0;
           for (const entry of verifyNoBook.bids) {
             const p = Number(entry?.price || 0);
-            if (p > noBid) {
+            if (p > noBid && !noMyPrices.has(p)) {
               myRank++;
             } else {
               break;
             }
           }
-          const minRank = mode.quoteLevel - 1;
-          if (myRank < minRank) {
-            console.warn(`🛑 v21排名验证: NO BID实际排名第${myRank+1} < 需要${minRank+1}，前面保护不足!`);
+          if (myRank < postMode.quoteLevel - 1) {
+            console.warn(`🛑 v21排名验证: NO BID实际排名第${myRank+1} < 需要${postMode.quoteLevel}，前面保护不足!`);
             needCancel = true;
           }
         }
-        if (placedNoAsk && verifyNoBook.best_ask) {
-          if (noAsk <= verifyNoBook.best_ask) {
-            console.warn(`🛑 下单后验证: NO ASK <= 最新BBO，撤单!`);
-            needCancel = true;
-          } else if (v23IsConservative && v23NoTierFloor > 0 && (noAsk - verifyNoBook.best_ask) < v23NoTierFloor) {
-            console.warn(`🛑 下单后验证: NO ASK离盘口${((noAsk - verifyNoBook.best_ask)*100).toFixed(2)}c < 最低${(v23NoTierFloor*100).toFixed(2)}c，撤单!`);
-            needCancel = true;
-          }
-        }
-        // v20: 检查NO ASK前档是否被吃掉 — 如果我们的单变成第1/2档就不安全
         if (!needCancel && placedNoAsk && verifyNoBook.asks) {
-          const mode = this.getModeParams();
-          const frontLevels = mode.quoteLevel - 1;
-          if (frontLevels <= 0) {
-            // 防御: quoteLevel=1时无前档可检查，跳过
-          } else {
+          const frontLevels = postMode.quoteLevel - 1;
+          if (frontLevels > 0) {
             let frontRemaining = 0;
             for (let i = 0; i < frontLevels && i < verifyNoBook.asks.length; i++) {
               const p = Number(verifyNoBook.asks[i]?.price || 0);
-              if (p < noAsk) {
+              if (p < noAsk && !noMyPrices.has(p)) {
                 frontRemaining += Number(verifyNoBook.asks[i]?.shares || 0);
               }
             }
-            if (frontRemaining < Math.floor(mode.minFrontDepth * 0.3)) {
-              console.warn(`🛑 下单后验证: NO ASK前档仅剩${frontRemaining}股 < ${(mode.minFrontDepth * 0.3).toFixed(0)}股，前档被吃!`);
+            if (frontRemaining < Math.floor(postMode.minFrontDepth * 0.3)) {
+              console.warn(`🛑 下单后验证: NO ASK前档仅剩${frontRemaining}股 < ${Math.floor(postMode.minFrontDepth * 0.3)}股，前档被吃!`);
               needCancel = true;
             }
           }
         }
-        // v21: 检查我的单在订单簿中的实际排名 (ASK侧)
         if (!needCancel && placedNoAsk && verifyNoBook.asks) {
-          const mode = this.getModeParams();
           let myRank = 0;
           for (const entry of verifyNoBook.asks) {
             const p = Number(entry?.price || 0);
-            if (p < noAsk) {
+            if (p < noAsk && !noMyPrices.has(p)) {
               myRank++;
             } else {
               break;
             }
           }
-          const minRank = mode.quoteLevel - 1;
-          if (myRank < minRank) {
-            console.warn(`🛑 v21排名验证: NO ASK实际排名第${myRank+1} < 需要${minRank+1}，前面保护不足!`);
+          if (myRank < postMode.quoteLevel - 1) {
+            console.warn(`🛑 v21排名验证: NO ASK实际排名第${myRank+1} < 需要${postMode.quoteLevel}，前面保护不足!`);
             needCancel = true;
           }
         }
