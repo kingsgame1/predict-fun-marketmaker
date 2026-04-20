@@ -10,88 +10,6 @@
     "email": "ccjing.eth@gmail.com"
   },
   "homepage": "https://github.com/ccjingeth/predict-fun-marketmaker",
-  "scripts": {
-    "dev": "electron .",
-    "start": "electron .",
-    "prebuild": "node build-scripts/copy-source.js",
-    "build": "npm run prebuild && electron-builder --mac --win --linux",
-    "build:mac": "npm run prebuild && electron-builder --mac",
-    "build:win": "npm run prebuild && electron-builder --win",
-    "build:linux": "npm run prebuild && electron-builder --linux"
-  },
-  "build": {
-    "appId": "com.ccjing.predictfunmarketmakerlite",
-    "productName": "PredictFun Market Maker Lite",
-    "asar": true,
-    "asarUnpack": [
-      "src/**/*",
-      "scripts/**/*",
-      "runtime-dist/**/*",
-      "node_modules/**/*",
-      "src-package.json",
-      "tsconfig.json"
-    ],
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "build/**/*",
-      "electron/**/*",
-      "renderer/**/*",
-      "node_modules/**/*",
-      "src/**/*",
-      "scripts/**/*",
-      "runtime-dist/**/*"
-    ],
-    "mac": {
-      "category": "public.app-category.finance",
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "icon": "build/icon.png"
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "icon": "build/icon.png"
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "deb",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "category": "Finance",
-      "maintainer": "ccjing <ccjing.eth@gmail.com>",
-      "icon": "build/icon.png"
-    }
-  },
   "dependencies": {
     "@polymarket/clob-client": "^5.2.3",
     "@polymarket/order-utils": "^3.0.1",
@@ -103,10 +21,5 @@
     "typescript": "^5.5.0",
     "viem": "^2.21.4",
     "ws": "^8.17.0"
-  },
-  "devDependencies": {
-    "electron": "^30.0.0",
-    "electron-builder": "^26.8.1",
-    "fs-extra": "^11.3.3"
   }
 }
