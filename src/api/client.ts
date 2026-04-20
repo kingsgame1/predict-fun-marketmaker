@@ -300,7 +300,7 @@ export class PredictAPI {
         name: String(outcome?.name ?? ''),
         index,
       }))
-      .filter((outcome) => outcome.tokenId);
+      .filter((outcome: {tokenId: string; name: string; index: number}) => outcome.tokenId);
 
     if (expanded.length === 0) {
       if (baseMarket.token_id && marketId) {
@@ -309,7 +309,7 @@ export class PredictAPI {
       return [baseMarket];
     }
 
-    return expanded.map((outcome) => {
+    return expanded.map((outcome: {tokenId: string; name: string; index: number}) => {
       if (outcome.tokenId && marketId) {
         this.marketIdByTokenId.set(outcome.tokenId, marketId);
         this.tokenMetaByTokenId.set(outcome.tokenId, {

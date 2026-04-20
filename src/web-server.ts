@@ -45,9 +45,16 @@ class WebServer {
 
     // API: 获取状态
     this.app.get('/api/status', (req, res) => {
+      const liveStatus = this.bot?.getStatus();
       res.json({
         running: this.bot !== undefined,
-        stats: this.stats
+        stats: {
+          ...this.stats,
+          activeOrders: liveStatus?.openOrders ?? this.stats.activeOrders,
+          markets: liveStatus?.markets ?? this.stats.markets,
+          sessionPnL: liveStatus?.sessionPnL ?? 0,
+          positions: liveStatus?.positions ?? 0,
+        }
       });
     });
 

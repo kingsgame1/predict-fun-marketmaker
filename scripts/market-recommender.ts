@@ -20,7 +20,7 @@ async function main() {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
   // 初始化 API
-  const api = new PredictAPI(config.jwtToken);
+  const api = new PredictAPI(config.apiBaseUrl, config.apiKey, config.jwtToken);
 
   // 获取市场列表
   console.log('⏳ 正在获取市场列表...\n');

@@ -56,6 +56,100 @@ const reloadEnvBtn = document.getElementById('reloadEnv');
 const saveEnvBtn = document.getElementById('saveEnv');
 const api = window.liteApp;
 
+// ===== 做市模式参数 =====
+const modeConservativeBtn = document.getElementById('modeConservative');
+const modeAggressiveBtn = document.getElementById('modeAggressive');
+const applyModeBtn = document.getElementById('applyMode');
+const mmModeHint = document.getElementById('mmModeHint');
+
+const MM_MODES = {
+  conservative: {
+    label: '保守模式',
+    hint: '当前: 保守模式 — 宁可少挂不可被吃，每侧离盘口2c+缓冲，前方1000股保护',
+    env: {
+      MM_TRADING_MODE: 'conservative',
+      MM_SCREEN_SPREAD_BUDGET_RATIO: '0.4',
+      MM_SCREEN_HARD_MIN_BUFFER_CENTS: '2.5',
+      MM_MIN_FRONT_DEPTH_SHARES: '1000',
+      MM_SCREEN_MAX_VOLATILITY: '0.015',
+    },
+    params: {
+      pSpreadBudget: '40%',
+      pHardMinBuffer: '2.5c',
+      pMinFrontDepth: '1000股',
+      pSafetyMargin: '15%',
+      pAbsMinBuffer: '2.0c',
+      pMaxVolatility: '1.5%',
+      pFillCooldown: '4小时',
+      pBlacklist: '2次/7天',
+      pDepthDrop: '20%',
+      pDangerous: '1.0c',
+      pBaseBoost: '1.2x',
+      pDepthBalance: '开启',
+    },
+  },
+  aggressive: {
+    label: '激进模式',
+    hint: '当前: 激进模式 — 能进更多市场但底线保护仍在，每侧1.5c缓冲',
+    env: {
+      MM_TRADING_MODE: 'aggressive',
+      MM_SCREEN_SPREAD_BUDGET_RATIO: '0.6',
+      MM_SCREEN_HARD_MIN_BUFFER_CENTS: '1.5',
+      MM_MIN_FRONT_DEPTH_SHARES: '300',
+      MM_SCREEN_MAX_VOLATILITY: '0.03',
+    },
+    params: {
+      pSpreadBudget: '60%',
+      pHardMinBuffer: '1.5c',
+      pMinFrontDepth: '300股',
+      pSafetyMargin: '8%',
+      pAbsMinBuffer: '1.5c',
+      pMaxVolatility: '3.0%',
+      pFillCooldown: '1小时',
+      pBlacklist: '3次/24小时',
+      pDepthDrop: '25%',
+      pDangerous: '0.8c',
+      pBaseBoost: '1.1x',
+      pDepthBalance: '关闭',
+    },
+  },
+};
+
+let currentMMMode = 'conservative';
+
+function setMMModeUI(mode) {
+  currentMMMode = mode;
+  const cfg = MM_MODES[mode];
+  if (modeConservativeBtn) {
+    modeConservativeBtn.classList.toggle('active', mode === 'conservative');
+  }
+  if (modeAggressiveBtn) {
+    modeAggressiveBtn.classList.toggle('active', mode === 'aggressive');
+  }
+  if (mmModeHint) {
+    mmModeHint.textContent = cfg.hint;
+  }
+  for (const [id, val] of Object.entries(cfg.params)) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+}
+
+function detectMMModeFromEnv() {
+  const envMap = getEnvMap();
+  const mode = (envMap.get('MM_TRADING_MODE') || 'conservative').trim().toLowerCase();
+  if (mode === 'aggressive') {
+    // 检查是否真正匹配激进模式的参数（可能是旧配置）
+    const budget = envMap.get('MM_SCREEN_SPREAD_BUDGET_RATIO');
+    if (budget && parseFloat(budget) >= 0.5) {
+      return 'aggressive';
+    }
+  }
+  return 'conservative';
+}
+
+// ===== 原有变量 =====
+
 let lastRecommendations = [];
 let lastRecommendationVenue = '';
 let approvalState = '待检查';
@@ -322,6 +416,7 @@ function syncButtonState() {
   );
   setButtonDisabled(reloadManualMarketsBtn, !hasApi || busyActions.has('reloadManualMarkets'));
   setButtonDisabled(reloadEnvBtn, !hasApi || busyActions.has('reloadEnv'));
+  setButtonDisabled(applyModeBtn, !hasApi || busyActions.has('applyMode') || running, running ? '做市运行中时不允许切换模式' : '');
   setButtonDisabled(saveEnvBtn, !hasApi || busyActions.has('saveEnv') || running, running ? '做市运行中时不允许覆盖 .env' : '');
 }
 
@@ -875,6 +970,8 @@ async function refreshEnv() {
   }
   const configuredVenue = (envMap.get('MM_VENUE') || 'predict').toLowerCase();
   if (marketVenue) marketVenue.value = configuredVenue === 'polymarket' ? 'polymarket' : 'predict';
+  // 检测做市模式并更新UI
+  setMMModeUI(detectMMModeFromEnv());
   renderMarketCards(lastRecommendations, new Set(getConfiguredTokenIds()));
   await refreshPredictWalletStatus();
   await refreshPolymarketPreflight();
@@ -1016,6 +1113,27 @@ if (tplPolymarketBtn) {
       const r = await api.applyTemplate('polymarket');
       pushLog(r.ok ? '已应用 Polymarket 模板' : `模板失败: ${r.message || 'unknown'}`);
       await refreshEnv();
+    });
+}
+
+// ===== 做市模式切换事件 =====
+if (modeConservativeBtn) {
+  modeConservativeBtn.onclick = () => setMMModeUI('conservative');
+}
+if (modeAggressiveBtn) {
+  modeAggressiveBtn.onclick = () => setMMModeUI('aggressive');
+}
+if (applyModeBtn) {
+  applyModeBtn.onclick = () =>
+    runUiAction('applyMode', async () => {
+      if (!api || !envEditor) return;
+      const cfg = MM_MODES[currentMMMode];
+      let raw = envEditor.value || '';
+      for (const [key, value] of Object.entries(cfg.env)) {
+        raw = upsertEnv(raw, key, value);
+      }
+      envEditor.value = raw;
+      pushLog(`已切换到${cfg.label}参数，请点击"保存配置"使其生效。`);
     });
 }
 

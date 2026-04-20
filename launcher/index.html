@@ -3,389 +3,1627 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src *; img-src data: https:;">
   <title>Predict.fun 做市商控制台</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+    :root {
+      --green: #00ff88;
+      --green-dim: #00cc6a;
+      --green-bg: rgba(0,255,136,0.08);
+      --green-border: rgba(0,255,136,0.2);
+      --orange: #ff6b35;
+      --orange-dim: #e05a2a;
+      --orange-bg: rgba(255,107,53,0.08);
+      --orange-border: rgba(255,107,53,0.2);
+      --cyan: #00d4ff;
+      --cyan-dim: #00a8cc;
+      --cyan-bg: rgba(0,212,255,0.06);
+      --cyan-border: rgba(0,212,255,0.15);
+      --red: #ff2d55;
+      --red-bg: rgba(255,45,85,0.08);
+      --red-border: rgba(255,45,85,0.2);
+      --yellow: #ffcc00;
+      --yellow-bg: rgba(255,204,0,0.08);
+      --yellow-border: rgba(255,204,0,0.2);
+      --bg-base: #060608;
+      --bg-card: #0c0c10;
+      --bg-raised: #111116;
+      --bg-input: #16161c;
+      --bg-hover: #1a1a22;
+      --text-0: #e8e8e8;
+      --text-1: #a0a0a8;
+      --text-2: #5a5a66;
+      --text-3: #3a3a44;
+      --border: #1a1a24;
+      --border-light: #222230;
     }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-0);
       min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      /* Dot matrix background pattern */
+      background-image: radial-gradient(circle, #181820 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    /* ==================== SCROLLBAR ==================== */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a2a38; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a3a48; }
+
+    /* ==================== TITLEBAR ==================== */
+    .titlebar {
+      height: 44px;
+      background: #08080c;
+      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
-      justify-content: center;
-      padding: 20px;
+      padding: 0 16px;
+      -webkit-app-region: drag;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      /* Scanline effect */
+      background-image: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,212,255,0.015) 2px,
+        rgba(0,212,255,0.015) 4px
+      );
     }
-
-    .container {
-      max-width: 800px;
-      width: 100%;
-    }
-
-    .header {
-      text-align: center;
-      color: white;
-      margin-bottom: 40px;
-    }
-
-    .header h1 {
-      font-size: 2.5rem;
-      margin-bottom: 10px;
+    .titlebar-logo {
+      font-family: 'JetBrains Mono', monospace;
       font-weight: 700;
+      font-size: 13px;
+      letter-spacing: -0.5px;
+      color: var(--text-1);
+    }
+    .titlebar-logo span { color: var(--cyan); }
+    .titlebar-logo .accent { color: var(--text-2); font-weight: 400; }
+    .titlebar-right {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+    .titlebar-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      padding: 4px 10px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .titlebar-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-light);
+      color: var(--text-0);
     }
 
-    .header p {
-      font-size: 1.1rem;
-      opacity: 0.9;
+    /* ==================== LAYOUT ==================== */
+    .app {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
     }
 
-    .status-card {
-      background: white;
-      border-radius: 16px;
-      padding: 24px;
-      margin-bottom: 24px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    /* ==================== CARD ==================== */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 16px;
+      margin-bottom: 10px;
     }
-
-    .status-header {
+    .card-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 20px;
+      margin-bottom: 14px;
     }
-
-    .status-header h2 {
-      font-size: 1.3rem;
-      color: #1f2937;
-    }
-
-    .status-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-    }
-
-    .status-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px;
-      background: #f9fafb;
-      border-radius: 8px;
-    }
-
-    .status-icon {
-      font-size: 1.5rem;
-    }
-
-    .status-text {
-      flex: 1;
-    }
-
-    .status-label {
-      font-size: 0.8rem;
-      color: #6b7280;
-    }
-
-    .status-value {
-      font-size: 0.95rem;
+    .card-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
       font-weight: 600;
-      color: #1f2937;
+      color: var(--text-2);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
     }
 
-    .status-ok { color: #10b981; }
-    .status-error { color: #ef4444; }
-
-    .action-card {
-      background: white;
-      border-radius: 16px;
-      padding: 32px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-      text-align: center;
-      cursor: pointer;
-      transition: transform 0.2s;
-      margin-bottom: 24px;
+    /* ==================== STATUS DOT ==================== */
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      position: relative;
     }
+    .status-dot.green { background: var(--green); box-shadow: 0 0 6px rgba(0,255,136,0.5); }
+    .status-dot.red { background: var(--red); box-shadow: 0 0 6px rgba(255,45,85,0.5); }
+    .status-dot.yellow { background: var(--yellow); box-shadow: 0 0 6px rgba(255,204,0,0.5); }
+    .status-dot.gray { background: var(--text-3); box-shadow: none; }
 
-    .action-card:hover {
-      transform: translateY(-4px);
-    }
-
-    .action-icon {
-      font-size: 4rem;
-      margin-bottom: 16px;
-    }
-
-    .action-card h3 {
-      font-size: 1.8rem;
-      color: #1f2937;
-      margin-bottom: 8px;
-    }
-
-    .action-card p {
-      color: #6b7280;
-      font-size: 1rem;
-      line-height: 1.6;
-    }
-
-    .quick-actions {
-      background: rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(10px);
-      border-radius: 16px;
-      padding: 24px;
-      color: white;
-    }
-
-    .quick-actions h3 {
-      margin-bottom: 16px;
-      font-size: 1.1rem;
-    }
-
-    .button-group {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-    }
-
-    .btn {
-      padding: 12px 20px;
-      background: rgba(255, 255, 255, 0.2);
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-radius: 8px;
-      color: white;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .btn:hover {
-      background: rgba(255, 255, 255, 0.3);
-      border-color: rgba(255, 255, 255, 0.5);
-      transform: translateY(-2px);
-    }
-
-    .btn-primary {
-      background: white;
-      color: #667eea;
-      border-color: white;
-    }
-
-    .btn-primary:hover {
-      background: #f9fafb;
-    }
-
-    .project-info {
-      background: rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(10px);
-      border-radius: 12px;
-      padding: 16px;
-      margin-top: 20px;
-      color: white;
-      font-size: 0.85rem;
-    }
-
-    .project-info code {
-      background: rgba(0, 0, 0, 0.2);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: monospace;
-    }
-
-    @keyframes pulse {
+    @keyframes pulse-dot {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
     }
+    .status-dot.green { animation: pulse-dot 2s ease-in-out infinite; }
 
-    .loading {
-      animation: pulse 1.5s infinite;
+    /* ==================== MODE SWITCHER ==================== */
+    .mode-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .mode-card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+    }
+    .mode-card:hover {
+      border-color: var(--border-light);
+      background: var(--bg-hover);
+    }
+    .mode-card.active-conservative {
+      border-color: var(--green-border);
+      background: var(--green-bg);
+      box-shadow: inset 0 0 30px rgba(0,255,136,0.03);
+    }
+    .mode-card.active-aggressive {
+      border-color: var(--orange-border);
+      background: var(--orange-bg);
+      box-shadow: inset 0 0 30px rgba(255,107,53,0.03);
+    }
+    .mode-badge {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding: 2px 6px;
+      border-radius: 2px;
+      display: none;
+    }
+    .mode-card.active-conservative .mode-badge {
+      display: block;
+      background: var(--green);
+      color: #000;
+    }
+    .mode-card.active-aggressive .mode-badge {
+      display: block;
+      background: var(--orange);
+      color: #000;
+    }
+    .mode-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 5px;
+      letter-spacing: -0.3px;
+    }
+    .mode-desc {
+      font-size: 11px;
+      color: var(--text-2);
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .mode-params {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 3px 8px;
+    }
+    .mode-param {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-3);
+    }
+    .mode-param b {
+      color: var(--text-1);
+      font-weight: 500;
+    }
+
+    /* ==================== START BUTTON ==================== */
+    .start-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .btn-start {
+      flex: 1;
+      padding: 10px 20px;
+      border-radius: 3px;
+      border: 1px solid;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .btn-start.idle {
+      background: rgba(0,255,136,0.08);
+      border-color: rgba(0,255,136,0.3);
+      color: var(--green);
+      text-shadow: 0 0 20px rgba(0,255,136,0.3);
+    }
+    .btn-start.idle:hover {
+      background: rgba(0,255,136,0.14);
+      border-color: rgba(0,255,136,0.5);
+      box-shadow: 0 0 30px rgba(0,255,136,0.1);
+    }
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(0,255,136,0.1); }
+      50% { box-shadow: 0 0 25px rgba(0,255,136,0.2); }
+    }
+    .btn-start.idle { animation: glow-pulse 3s ease-in-out infinite; }
+    .btn-start.running {
+      background: var(--red-bg);
+      border-color: var(--red-border);
+      color: var(--red);
+    }
+    .btn-start.running:hover {
+      background: rgba(255,45,85,0.14);
+    }
+    .btn-start:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      animation: none;
+    }
+
+    /* ==================== SYSTEM STATUS ==================== */
+    .sys-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .sys-item {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sys-icon {
+      width: 28px; height: 28px;
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+    }
+    .sys-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+    .sys-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    /* ==================== CONFIG GRID ==================== */
+    .config-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .config-item {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 10px 12px;
+    }
+    .config-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .config-input {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 6px 10px;
+      color: var(--text-0);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.12s;
+    }
+    .config-input:focus {
+      border-color: var(--cyan-border);
+      box-shadow: 0 0 0 1px rgba(0,212,255,0.1);
+    }
+    .config-select {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 6px 10px;
+      color: var(--text-0);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235a5a66' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+    .config-select:focus {
+      border-color: var(--cyan-border);
+    }
+
+    /* ==================== AUTH PANELS ==================== */
+    .auth-platform-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .auth-panel {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 12px;
+    }
+    .auth-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .auth-header > span:first-child {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-0);
+    }
+    .auth-status {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .auth-status.ok { color: var(--green); background: var(--green-bg); border: 1px solid var(--green-border); }
+    .auth-status.no { color: var(--red); background: var(--red-bg); border: 1px solid var(--red-border); }
+    .auth-status.warn { color: var(--yellow); background: var(--yellow-bg); border: 1px solid var(--yellow-border); }
+    .auth-body {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-2);
+      line-height: 1.7;
+      margin-bottom: 10px;
+    }
+    .auth-body .check-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 1px;
+    }
+    .auth-body .check-item .dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .auth-body .check-item .dot.yes { background: var(--green); }
+    .auth-body .check-item .dot.no { background: var(--red); }
+
+    /* ==================== BUTTONS ==================== */
+    .btn-action {
+      background: var(--cyan-bg);
+      color: var(--cyan);
+      border: 1px solid var(--cyan-border);
+      border-radius: 2px;
+      padding: 6px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s;
+      width: 100%;
+    }
+    .btn-action:hover { background: rgba(0,212,255,0.12); }
+    .btn-action:disabled { opacity: 0.3; cursor: not-allowed; }
+    .btn-action.btn-small { padding: 4px 10px; font-size: 10px; width: auto; }
+    .btn-action.btn-active {
+      background: var(--green-bg);
+      color: var(--green);
+      border-color: var(--green-border);
+    }
+
+    .platform-toggle {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* ==================== MARKET TABS ==================== */
+    .market-tabs {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 8px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 2px;
+    }
+    .market-tab {
+      flex: 1;
+      padding: 6px 14px;
+      border: none;
+      border-radius: 1px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text-2);
+      transition: all 0.12s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .market-tab:hover { color: var(--text-0); background: var(--bg-hover); }
+    .market-tab.active {
+      background: var(--cyan);
+      color: #000;
+    }
+    .market-tab.active[data-venue="polymarket"] {
+      background: var(--orange);
+      color: #000;
+    }
+    .market-tab.disabled {
+      opacity: 0.2;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* ==================== MARKET LIST ==================== */
+    .market-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+      transition: background 0.08s;
+      position: relative;
+    }
+    .market-item:hover { background: rgba(255,255,255,0.015); }
+    .market-item:last-child { border-bottom: none; }
+    .market-score {
+      min-width: 32px;
+      height: 24px;
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .market-score.good { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+    .market-score.ok { background: var(--yellow-bg); color: var(--yellow); border: 1px solid var(--yellow-border); }
+    .market-score.bad { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+    .market-info { flex: 1; min-width: 0; }
+    .market-question {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-0);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .market-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-3);
+      margin-top: 3px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .market-meta span { white-space: nowrap; }
+    .market-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      font-weight: 600;
+    }
+    .market-tag.predict { background: var(--cyan-bg); color: var(--cyan); border: 1px solid var(--cyan-border); }
+    .market-tag.polymarket { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-border); }
+    .market-reasons {
+      display: flex;
+      gap: 3px;
+      flex-wrap: wrap;
+      margin-top: 3px;
+    }
+    .market-reason {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-3);
+      background: var(--bg-input);
+      padding: 1px 4px;
+      border-radius: 1px;
+    }
+    .market-reason.reason-warn {
+      color: var(--yellow);
+      background: var(--yellow-bg);
+    }
+    .market-reason.reason-block {
+      color: var(--red);
+      background: var(--red-bg);
+      font-weight: 600;
+    }
+    .market-disabled {
+      opacity: 0.4;
+    }
+    .market-watch-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 1px 5px;
+      font-size: 12px;
+      color: var(--text-3);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.12s, color 0.12s;
+    }
+    .market-item:hover .market-watch-btn { opacity: 1; }
+    .market-watch-btn:hover { color: var(--yellow); border-color: var(--yellow); }
+    .market-item.market-selected { border-color: var(--green-border); background: rgba(0,255,136,0.03); }
+    .market-item .market-check {
+      position: absolute; top: 6px; left: 6px;
+      width: 16px; height: 16px;
+      border: 1px solid var(--border-light); border-radius: 2px;
+      background: var(--bg-base); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: transparent; transition: all 0.1s;
+    }
+    .market-item.market-selected .market-check {
+      background: var(--green); border-color: var(--green); color: #000;
+    }
+    .market-item.market-disabled .market-check { display: none; }
+    .market-loading {
+      font-family: 'JetBrains Mono', monospace;
+      text-align: center;
+      padding: 20px;
+      color: var(--text-3);
+      font-size: 12px;
+    }
+
+    /* ==================== LOG PANEL ==================== */
+    .log-panel {
+      background: #030304;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+    }
+    .log-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .log-clear {
+      background: transparent;
+      border: none;
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 2px;
+    }
+    .log-clear:hover { background: var(--bg-hover); color: var(--text-0); }
+    .log-body {
+      height: 240px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+    .log-line { white-space: pre-wrap; word-break: break-all; }
+    .log-line.out { color: var(--text-2); }
+    .log-line.err { color: var(--red); }
+    .log-line.exit { color: var(--yellow); font-weight: 600; }
+
+    /* ==================== FOOTER ==================== */
+    .footer {
+      font-family: 'JetBrains Mono', monospace;
+      text-align: center;
+      padding: 16px;
+      font-size: 10px;
+      color: var(--text-3);
+    }
+    .footer code {
+      background: var(--bg-card);
+      padding: 2px 6px;
+      border-radius: 2px;
+      font-size: 10px;
+      color: var(--text-2);
+      border: 1px solid var(--border);
+    }
+
+    /* ==================== TOAST ==================== */
+    .toast-container {
+      position: fixed;
+      top: 52px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toast {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 8px 14px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 12px;
+      color: var(--text-0);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      animation: toastSlide 0.15s ease-out;
+      max-width: 300px;
+    }
+    .toast.success { border-left: 2px solid var(--green); }
+    .toast.error { border-left: 2px solid var(--red); }
+    .toast.info { border-left: 2px solid var(--cyan); }
+    @keyframes toastSlide {
+      from { opacity: 0; transform: translateX(10px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    /* ==================== RESPONSIVE ==================== */
+    @media (max-width: 768px) {
+      .mode-section { grid-template-columns: 1fr; }
+      .sys-grid { grid-template-columns: repeat(2, 1fr); }
+      .config-grid { grid-template-columns: 1fr; }
+      .auth-platform-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ==================== SECTION DIVIDERS ==================== */
+    .section-divider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 16px 0 10px;
+    }
+    .section-divider::before,
+    .section-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .section-divider-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 2px;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>🚀 Predict.fun 做市商控制台</h1>
-      <p>自动做市商 · 赚取积分 · 完全免费</p>
-    </div>
 
-    <!-- 系统状态 -->
-    <div class="status-card">
-      <div class="status-header">
-        <h2>📊 系统状态</h2>
-      </div>
-      <div class="status-grid">
-        <div class="status-item">
-          <span class="status-icon">⚙️</span>
-          <div class="status-text">
-            <div class="status-label">Node.js</div>
-            <div class="status-value" id="nodeStatus">检查中...</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <span class="status-icon">📦</span>
-          <div class="status-text">
-            <div class="status-label">NPM</div>
-            <div class="status-value" id="npmStatus">检查中...</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <span class="status-icon">📁</span>
-          <div class="status-text">
-            <div class="status-label">项目</div>
-            <div class="status-value" id="projectStatus">检查中...</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <span class="status-icon">⚙️</span>
-          <div class="status-text">
-            <div class="status-label">配置文件</div>
-            <div class="status-value" id="configStatus">检查中...</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 启动按钮 -->
-    <div class="action-card" onclick="startApp()">
-      <div class="action-icon">🎯</div>
-      <h3>启动做市商</h3>
-      <p>一键启动自动做市商功能，开始赚取积分</p>
-    </div>
-
-    <!-- 快捷操作 -->
-    <div class="quick-actions">
-      <h3>⚡ 快捷操作</h3>
-      <div class="button-group">
-        <button class="btn btn-primary" onclick="openConfigFile()">📝 打开配置文件</button>
-        <button class="btn" onclick="openProjectFolder()">📁 打开项目文件夹</button>
-        <button class="btn" onclick="selectProjectFolder()">🔄 更改项目路径</button>
-        <button class="btn" onclick="refreshStatus()">🔄 刷新状态</button>
-      </div>
-
-      <div class="project-info">
-        <strong>当前项目路径：</strong>
-        <code id="projectPath">加载中...</code>
-      </div>
+  <!-- Titlebar -->
+  <div class="titlebar">
+    <div class="titlebar-logo"><span>PREDICT</span><span class="accent">.FUN</span> 做市商</div>
+    <div class="titlebar-right">
+      <button class="titlebar-btn" onclick="openConfigFile()">.env</button>
+      <button class="titlebar-btn" onclick="openProjectFolder()">目录</button>
     </div>
   </div>
 
-  <script>
-    let systemChecks = {};
+  <div class="app">
 
-    // 页面加载时检查系统状态
+    <!-- Mode Switcher -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">交易模式</div>
+        <div id="currentModeLabel" style="font-size:11px;color:var(--text-2);font-family:'JetBrains Mono',monospace;">INIT...</div>
+      </div>
+      <div class="mode-section">
+        <div class="mode-card" id="modeConservative" onclick="switchMode('conservative')">
+          <div class="mode-badge">ACTIVE</div>
+          <div class="mode-name" style="color:var(--green);">保守模式</div>
+          <div class="mode-desc">动态第4档(前面3层挡着)，退让1.5c，绝对最低距离3.5c。智能填补3-4档gap。WS实时撤旧单+子token保护。</div>
+          <div class="mode-params">
+            <div class="mode-param">挂单档位 <b>第4档</b></div>
+            <div class="mode-param">档位退让 <b>1.5c</b></div>
+            <div class="mode-param">最低距离 <b>3.5c</b></div>
+            <div class="mode-param">深度 <b>6000股</b></div>
+            <div class="mode-param">冷却 <b>6小时</b></div>
+            <div class="mode-param">黑名单 <b>7天</b></div>
+          </div>
+        </div>
+        <div class="mode-card" id="modeAggressive" onclick="switchMode('aggressive')">
+          <div class="mode-badge">ACTIVE</div>
+          <div class="mode-name" style="color:var(--orange);">激进模式</div>
+          <div class="mode-desc">动态第3档(前面2层挡着)，退让1.5c，绝对最低距离3.0c。智能填补2-3档gap。WS实时撤旧单+子token保护。</div>
+          <div class="mode-params">
+            <div class="mode-param">挂单档位 <b>第3档</b></div>
+            <div class="mode-param">档位退让 <b>1.5c</b></div>
+            <div class="mode-param">最低距离 <b>3.0c</b></div>
+            <div class="mode-param">深度 <b>4000股</b></div>
+            <div class="mode-param">冷却 <b>4小时</b></div>
+            <div class="mode-param">黑名单 <b>48小时</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Start Button -->
+    <div class="card" style="padding:10px 16px;">
+      <div class="start-row">
+        <button class="btn-start idle" id="btnStart" onclick="toggleApp()">
+          <span id="btnIcon">▶</span>
+          <span id="btnText">启动做市商</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- System Status -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">系统诊断</div>
+        <button class="titlebar-btn" onclick="refreshAll()">刷新</button>
+      </div>
+      <div class="sys-grid">
+        <div class="sys-item">
+          <div class="sys-icon">⬢</div>
+          <div>
+            <div class="sys-label">Node.js</div>
+            <div class="sys-value" id="statusNode"><span class="status-dot gray"></span> 检查中</div>
+          </div>
+        </div>
+        <div class="sys-item">
+          <div class="sys-icon">📦</div>
+          <div>
+            <div class="sys-label">NPM</div>
+            <div class="sys-value" id="statusNpm"><span class="status-dot gray"></span> 检查中</div>
+          </div>
+        </div>
+        <div class="sys-item">
+          <div class="sys-icon">📁</div>
+          <div>
+            <div class="sys-label">项目</div>
+            <div class="sys-value" id="statusProject"><span class="status-dot gray"></span> 检查中</div>
+          </div>
+        </div>
+        <div class="sys-item">
+          <div class="sys-icon">⚙️</div>
+          <div>
+            <div class="sys-label">配置</div>
+            <div class="sys-value" id="statusConfig"><span class="status-dot gray"></span> 检查中</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Config Parameters -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">参数配置</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-3);">修改后重启生效</div>
+      </div>
+      <div class="config-grid">
+        <div class="config-item">
+          <div class="config-label">每单股数 ORDER_SIZE</div>
+          <input class="config-input" id="cfgOrderSize" type="number" min="1" onchange="saveConfig('ORDER_SIZE', this.value)">
+        </div>
+        <div class="config-item">
+          <div class="config-label">最大持仓 MAX_POSITION</div>
+          <input class="config-input" id="cfgMaxPosition" type="number" min="1" onchange="saveConfig('MAX_POSITION', this.value)">
+        </div>
+        <div class="config-item">
+          <div class="config-label">最小价差 MIN_SPREAD</div>
+          <input class="config-input" id="cfgMinSpread" type="number" step="0.001" onchange="saveConfig('MIN_SPREAD', this.value)">
+        </div>
+        <div class="config-item">
+          <div class="config-label">最大价差 MAX_SPREAD</div>
+          <input class="config-input" id="cfgMaxSpread" type="number" step="0.001" onchange="saveConfig('MAX_SPREAD', this.value)">
+        </div>
+        <div class="config-item">
+          <div class="config-label">模拟模式 SIMULATION_MODE</div>
+          <select class="config-select" id="cfgSimulation" onchange="saveConfig('SIMULATION_MODE', this.value)">
+            <option value="true">开启 (不实际交易)</option>
+            <option value="false">关闭 (实盘交易!)</option>
+          </select>
+        </div>
+        <div class="config-item">
+          <div class="config-label">实际交易 ENABLE_TRADING</div>
+          <select class="config-select" id="cfgTrading" onchange="saveConfig('ENABLE_TRADING', this.value)">
+            <option value="false">关闭 (安全)</option>
+            <option value="true">开启 (实盘!)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auth & Platform -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">认证 & 平台</div>
+      </div>
+      <div class="auth-platform-grid">
+        <!-- Predict.fun Auth -->
+        <div class="auth-panel">
+          <div class="auth-header">
+            <span>Predict.fun</span>
+            <span class="auth-status" id="jwtStatus">检查中...</span>
+          </div>
+          <div class="auth-body" id="jwtDetails">加载中...</div>
+          <button class="btn-action" id="btnFetchJwt" onclick="fetchJwt()">获取 JWT</button>
+        </div>
+        <!-- Polymarket -->
+        <div class="auth-panel">
+          <div class="auth-header">
+            <span>Polymarket</span>
+            <span class="auth-status" id="polyStatus">检查中...</span>
+          </div>
+          <div class="auth-body" id="polyDetails">加载中...</div>
+          <div class="platform-toggle">
+            <button class="btn-action btn-small" id="btnEnablePoly" onclick="togglePolymarket()">启用</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Market Recommendations -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">市场推荐</div>
+        <div style="display:flex;gap:6px;">
+          <button class="titlebar-btn" id="btnFetchMarkets" onclick="fetchMarkets()">刷新市场</button>
+        </div>
+      </div>
+      <div class="market-tabs" id="marketTabs">
+        <button class="market-tab active" data-venue="predict" onclick="switchMarketTab('predict')">Predict.fun</button>
+        <button class="market-tab" data-venue="polymarket" onclick="switchMarketTab('polymarket')">Polymarket</button>
+      </div>
+      <div id="marketActionBar" style="display:none;padding:6px 0;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border);align-items:center;">
+        <button class="btn-action btn-small" onclick="autoSelectMarkets()" title="自动选择所有可挂单市场">自动选择</button>
+        <button class="btn-action btn-small" onclick="applySelectedMarkets()" id="btnApplySelection" style="display:none;" title="将勾选的市场写入配置">确认应用(0)</button>
+        <button class="btn-action btn-small" onclick="clearSelection()" id="btnClearSelection" style="display:none;">清除选择</button>
+        <span id="selectionInfo" style="color:var(--text-3);font-family:'JetBrains Mono',monospace;font-size:10px;line-height:24px;"></span>
+      </div>
+      <div id="marketList" style="max-height:340px;overflow-y:auto;">
+        <div class="market-loading">点击"刷新市场"加载推荐</div>
+      </div>
+    </div>
+
+    <!-- Real-time Log -->
+    <div class="log-panel">
+      <div class="log-header">
+        <div class="log-title">Console</div>
+        <button class="log-clear" onclick="clearLog()">清空</button>
+      </div>
+      <div class="log-body" id="logBody">
+        <div class="log-line out" style="color:var(--text-3);">等待启动...</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      项目路径: <code id="footerPath">加载中...</code>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    // ==================== 全局状态 ====================
+    let appRunning = false;
+    let currentMode = 'conservative';
+
+    // ==================== 初始化 ====================
     document.addEventListener('DOMContentLoaded', async () => {
-      await refreshStatus();
-      await loadProjectPath();
+      await refreshAll();
+      loadConfig();
+      setupLogListener();
+      loadJwtStatus();
+      loadPolyStatus();
     });
 
-    // 刷新系统状态
-    async function refreshStatus() {
-      try {
-        const checks = await window.electronAPI.checkSystem();
-        systemChecks = checks;
-
-        updateStatus('nodeStatus', checks.node, 'Node.js');
-        updateStatus('npmStatus', checks.npm, 'NPM');
-        updateStatus('projectStatus', checks.projectPath, '项目');
-        updateStatus('configStatus', checks.envFile, '配置文件');
-      } catch (error) {
-        console.error('检查系统状态失败:', error);
+    // ==================== 模式切换 ====================
+    async function switchMode(mode) {
+      if (mode === currentMode) return;
+      
+      const label = mode === 'conservative' ? '保守' : '激进';
+      
+      if (appRunning) {
+        showToast(`请先停止做市商再切换模式`, 'error');
+        return;
       }
-    }
-
-    // 更新状态显示
-    function updateStatus(elementId, isOk, label) {
-      const element = document.getElementById(elementId);
-      if (isOk) {
-        element.innerHTML = `<span class="status-ok">✅ 已安装</span>`;
+      
+      const result = await window.electronAPI.setTradingMode(mode);
+      if (result.success) {
+        currentMode = mode;
+        updateModeUI();
+        // 刷新市场推荐（新模式有不同参数阈值）
+        selectedTokenIds.clear();
+        renderMarkets();
+        showToast(`已切换到${label}模式，重启做市商后生效`, 'success');
       } else {
-        element.innerHTML = `<span class="status-error">❌ 未找到</span>`;
+        showToast(result.message || '切换失败', 'error');
       }
     }
 
-    // 加载项目路径
-    async function loadProjectPath() {
-      try {
-        const path = await window.electronAPI.getProjectPath();
-        document.getElementById('projectPath').textContent = path;
-      } catch (error) {
-        console.error('加载项目路径失败:', error);
-      }
+    function updateModeUI() {
+      const conservative = document.getElementById('modeConservative');
+      const aggressive = document.getElementById('modeAggressive');
+      const label = document.getElementById('currentModeLabel');
+      
+      conservative.className = 'mode-card' + (currentMode === 'conservative' ? ' active-conservative' : '');
+      aggressive.className = 'mode-card' + (currentMode === 'aggressive' ? ' active-aggressive' : '');
+      label.textContent = currentMode === 'conservative' ? '● 保守模式' : '● 激进模式';
+      label.style.color = currentMode === 'conservative' ? 'var(--green)' : 'var(--orange)';
     }
 
-    // 启动应用
-    async function startApp() {
-      // 检查系统环境
-      if (!systemChecks.node || !systemChecks.npm) {
-        alert('⚠️ 系统环境未就绪\n\n请确保已安装 Node.js 和 NPM。\n\n访问 https://nodejs.org 下载安装。');
-        return;
-      }
+    // ==================== 启动/停止 ====================
+    async function toggleApp() {
+      const btn = document.getElementById('btnStart');
+      btn.disabled = true;
 
-      if (!systemChecks.projectPath) {
-        alert('⚠️ 项目路径不正确\n\n请点击"更改项目路径"选择正确的项目文件夹。');
-        return;
-      }
-
-      if (!systemChecks.envFile) {
-        const result = confirm('⚠️ 配置文件不存在\n\n是否现在创建配置文件？');
-        if (result) {
-          await window.electronAPI.openConfigFile();
-          alert('配置文件已创建，请填写必要的配置信息后重新启动。');
-        }
-        return;
-      }
-
-      // 启动应用
-      try {
-        const result = await window.electronAPI.startApp();
-
+      if (appRunning) {
+        const result = await window.electronAPI.stopApp();
         if (result.success) {
-          alert('✅ ' + result.message);
-          // 可选：关闭启动器
-          // window.close();
+          appRunning = false;
+          showToast('做市商已停止', 'info');
         } else {
-          alert('❌ 启动失败\n\n' + result.message);
+          showToast(result.message, 'error');
         }
-      } catch (error) {
-        alert('❌ 启动失败\n\n' + error.message);
-      }
-    }
+      } else {
+        // 检查环境
+        const checks = await window.electronAPI.checkSystem();
+        if (!checks.node || !checks.npm) {
+          showToast('请先安装 Node.js', 'error');
+          btn.disabled = false;
+          return;
+        }
+        if (!checks.projectPath) {
+          showToast('项目路径无效', 'error');
+          btn.disabled = false;
+          return;
+        }
 
-    // 打开配置文件
-    async function openConfigFile() {
-      try {
-        await window.electronAPI.openConfigFile();
-      } catch (error) {
-        alert('打开配置文件失败: ' + error.message);
-      }
-    }
+        // 检查关键配置 — 小白经常忘记配置密钥就直接启动
+        const env = await window.electronAPI.readConfig();
+        const missing = [];
+        if (!env.PREDICT_API_KEY && !env.API_KEY) missing.push('API_KEY');
+        if (!env.PREDICT_PRIVATE_KEY && !env.PRIVATE_KEY) missing.push('PRIVATE_KEY');
+        if (missing.length > 0) {
+          showToast('缺少关键配置: ' + missing.join(', ') + '，请先配置再启动', 'error');
+          btn.disabled = false;
+          return;
+        }
 
-    // 打开项目文件夹
-    async function openProjectFolder() {
-      try {
-        await window.electronAPI.openProjectFolder();
-      } catch (error) {
-        alert('打开项目文件夹失败: ' + error.message);
-      }
-    }
-
-    // 选择项目文件夹
-    async function selectProjectFolder() {
-      try {
-        const result = await window.electronAPI.selectProjectFolder();
+        const result = await window.electronAPI.startApp();
         if (result.success) {
-          document.getElementById('projectPath').textContent = result.path;
-          await refreshStatus();
-          alert('✅ 项目路径已更新');
+          appRunning = true;
+          showToast('做市商已启动', 'success');
+        } else {
+          showToast(result.message, 'error');
         }
-      } catch (error) {
-        alert('更改项目路径失败: ' + error.message);
+      }
+
+      updateStartButton();
+      btn.disabled = false;
+    }
+
+    function updateStartButton() {
+      const btn = document.getElementById('btnStart');
+      const icon = document.getElementById('btnIcon');
+      const text = document.getElementById('btnText');
+      
+      if (appRunning) {
+        btn.className = 'btn-start running';
+        icon.textContent = '■';
+        text.textContent = '停止做市商';
+      } else {
+        btn.className = 'btn-start idle';
+        icon.textContent = '▶';
+        text.textContent = '启动做市商';
+      }
+    }
+
+    // ==================== 配置读写 ====================
+    async function loadConfig() {
+      try {
+        const config = await window.electronAPI.getConfig();
+        
+        if (config.ORDER_SIZE) document.getElementById('cfgOrderSize').value = config.ORDER_SIZE;
+        if (config.MAX_POSITION) document.getElementById('cfgMaxPosition').value = config.MAX_POSITION;
+        if (config.MIN_SPREAD) document.getElementById('cfgMinSpread').value = config.MIN_SPREAD;
+        if (config.MAX_SPREAD) document.getElementById('cfgMaxSpread').value = config.MAX_SPREAD;
+        if (config.SIMULATION_MODE) document.getElementById('cfgSimulation').value = config.SIMULATION_MODE;
+        if (config.ENABLE_TRADING) document.getElementById('cfgTrading').value = config.ENABLE_TRADING;
+        
+        // 读取当前模式
+        currentMode = config.MM_TRADING_MODE === 'aggressive' ? 'aggressive' : 'conservative';
+        updateModeUI();
+      } catch (e) {
+        console.error('加载配置失败:', e);
+      }
+    }
+
+    async function saveConfig(key, value) {
+      try {
+        // SIMULATION_MODE + ENABLE_TRADING 冲突验证
+        if (key === 'ENABLE_TRADING' && value === 'true') {
+          const simEl = document.getElementById('cfgSimulation');
+          if (simEl && simEl.value === 'true') {
+            showToast('注意: 模拟模式仍为开启状态，建议关闭后再启用实盘交易', 'error');
+          }
+        }
+        if (key === 'SIMULATION_MODE' && value === 'true') {
+          const tradeEl = document.getElementById('cfgTrading');
+          if (tradeEl && tradeEl.value === 'true') {
+            showToast('注意: 实际交易仍为开启状态，建议关闭后再开启模拟', 'error');
+          }
+        }
+        await window.electronAPI.setConfig(key, value);
+        showToast(`${key} 已保存`, 'success');
+      } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
+      }
+    }
+
+    // ==================== 日志 ====================
+    function setupLogListener() {
+      window.electronAPI.onLog((data) => {
+        if (data.text === '__EXIT__') {
+          appRunning = false;
+          updateStartButton();
+          return;
+        }
+        
+        const logBody = document.getElementById('logBody');
+        const line = document.createElement('div');
+        line.className = 'log-line ' + data.type;
+        line.textContent = data.text.trimEnd();
+        logBody.appendChild(line);
+        
+        // 自动滚底
+        logBody.scrollTop = logBody.scrollHeight;
+        
+        // 限制行数
+        while (logBody.children.length > 500) {
+          logBody.removeChild(logBody.firstChild);
+        }
+      });
+    }
+
+    function clearLog() {
+      document.getElementById('logBody').innerHTML = '';
+    }
+
+    // ==================== 系统状态 ====================
+    async function refreshAll() {
+      try {
+        const [checks, projectPath] = await Promise.all([
+          window.electronAPI.checkSystem(),
+          window.electronAPI.getProjectPath(),
+        ]);
+
+        updateStatusItem('statusNode', checks.node, '就绪', '未安装');
+        updateStatusItem('statusNpm', checks.npm, '就绪', '未安装');
+        updateStatusItem('statusProject', checks.projectPath, '就绪', '未找到');
+        updateStatusItem('statusConfig', checks.envFile, '就绪', '缺失');
+        
+        document.getElementById('footerPath').textContent = projectPath;
+      } catch (e) {
+        console.error('刷新失败:', e);
+      }
+    }
+
+    function updateStatusItem(id, ok, okText, failText) {
+      const el = document.getElementById(id);
+      const dot = ok ? 'green' : 'red';
+      const text = ok ? okText : failText;
+      el.innerHTML = `<span class="status-dot ${dot}"></span> ${text}`;
+    }
+
+    // ==================== 快捷操作 ====================
+    async function openConfigFile() {
+      await window.electronAPI.openConfigFile();
+    }
+
+    async function openProjectFolder() {
+      await window.electronAPI.openProjectFolder();
+    }
+
+    // ==================== JWT 认证 ====================
+    async function loadJwtStatus() {
+      try {
+        const st = await window.electronAPI.getJwtStatus();
+        const statusEl = document.getElementById('jwtStatus');
+        const detailsEl = document.getElementById('jwtDetails');
+
+        const allGood = st.hasJwt && st.hasApiKey && st.hasPrivateKey;
+        statusEl.textContent = allGood ? '就绪' : '未配置';
+        statusEl.className = 'auth-status ' + (allGood ? 'ok' : 'no');
+
+        detailsEl.innerHTML = [
+          checkItem(st.hasApiKey, 'API_KEY'),
+          checkItem(st.hasPrivateKey, 'PRIVATE_KEY'),
+          checkItem(st.hasAccount, 'Account Address'),
+          checkItem(st.hasJwt, 'JWT Token'),
+        ].join('');
+      } catch (e) {
+        document.getElementById('jwtStatus').textContent = '错误';
+        document.getElementById('jwtStatus').className = 'auth-status no';
+      }
+    }
+
+    async function fetchJwt() {
+      const btn = document.getElementById('btnFetchJwt');
+      btn.disabled = true;
+      btn.textContent = '获取中...';
+      try {
+        const result = await window.electronAPI.fetchJwt();
+        if (result.success) {
+          showToast(result.message, 'success');
+        } else {
+          showToast(result.message, 'error');
+        }
+      } catch (e) {
+        showToast('JWT获取失败: ' + e.message, 'error');
+      }
+      btn.disabled = false;
+      btn.textContent = '获取 JWT';
+      await loadJwtStatus();
+    }
+
+    // ==================== Polymarket ====================
+    let polyEnabled = false;
+    async function loadPolyStatus() {
+      try {
+        const st = await window.electronAPI.getPolymarketStatus();
+        polyEnabled = st.enabled;
+        const statusEl = document.getElementById('polyStatus');
+        const detailsEl = document.getElementById('polyDetails');
+        const btn = document.getElementById('btnEnablePoly');
+
+        statusEl.textContent = st.enabled ? '已启用' : '未启用';
+        statusEl.className = 'auth-status ' + (st.enabled ? 'ok' : 'no');
+
+        detailsEl.innerHTML = [
+          checkItem(st.hasApiKey, 'API Key'),
+          checkItem(st.hasPrivateKey, 'Private Key'),
+          checkItem(st.hasFunder, 'Funder Address'),
+          `<div class="check-item"><span class="dot ${st.enabled ? 'yes' : 'no'}"></span> 当前平台: ${st.venue || 'predict'}</div>`,
+        ].join('');
+
+        btn.textContent = st.enabled ? '禁用' : '启用';
+        btn.className = 'btn-action btn-small ' + (st.enabled ? 'btn-active' : '');
+        // 更新市场tab可用性
+        updateMarketTabAvailability();
+      } catch (e) {
+        document.getElementById('polyStatus').textContent = '错误';
+      }
+    }
+
+    async function togglePolymarket() {
+      const newVenue = polyEnabled ? 'predict' : 'both';
+      const result = await window.electronAPI.setPlatform(newVenue);
+      if (result.success) {
+        showToast(polyEnabled ? 'Polymarket 已禁用' : 'Polymarket 已启用（双平台模式）', 'success');
+      } else {
+        showToast(result.message, 'error');
+      }
+      await loadPolyStatus();
+    }
+
+    // ==================== 市场浏览 ====================
+    let currentMarketVenue = 'predict'; // 当前选中的平台tab
+    let cachedPredictMarkets = [];
+    let cachedPolyMarkets = [];
+
+    function switchMarketTab(venue) {
+      currentMarketVenue = venue;
+      // 更新 tab UI
+      document.querySelectorAll('.market-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.venue === venue);
+      });
+      // 用缓存渲染
+      renderMarkets();
+    }
+
+    // 根据平台启用状态更新 tab 可用性
+    function updateMarketTabAvailability() {
+      const polyTab = document.querySelector('.market-tab[data-venue="polymarket"]');
+      const predictTab = document.querySelector('.market-tab[data-venue="predict"]');
+      if (polyTab) polyTab.classList.toggle('disabled', !polyEnabled);
+      // 如果当前 tab 是 polymarket 但 polymarket 未启用，切回 predict
+      if (currentMarketVenue === 'polymarket' && !polyEnabled) {
+        switchMarketTab('predict');
+      }
+    }
+
+    async function fetchMarkets() {
+      const list = document.getElementById('marketList');
+      const btn = document.getElementById('btnFetchMarkets');
+      btn.disabled = true;
+      btn.textContent = '加载中...';
+      list.innerHTML = '<div class="market-loading">正在加载市场数据...</div>';
+
+      try {
+        // 根据当前 tab 只拉对应平台的数据
+        if (currentMarketVenue === 'predict') {
+          const res = await window.electronAPI.fetchPredictMarkets();
+          cachedPredictMarkets = res.success ? res.markets : [];
+          if (!res.success && cachedPredictMarkets.length === 0) {
+            list.innerHTML = `<div class="market-loading">Predict.fun: ${res.message || '加载失败'}</div>`;
+            btn.disabled = false;
+            btn.textContent = '刷新市场';
+            return;
+          }
+        } else {
+          const res = await window.electronAPI.fetchPolymarketMarkets();
+          cachedPolyMarkets = res.success ? res.markets : [];
+          if (!res.success && cachedPolyMarkets.length === 0) {
+            list.innerHTML = `<div class="market-loading">Polymarket: ${res.message || '加载失败'}</div>`;
+            btn.disabled = false;
+            btn.textContent = '刷新市场';
+            return;
+          }
+        }
+
+        renderMarkets();
+
+      } catch (e) {
+        list.innerHTML = `<div class="market-loading">加载失败: ${e.message}</div>`;
+      }
+
+      btn.disabled = false;
+      btn.textContent = '刷新市场';
+    }
+
+    // 选中状态管理
+    const selectedTokenIds = new Set();
+
+    // === 模式参数：严格对齐 market-maker.ts getModeParams() v21 ===
+    function getModeParams() {
+      const isAggressive = currentMode === 'aggressive';
+      if (isAggressive) {
+        return {
+          spreadBudgetRatio: 0.20,        // 后端=0.20
+          hardMinBuffer: 2.5,             // v21: 2.0→2.5
+          minFrontDepth: 4000,            // v21: 3000→4000
+          maxVolatility: 0.008,           // 后端=0.008
+          safetyMargin: 0.25,             // v21: 0.15→0.25
+          absoluteMinBufferCents: 3.0,    // v21: 2.5→3.0
+          dangerousThresholdCents: 5.0,   // v21: 4.5→5.0
+          quoteLevel: 3,
+          tierRetreatCents: 1.5,
+        };
+      }
+      // 保守模式（默认）
+      return {
+        spreadBudgetRatio: 0.15,          // 后端=0.15
+        hardMinBuffer: 3.5,               // v21: 3.0→3.5
+        minFrontDepth: 6000,              // v21: 5000→6000
+        maxVolatility: 0.005,             // 后端=0.005
+        safetyMargin: 0.25,               // v21: 0.15→0.25
+        absoluteMinBufferCents: 3.5,      // v21: 3.0→3.5
+        dangerousThresholdCents: 6.0,     // v21: 5.0→6.0
+        quoteLevel: 4,
+        tierRetreatCents: 1.5,
+      };
+    }
+
+    // === 模拟 screenMarket 的判断：canTrade = 做市商会实际挂单 ===
+    function screenMarketUI(m) {
+      const mode = getModeParams();
+      const maxSpread = m.max_spread_cents || 0;
+      const bookSpread = (m.best_bid && m.best_ask) ? (m.best_ask - m.best_bid) * 100 : 0;
+      const bufferPerSide = maxSpread > 0 && bookSpread > 0 ? (maxSpread - bookSpread) / 2 : 0;
+      const reasons = [];
+      const warnings = [];
+
+      // === Polymarket 特殊处理 ===
+      if (m.venue === 'polymarket' || (!m.best_bid && !m.best_ask && m.polymarket_rewards)) {
+        if (m.polymarket_rewards || m.polymarket_rewards_enabled) {
+          reasons.push('有Polymarket奖励');
+          if (m.polymarket_daily_rate > 0) {
+            reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
+          }
+          reasons.push('需后端实时确认');
+          return { canTrade: true, bufferPerSide: 0, reasons, warnings: ['盘口数据待获取'], screenFail: null };
+        }
+        return { canTrade: false, bufferPerSide: 0, reasons: [], warnings: ['无Polymarket奖励'], screenFail: '无奖励' };
+      }
+
+      // === Predict.fun 精确判断（对齐 screenMarket） ===
+
+      // 检查0: 必须有积分规则
+      if (!m.points_active || maxSpread <= 0) {
+        return { canTrade: false, bufferPerSide, reasons: [], warnings: ['无积分规则'], screenFail: '无积分规则' };
+      }
+      reasons.push('有积分(' + maxSpread + 'c)');
+
+      // 检查1: 盘口价差比例
+      if (bookSpread > maxSpread * mode.spreadBudgetRatio) {
+        return { canTrade: false, bufferPerSide, reasons, warnings: ['盘口价差过大(' + bookSpread.toFixed(1) + 'c>' + (maxSpread * mode.spreadBudgetRatio).toFixed(1) + 'c)'], screenFail: '盘口价差过大' };
+      }
+
+      // 检查2: bufferPerSide >= hardMinBuffer
+      if (bufferPerSide < mode.hardMinBuffer) {
+        return { canTrade: false, bufferPerSide, reasons, warnings: ['缓冲不足(' + bufferPerSide.toFixed(2) + 'c<' + mode.hardMinBuffer + 'c)'], screenFail: '缓冲不足' };
+      }
+
+      // 检查2.5: bufferPerSide >= absoluteMinBufferCents * 1.2
+      const minSafeBuffer = mode.absoluteMinBufferCents * 1.2;
+      if (bufferPerSide < minSafeBuffer) {
+        return { canTrade: false, bufferPerSide, reasons, warnings: ['缓冲不足安全线(' + bufferPerSide.toFixed(2) + 'c<' + minSafeBuffer.toFixed(1) + 'c)'], screenFail: '缓冲不足安全线' };
+      }
+
+      // 通过所有检查
+      if (bufferPerSide >= minSafeBuffer * 1.5) {
+        reasons.push('缓冲' + bufferPerSide.toFixed(1) + 'c 很安全');
+      } else {
+        reasons.push('缓冲' + bufferPerSide.toFixed(1) + 'c 可挂单');
+      }
+
+      return { canTrade: true, bufferPerSide, reasons, warnings, screenFail: null };
+    }
+
+    function renderMarkets() {
+      const list = document.getElementById('marketList');
+      const actionBar = document.getElementById('marketActionBar');
+      const markets = currentMarketVenue === 'predict'
+        ? (cachedPredictMarkets || [])
+        : (cachedPolyMarkets || []);
+
+      if (markets.length === 0) {
+        list.innerHTML = `<div class="market-loading">点击"刷新市场"加载${currentMarketVenue === 'predict' ? 'Predict.fun' : 'Polymarket'}市场</div>`;
+        actionBar.style.display = 'none';
+        return;
+      }
+
+      actionBar.style.display = 'flex';
+
+      const scored = markets.map(m => {
+        const screen = screenMarketUI(m);
+        let score = 0;
+        const { reasons, warnings, canTrade, bufferPerSide } = screen;
+
+        if (canTrade) {
+          score += 50;
+          score += Math.min(30, Math.floor(bufferPerSide * 5));
+        } else {
+          score -= 20;
+        }
+
+        const vol = m.volume_24h || 0;
+        if (vol > 50000) { score += 20; reasons.push('高流动性'); }
+        else if (vol > 10000) { score += 15; reasons.push('中高流动性'); }
+        else if (vol > 1000) { score += 5; reasons.push('中等流动性'); }
+        else if (vol > 0) { warnings.push('低流动性(盘口薄)'); }
+
+        if (m.end_date) {
+          const daysLeft = (new Date(m.end_date) - Date.now()) / 86400000;
+          if (daysLeft >= 3 && daysLeft <= 30) { score += 10; reasons.push(Math.floor(daysLeft) + '天到期'); }
+          else if (daysLeft > 30) { score += 5; reasons.push(Math.floor(daysLeft) + '天到期'); }
+          else if (daysLeft > 1) { warnings.push('即将到期'); }
+          else { warnings.push('24h内到期'); score -= 10; }
+        }
+
+        if (m.polymarket_daily_rate > 0 && m.venue !== 'polymarket') {
+          score += 10; reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
+        }
+
+        return { m, score, reasons, warnings, canTrade, bufferPerSide, vol };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      window._scoredMarkets = scored;
+
+      list.innerHTML = scored.slice(0, 30).map(item => {
+        const { m, score, reasons, warnings, canTrade, bufferPerSide, vol } = item;
+        const isSelected = selectedTokenIds.has(m.token_id);
+        const scoreClass = canTrade
+          ? (score >= 70 ? 'good' : score >= 40 ? 'ok' : 'bad')
+          : 'bad';
+        const tradeTag = canTrade
+          ? ''
+          : '<span class="market-reason reason-block">不可挂单</span>';
+        const volStr = vol ? '$' + (vol/1000).toFixed(1) + 'K' : '';
+        const endDate = m.end_date ? new Date(m.end_date).toLocaleDateString() : '';
+        const allReasons = reasons.concat(warnings);
+
+        return `<div class="market-item${canTrade ? '' : ' market-disabled'}${isSelected ? ' market-selected' : ''}" data-token-id="${escHtml(m.token_id || '')}">
+          ${canTrade ? '<div class="market-check" data-tid="' + escHtml(m.token_id || '') + '" onclick="toggleMarketSelect(this)">' + (isSelected ? '&#10003;' : '') + '</div>' : ''}
+          <div class="market-score ${scoreClass}">${score}</div>
+          <div class="market-info">
+            <div class="market-question">${escHtml(m.question)}</div>
+            <div class="market-meta">
+              ${volStr ? '<span>Vol: ' + volStr + '</span>' : ''}
+              ${endDate ? '<span>到期: ' + endDate + '</span>' : ''}
+              ${bufferPerSide > 0 ? '<span>缓冲: ' + bufferPerSide.toFixed(1) + 'c</span>' : ''}
+            </div>
+            <div class="market-reasons">
+              ${tradeTag}
+              ${allReasons.map(r => '<span class="market-reason' + (warnings.includes(r) ? ' reason-warn' : '') + '">' + escHtml(r) + '</span>').join('')}
+            </div>
+          </div>
+          <button class="market-watch-btn" onclick="addToWatchlist('${(m.token_id || '').replace(/'/g, "\\'")}', '${m.question ? m.question.replace(/'/g, "\\'").replace(/"/g, '&quot;').substring(0,60) : ''}')" title="加入关注">&#9734;</button>
+        </div>`;
+      }).join('');
+
+      updateSelectionUI();
+    }
+
+    // === 勾选/取消勾选单个市场 ===
+    function toggleMarketSelect(el) {
+      const tokenId = el.getAttribute('data-tid');
+      if (!tokenId) return;
+      if (selectedTokenIds.has(tokenId)) {
+        selectedTokenIds.delete(tokenId);
+        el.innerHTML = '';
+        el.closest('.market-item').classList.remove('market-selected');
+      } else {
+        selectedTokenIds.add(tokenId);
+        el.innerHTML = '&#10003;';
+        el.closest('.market-item').classList.add('market-selected');
+      }
+      updateSelectionUI();
+    }
+
+    // === 自动选择 ===
+    function autoSelectMarkets() {
+      if (!window._scoredMarkets) return;
+      const tradeable = window._scoredMarkets.filter(s => s.canTrade);
+      if (tradeable.length === 0) {
+        showToast('没有可挂单的市场', 'error');
+        return;
+      }
+      selectedTokenIds.clear();
+      for (const item of tradeable) {
+        selectedTokenIds.add(item.m.token_id);
+      }
+      renderMarkets();
+      showToast('已自动选择 ' + tradeable.length + ' 个可挂单市场', 'success');
+    }
+
+    function clearSelection() {
+      selectedTokenIds.clear();
+      renderMarkets();
+    }
+
+    function updateSelectionUI() {
+      const count = selectedTokenIds.size;
+      const btnApply = document.getElementById('btnApplySelection');
+      const btnClear = document.getElementById('btnClearSelection');
+      const info = document.getElementById('selectionInfo');
+      btnApply.style.display = count > 0 ? 'inline-block' : 'none';
+      btnApply.textContent = '确认应用(' + count + ')';
+      btnClear.style.display = count > 0 ? 'inline-block' : 'none';
+      info.textContent = count > 0 ? '已选 ' + count + ' 个市场' : '';
+    }
+
+    // === 确认应用 ===
+    async function applySelectedMarkets() {
+      if (selectedTokenIds.size === 0) {
+        showToast('请先选择市场', 'error');
+        return;
+      }
+      const tokenIds = Array.from(selectedTokenIds);
+      const btnApply = document.getElementById('btnApplySelection');
+      btnApply.textContent = '应用中...';
+      btnApply.disabled = true;
+
+      try {
+        const result = await window.electronAPI.applyMarketSelection(tokenIds.join(','));
+        if (result.success) {
+          showToast('已将 ' + tokenIds.length + ' 个市场写入配置，启动后生效', 'success');
+        } else {
+          showToast(result.message || '写入失败', 'error');
+        }
+      } catch (e) {
+        showToast('应用失败: ' + e.message, 'error');
+      }
+
+      btnApply.textContent = '确认应用(' + tokenIds.length + ')';
+      btnApply.disabled = false;
+    }
+
+    // ==================== 工具函数 ====================
+    function checkItem(ok, label) {
+      return `<div class="check-item"><span class="dot ${ok ? 'yes' : 'no'}"></span>${label}: ${ok ? '已配置' : '未配置'}</div>`;
+    }
+
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // ==================== Toast ====================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast ' + type;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        if (!toast.parentNode) return;
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 300);
+      }, 3000);
+    }
+
+    // 页面关闭前清理日志监听
+    window.addEventListener('beforeunload', () => {
+      if (window.electronAPI && window.electronAPI.removeLogListener) {
+        window.electronAPI.removeLogListener();
+      }
+    });
+
+    // ==================== 关注列表 ====================
+    async function addToWatchlist(tokenId, question) {
+      if (!tokenId) return;
+      const result = await window.electronAPI.addMarketToWatch(tokenId, question);
+      if (result.success) {
+        showToast('已加入关注', 'success');
+      } else {
+        showToast(result.message || '添加失败', 'error');
       }
     }
   </script>

@@ -252,6 +252,47 @@ export interface Config {
   mmTouchBufferDepthSpeedMaxBps?: number;
   mmTouchBufferFixedCents?: number;
   mmQuoteSecondLayer?: boolean;
+  mmPointsFirstMode?: boolean;
+  mmMinSafeBufferCents?: number;
+
+  // ===== 做市模式 =====
+  // 'conservative' = 保守模式：严格筛选，基本不被吃，稳赚积分（默认）
+  // 'aggressive' = 激进模式：宽松筛选，多挂单，接受偶尔被吃换更多积分
+  mmTradingMode?: 'conservative' | 'aggressive';
+
+  // ===== Layer 2: 动态市场筛选 =====
+  mmMinFrontDepthShares?: number;     // 前方最小深度（股），低于此值跳过（默认500）
+  mmMinBookBufferCents?: number;       // 盘口缓冲最小值（美分），低于此值跳过
+  mmMaxRecentTradeVolume?: number;     // 最近最大成交量阈值
+  mmScreenSpreadBudgetRatio?: number;  // 盘口价差预算比例（默认0.6，盘口价差<=max_spread*此值才挂）
+  mmScreenHardMinBufferCents?: number; // 每侧缓冲硬性最低值（美分，默认1.5c）
+  mmScreenMaxVolatility?: number;      // 筛选最大波动率（默认0.02=2%）
+
+  // ===== Layer 3: 吃单概率预测 =====
+  mmFillRiskThreshold?: number;        // fill risk score 阈值（0-100），超过则不挂单
+  mmFillRiskDepthWeight?: number;      // 深度因子权重
+  mmFillRiskVolWeight?: number;        // 波动率因子权重
+  mmFillRiskSpreadWeight?: number;     // 价差因子权重
+  mmFillRiskImbalanceWeight?: number;  // 不平衡因子权重
+
+  // ===== Layer 4: 极速撤单防御 =====
+  mmPositionMonitorEnabled?: boolean;  // 启用位置监控（发现自己变第1档时撤单）
+  mmPositionMonitorIntervalMs?: number;// 位置检查间隔
+  mmEmergencyCancelOnDepthVanish?: boolean; // 前方深度消失时紧急撤单
+
+  // ===== Layer 5: 被吃后快速响应 =====
+  mmFillCooldownMs?: number;           // 被吃后冷却时间（默认 300000 = 5分钟）
+  mmFillBlacklistThreshold?: number;   // 连续被吃N次进入黑名单
+  mmFillBlacklistDurationMs?: number;  // 黑名单持续时间（默认 86400000 = 24小时）
+
+  // ===== Layer 6: 渐进式报价 =====
+  mmProgressiveQuoteEnabled?: boolean; // 启用渐进式报价
+  mmProgressiveSteps?: number;         // 渐进步数（默认3）
+  mmProgressiveIntervalMs?: number;    // 每步间隔（默认60000 = 1分钟）
+
+  // ===== Layer 7: 持续优化回路 =====
+  mmAdaptiveBufferEnabled?: boolean;   // 启用自适应缓冲
+  mmAdaptiveBufferStatsIntervalMs?: number; // 统计间隔（默认600000 = 10分钟）
 
   // ===== Phase 1: 增强模块配置 =====
   // 启用增强价差计算 (AS模型)
