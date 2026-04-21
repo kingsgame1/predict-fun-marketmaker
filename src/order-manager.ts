@@ -303,7 +303,7 @@ export class OrderManager {
       .replace(/\.0+$/, '')
       .replace(/(\.\d*?)0+$/, '$1');
 
-    return parseUnits(asString || '0', 18);
+    return parseUnits(asString || '0', decimals);
   }
 
   private getLimitOrderAmounts(side: 'BUY' | 'SELL', price: number, shares: number) {

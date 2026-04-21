@@ -996,7 +996,7 @@ export class PredictMarketMakerBot {
         // v20: 防抖 — 同一token 500ms内只撤一次
         const now = Date.now();
         const lastCancel = this.wsLastCancelAt.get(tokenId) ?? 0;
-        if (now - lastCancel >= 500) {
+        if (now - lastCancel >= 150) {  // v24: 从500ms降到150ms
           this.wsLastCancelAt.set(tokenId, now);
           this.marketMaker.cancelOrdersForMarket(tokenId).catch((e) => {
             console.warn(`⚠️ WS cancel-on-dirty失败(${tokenId.slice(0,8)}): ${e instanceof Error ? e.message : String(e)}`);
@@ -1773,7 +1773,7 @@ export class PolymarketMarketMakerBot {
         // v20: 防抖 — 同一token 500ms内只撤一次
         const now = Date.now();
         const lastCancel = this.wsLastCancelAt.get(tokenId) ?? 0;
-        if (now - lastCancel >= 500) {
+        if (now - lastCancel >= 150) {  // v24: 从500ms降到150ms
           this.wsLastCancelAt.set(tokenId, now);
           this.marketMaker.cancelOrdersForMarket(tokenId).catch((e) => {
             console.warn(`⚠️ WS cancel-on-dirty失败(${tokenId.slice(0,8)}): ${e instanceof Error ? e.message : String(e)}`);

@@ -28,6 +28,9 @@ debug-*.ts
 !lite-release/predict-fun-market-maker-lite/scripts/check-polymarket-preflight.ts
 *.cjs
 
+# Coverage reports
+coverage/
+
 # Documentation (keep main README)
 ADDITIONAL_FIXES_COMPLETE.md
 ALL_FIXES_COMPLETE.md
@@ -59,3 +62,6 @@ private/
 
 # OS
 Thumbs.db
+
+# Activation server (removed)
+activation-server/
