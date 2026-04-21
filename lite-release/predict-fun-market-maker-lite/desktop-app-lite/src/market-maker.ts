@@ -3983,6 +3983,19 @@ export class MarketMaker {
       return { safe: false, reason: `卖侧深度不足(${askDepth.toFixed(0)} < ${mode.minFrontDepth})` };
     }
 
+    // 检查3.1: 订单簿档位数必须支持当前模式的挂单需求
+    // 保守quoteLevel=4需要至少4档bid+4档ask，激进quoteLevel=3需要至少3档bid+3档ask
+    // 否则calculatePrices会fallback到硬距离模式，不是真正的"档位挂单"
+    const requiredLevels = mode.quoteLevel;
+    const bidLevels = Array.isArray(orderbook.bids) ? orderbook.bids.length : 0;
+    const askLevels = Array.isArray(orderbook.asks) ? orderbook.asks.length : 0;
+    if (bidLevels < requiredLevels) {
+      return { safe: false, reason: `买侧档位不足(${bidLevels}档 < 需要${requiredLevels}档)` };
+    }
+    if (askLevels < requiredLevels) {
+      return { safe: false, reason: `卖侧档位不足(${askLevels}档 < 需要${requiredLevels}档)` };
+    }
+
     // v20: 检查3.5 — 第一档最小深度（防止单档太薄被秒吃）
     const minTopLevelShares = mode.minFrontDepth > 3000 ? 500 : 300;
     const topBidShares = Number(orderbook.bids?.[0]?.shares || 0);
