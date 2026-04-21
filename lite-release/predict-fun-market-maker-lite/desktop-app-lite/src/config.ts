@@ -341,6 +341,44 @@ export function loadConfig(): Config {
     mmTouchBufferDepthSpeedMaxBps: parseFloat(process.env.MM_TOUCH_BUFFER_DEPTH_SPEED_MAX_BPS || '0'),
     mmTouchBufferFixedCents: parseFloat(process.env.MM_TOUCH_BUFFER_FIXED_CENTS || '0'),
     mmQuoteSecondLayer: process.env.MM_QUOTE_SECOND_LAYER === 'true',
+    mmPointsFirstMode: process.env.MM_POINTS_FIRST_MODE !== 'false', // 默认启用
+    mmMinSafeBufferCents: parseFloat(process.env.MM_MIN_SAFE_BUFFER_CENTS || '0.5'),
+    mmTradingMode: (process.env.MM_TRADING_MODE === 'aggressive' ? 'aggressive' : 'conservative') as 'conservative' | 'aggressive',
+
+    // Layer 2: 动态市场筛选
+    mmMinFrontDepthShares: parseFloat(process.env.MM_MIN_FRONT_DEPTH_SHARES || '500'),
+    mmMinBookBufferCents: parseFloat(process.env.MM_MIN_BOOK_BUFFER_CENTS || '1'),
+    mmMaxRecentTradeVolume: parseFloat(process.env.MM_MAX_RECENT_TRADE_VOLUME || '500'),
+    mmScreenSpreadBudgetRatio: parseFloat(process.env.MM_SCREEN_SPREAD_BUDGET_RATIO || '0.6'),
+    mmScreenHardMinBufferCents: parseFloat(process.env.MM_SCREEN_HARD_MIN_BUFFER_CENTS || '1.5'),
+    mmScreenMaxVolatility: parseFloat(process.env.MM_SCREEN_MAX_VOLATILITY || '0.02'),
+
+    // Layer 3: 吃单概率预测
+    mmFillRiskThreshold: parseFloat(process.env.MM_FILL_RISK_THRESHOLD || '50'),
+    mmFillRiskDepthWeight: parseFloat(process.env.MM_FILL_RISK_DEPTH_WEIGHT || '30'),
+    mmFillRiskVolWeight: parseFloat(process.env.MM_FILL_RISK_VOL_WEIGHT || '25'),
+    mmFillRiskSpreadWeight: parseFloat(process.env.MM_FILL_RISK_SPREAD_WEIGHT || '15'),
+    mmFillRiskImbalanceWeight: parseFloat(process.env.MM_FILL_RISK_IMBALANCE_WEIGHT || '10'),
+
+    // Layer 4: 极速撤单防御
+    mmPositionMonitorEnabled: process.env.MM_POSITION_MONITOR_ENABLED !== 'false',
+    mmPositionMonitorIntervalMs: parseInt(process.env.MM_POSITION_MONITOR_INTERVAL_MS || '5000'),
+    mmEmergencyCancelOnDepthVanish: process.env.MM_EMERGENCY_CANCEL_ON_DEPTH_VANISH === 'true',
+
+    // Layer 5: 被吃后快速响应
+    mmFillCooldownMs: parseInt(process.env.MM_FILL_COOLDOWN_MS || '7200000'),
+    mmFillBlacklistThreshold: parseInt(process.env.MM_FILL_BLACKLIST_THRESHOLD || '3'),
+    mmFillBlacklistDurationMs: parseInt(process.env.MM_FILL_BLACKLIST_DURATION_MS || '172800000'),
+
+    // Layer 6: 渐进式报价
+    mmProgressiveQuoteEnabled: process.env.MM_PROGRESSIVE_QUOTE_ENABLED !== 'false',
+    mmProgressiveSteps: parseInt(process.env.MM_PROGRESSIVE_STEPS || '3'),
+    mmProgressiveIntervalMs: parseInt(process.env.MM_PROGRESSIVE_INTERVAL_MS || '60000'),
+
+    // Layer 7: 持续优化回路
+    mmAdaptiveBufferEnabled: process.env.MM_ADAPTIVE_BUFFER_ENABLED !== 'false',
+    mmAdaptiveBufferStatsIntervalMs: parseInt(process.env.MM_ADAPTIVE_BUFFER_STATS_INTERVAL_MS || '600000'),
+
     mmFillRiskSpreadBps: parseFloat(process.env.MM_FILL_RISK_SPREAD_BPS || '0'),
     mmNearTouchPenaltyBps: parseFloat(process.env.MM_NEAR_TOUCH_PENALTY_BPS || '0'),
     mmNearTouchPenaltyMaxBps: parseFloat(process.env.MM_NEAR_TOUCH_PENALTY_MAX_BPS || '0'),
@@ -548,7 +586,7 @@ export function loadConfig(): Config {
     mmHardCancelBps: parseFloat(process.env.MM_HARD_CANCEL_BPS || '0.0025'),
     mmSoftCancelCooldownMs: parseInt(process.env.MM_SOFT_CANCEL_COOLDOWN_MS || '2000'),
     mmHardCancelCooldownMs: parseInt(process.env.MM_HARD_CANCEL_COOLDOWN_MS || '4500'),
-    mmHoldNearTouchMs: parseInt(process.env.MM_HOLD_NEAR_TOUCH_MS || '800'),
+    mmHoldNearTouchMs: parseInt(process.env.MM_HOLD_NEAR_TOUCH_MS || '0'),
     mmHoldNearTouchMaxBps: parseFloat(process.env.MM_HOLD_NEAR_TOUCH_MAX_BPS || '0.0010'),
     mmRepriceBufferBps: parseFloat(process.env.MM_REPRICE_BUFFER_BPS || '0.0015'),
     mmRepriceConfirmMs: parseInt(process.env.MM_REPRICE_CONFIRM_MS || '900'),
@@ -1344,7 +1382,7 @@ export function loadConfig(): Config {
     marketTokenIds: process.env.MARKET_TOKEN_IDS
       ? process.env.MARKET_TOKEN_IDS.split(',').map((s) => s.trim())
       : undefined,
-    refreshInterval: parseInt(process.env.REFRESH_INTERVAL || '5000'),
+    refreshInterval: parseInt(process.env.REFRESH_INTERVAL || '3000'), // v15: 5s->3s REST模式下更快响应
     enableTrading: process.env.ENABLE_TRADING === 'true',
   };
 

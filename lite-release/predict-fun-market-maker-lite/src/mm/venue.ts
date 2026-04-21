@@ -7,7 +7,7 @@ export interface MakerApi {
   createOrder(payload: any): Promise<any>;
   removeOrders(orderIds: string[]): Promise<void>;
   getOrders?(makerAddress: string): Promise<Order[]>;
-  getPositions?(makerAddress: string): Promise<any[]>;
+  getPositions?(makerAddress: string): Promise<Position[]>;
   testConnection?(): Promise<boolean>;
 }
 

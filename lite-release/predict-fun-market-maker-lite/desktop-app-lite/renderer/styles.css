@@ -376,6 +376,95 @@ textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* ===== 做市模式配置面板 ===== */
+.mm-mode-section {
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.6), rgba(10, 15, 28, 0.5));
+  margin-bottom: 10px;
+}
+
+.mm-mode-toggle {
+  display: flex;
+  gap: 0;
+  margin-bottom: 10px;
+}
+
+.mode-btn {
+  flex: 1;
+  border: 1px solid #374151;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(15, 23, 42, 0.9);
+  color: #94a3b8;
+}
+
+.mode-btn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
+
+.mode-btn:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.mode-btn.active {
+  color: #fff;
+}
+
+.mode-btn#modeConservative.active {
+  background: linear-gradient(135deg, #059669, #047857);
+  border-color: #34d399;
+}
+
+.mode-btn#modeAggressive.active {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  border-color: #fbbf24;
+}
+
+.mode-btn:hover {
+  opacity: 0.9;
+  transform: none;
+}
+
+.mm-param-grid {
+  margin-top: 10px;
+}
+
+.mm-param {
+  text-align: center;
+  transition: all 0.15s;
+}
+
+.mm-param .wallet-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: #60a5fa;
+}
+
+.mm-param-desc {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.mode-apply-btn {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9) !important;
+  width: 100%;
+  font-size: 13px;
+}
+
+.mode-apply-btn:hover {
+  opacity: 0.9;
+}
+
 pre {
   margin: 0;
   height: 180px;

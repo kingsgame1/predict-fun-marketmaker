@@ -1,6 +1,6 @@
 /**
  * Value Mismatch Detector
- * 价值错配检测器 - 更保守的统计型筛选
+ * 更保守的统计型价值错配筛选
  */
 
 import type { Market, Orderbook } from '../types.js';
@@ -103,7 +103,6 @@ export class ValueMismatchDetector {
     const totalOrders = (orderbook.bids?.length || 0) + (orderbook.asks?.length || 0);
     const depthConfidence = Math.min(1, totalOrders / 30);
     const spreadConfidence = orderbook.spread_pct ? Math.max(0, 1 - orderbook.spread_pct / 8) : 0.5;
-
     const liquidityConfidence = Math.min(1, (market.liquidity_24h || 0) / 5000);
     const volumeConfidence = Math.min(1, (market.volume_24h || 0) / 5000);
 
@@ -124,20 +123,10 @@ export class ValueMismatchDetector {
 
   private inferOutcome(market: Market): 'YES' | 'NO' | 'UNKNOWN' {
     const raw = String(market.outcome ?? '').trim().toUpperCase();
-    if (!raw) {
-      return 'UNKNOWN';
-    }
-    if (raw.includes('YES')) {
-      return 'YES';
-    }
-    if (raw.includes('NO')) {
-      return 'NO';
-    }
+    if (!raw) return 'UNKNOWN';
+    if (raw.includes('YES')) return 'YES';
+    if (raw.includes('NO')) return 'NO';
     return 'UNKNOWN';
-  }
-
-  private calculateEdge(fairValue: number, marketPrice: number): number {
-    return (fairValue - marketPrice) / marketPrice;
   }
 
   scanMarkets(markets: Market[], orderbooks: Map<string, Orderbook>): ArbitrageOpportunity[] {
@@ -150,49 +139,27 @@ export class ValueMismatchDetector {
       }
 
       const analysis = this.analyzeMarket(market, orderbook);
-
-      if (analysis) {
-        opportunities.push({
-          type: 'VALUE_MISMATCH',
-          marketId: market.token_id,
-          marketQuestion: market.question,
-          timestamp: Date.now(),
-          confidence: analysis.confidence,
-          estimatedValue: analysis.fairTokenPrice ?? analysis.estimatedProbability,
-          marketPrice: analysis.currentTokenPrice ?? analysis.currentYesPrice,
-          fairValue: analysis.fairTokenPrice ?? analysis.estimatedProbability,
-          edge: analysis.edge,
-          recommendedAction: analysis.action === 'PASS' ? 'HOLD' : analysis.action,
-          expectedReturn: Math.abs(analysis.edge) * 100,
-          riskLevel: analysis.confidence > 0.75 ? 'MEDIUM' : 'HIGH',
-        });
+      if (!analysis) {
+        continue;
       }
+
+      opportunities.push({
+        type: 'VALUE_MISMATCH',
+        marketId: market.token_id,
+        marketQuestion: market.question,
+        timestamp: Date.now(),
+        confidence: analysis.confidence,
+        estimatedValue: analysis.fairTokenPrice ?? analysis.estimatedProbability,
+        marketPrice: analysis.currentTokenPrice ?? analysis.currentYesPrice,
+        fairValue: analysis.fairTokenPrice ?? analysis.estimatedProbability,
+        edge: analysis.edge,
+        recommendedAction: analysis.action === 'PASS' ? 'HOLD' : analysis.action,
+        expectedReturn: Math.abs(analysis.edge) * 100,
+        riskLevel: analysis.confidence > 0.75 ? 'MEDIUM' : 'HIGH',
+      });
     }
 
     opportunities.sort((a, b) => (b.expectedReturn || 0) - (a.expectedReturn || 0));
     return opportunities;
-  }
-
-  printReport(opportunities: ArbitrageOpportunity[]): void {
-    console.log('\n📊 Value Mismatch Analysis:');
-    console.log('─'.repeat(80));
-
-    if (opportunities.length === 0) {
-      console.log('No significant value mismatches found.\n');
-      return;
-    }
-
-    for (let i = 0; i < Math.min(10, opportunities.length); i++) {
-      const opp = opportunities[i];
-      console.log(`\n#${i + 1} ${opp.marketQuestion.substring(0, 50)}...`);
-      console.log(`   Market: ${opp.marketId}`);
-      console.log(`   Edge: ${((opp.edge || 0) * 100).toFixed(2)}%`);
-      console.log(`   Confidence: ${((opp.confidence || 0) * 100).toFixed(0)}%`);
-      console.log(`   Action: ${opp.recommendedAction}`);
-      console.log(`   Expected Return: ${opp.expectedReturn?.toFixed(2)}%`);
-      console.log(`   Risk: ${opp.riskLevel}`);
-    }
-
-    console.log('\n' + '─'.repeat(80));
   }
 }

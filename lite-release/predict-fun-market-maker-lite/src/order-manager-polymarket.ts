@@ -36,7 +36,9 @@ function alignPriceToTick(price: number, tickSize: number, side: 'BUY' | 'SELL')
   const maxPrice = 1 - safeTick;
   const safePrice = clamp(price, minPrice, maxPrice);
   const scaled = safePrice / safeTick;
-  const steps = side === 'BUY' ? Math.floor(scaled + 1e-9) : Math.ceil(scaled - 1e-9);
+  // FIX: BUY用ceil=远离BBO(价格更高=更远)，SELL用floor=远离BBO(价格更低=更远)
+  // 之前BUY用floor/SELL用ceil是往BBO方向靠，吃掉了安全距离
+  const steps = side === 'BUY' ? Math.ceil(scaled - 1e-9) : Math.floor(scaled + 1e-9);
   return clamp(Number((steps * safeTick).toFixed(6)), minPrice, maxPrice);
 }
 

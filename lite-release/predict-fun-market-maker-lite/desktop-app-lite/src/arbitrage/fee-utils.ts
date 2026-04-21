@@ -1,11 +1,5 @@
 /**
  * Fee helpers
- *
- * Notes:
- * - Polymarket fee-enabled markets use a fee-curve model:
- *   fee = C × feeRate × (p × (1 - p))^exponent
- *   (We approximate per-share fee as feeRate × (p × (1 - p))^exponent.)
- * - For other platforms or unknown fee models, we fall back to linear fee = price * feeRate.
  */
 
 export interface FeeCurveConfig {

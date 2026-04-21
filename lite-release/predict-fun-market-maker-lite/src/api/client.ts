@@ -246,6 +246,16 @@ export class PredictAPI {
       raw?.stats?.liquidity
     );
 
+    // Parse outcomes array if available
+    const outcomes = Array.isArray(raw?.outcomes)
+      ? raw.outcomes.map((o: any) => ({
+          name: String(o.name || 'Unknown'),
+          indexSet: Number(o.indexSet || 0),
+          status: o.status || 'OPEN',
+          onChainId: String(o.onChainId || ''),
+        }))
+      : undefined;
+
     return {
       token_id: String(
         raw?.token_id ??
@@ -276,6 +286,7 @@ export class PredictAPI {
       fee_rate_bps: Number(raw?.fee_rate_bps ?? raw?.feeRateBps ?? 0),
       volume_24h: Number(volume24h ?? 0),
       liquidity_24h: Number(liquidity24h ?? 0),
+      outcomes,
     };
   }
 
@@ -289,7 +300,7 @@ export class PredictAPI {
         name: String(outcome?.name ?? ''),
         index,
       }))
-      .filter((outcome) => outcome.tokenId);
+      .filter((outcome: {tokenId: string; name: string; index: number}) => outcome.tokenId);
 
     if (expanded.length === 0) {
       if (baseMarket.token_id && marketId) {
@@ -298,7 +309,7 @@ export class PredictAPI {
       return [baseMarket];
     }
 
-    return expanded.map((outcome) => {
+    return expanded.map((outcome: {tokenId: string; name: string; index: number}) => {
       if (outcome.tokenId && marketId) {
         this.marketIdByTokenId.set(outcome.tokenId, marketId);
         this.tokenMetaByTokenId.set(outcome.tokenId, {
@@ -385,14 +396,16 @@ export class PredictAPI {
   /**
    * Get all active markets
    */
-  async getMarkets(options: { status?: string; maxPages?: number } = {}): Promise<Market[]> {
+  async getMarkets(
+    options: { silent?: boolean; throwOnError?: boolean; status?: string; maxPages?: number } = {}
+  ): Promise<Market[]> {
+    const { silent = false, throwOnError = true, status = 'OPEN', maxPages = 6 } = options;
+
     try {
-      const status = options.status ?? 'OPEN';
-      const maxPages = Math.max(1, Math.min(20, options.maxPages ?? 6));
       const collected: any[] = [];
       let after: string | undefined;
 
-      for (let page = 0; page < maxPages; page += 1) {
+      for (let page = 0; page < Math.max(1, Math.min(20, maxPages)); page += 1) {
         const payload = await this.requestWithFallbackRaw('get', ['/v1/markets', '/markets'], {
           params: {
             status,
@@ -420,8 +433,13 @@ export class PredictAPI {
         .flatMap((m) => this.normalizeMarketRecords(m))
         .filter((m) => m.token_id && m.token_id !== 'undefined');
     } catch (error) {
-      console.error('Error fetching markets:', error);
-      throw error;
+      if (!silent) {
+        console.error('Error fetching markets:', error);
+      }
+      if (throwOnError) {
+        throw error;
+      }
+      return [];
     }
   }
 
@@ -692,18 +710,22 @@ export class PredictAPI {
   /**
    * Test API connection
    */
-  async testConnection(): Promise<boolean> {
+  async testConnection(silent = false): Promise<boolean> {
     try {
-      await this.getMarkets();
-      console.log('✅ API connection successful');
+      await this.getMarkets({ silent });
+      if (!silent) {
+        console.log('✅ API connection successful');
+      }
       return true;
     } catch (error: any) {
-      if (error.response?.status === 401) {
-        console.error('❌ API authentication failed. Check API_KEY and/or JWT_TOKEN.');
-      } else if ((error as AxiosError).message) {
-        console.error('❌ API connection failed:', (error as AxiosError).message);
-      } else {
-        console.error('❌ API connection failed');
+      if (!silent) {
+        if (error.response?.status === 401) {
+          console.error('❌ API authentication failed. Check API_KEY and/or JWT_TOKEN.');
+        } else if ((error as AxiosError).message) {
+          console.error('❌ API connection failed:', (error as AxiosError).message);
+        } else {
+          console.error('❌ API connection failed');
+        }
       }
       return false;
     }

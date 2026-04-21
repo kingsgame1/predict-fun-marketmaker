@@ -17,6 +17,110 @@ import { PolymarketWebSocketFeed } from './external/polymarket-ws.js';
 import { PolymarketOrderManager } from './order-manager-polymarket.js';
 import type { Market, Orderbook } from './types.js';
 
+// ==================== JWT 自动获取 ====================
+function upsertEnvVar(envContent: string, key: string, value: string): string {
+  const pattern = new RegExp(`^${key}=.*$`, 'm');
+  const line = `${key}=${value}`;
+  if (pattern.test(envContent)) {
+    return envContent.replace(pattern, line);
+  }
+  return `${envContent.trimEnd()}\n${line}\n`;
+}
+
+async function autoFetchJwt(config: ReturnType<typeof loadConfig>): Promise<string | undefined> {
+  if (!config.apiKey) {
+    console.log('⚠️  API_KEY 未配置，无法自动获取 JWT');
+    return undefined;
+  }
+  if (!config.privateKey || config.privateKey === '0x0000000000000000000000000000000000000000000000000000000000000001') {
+    console.log('⚠️  PRIVATE_KEY 未配置或为占位符，无法自动获取 JWT');
+    return undefined;
+  }
+
+  console.log('🔐 检测到 JWT_TOKEN 缺失，尝试自动获取...');
+
+  try {
+    // 动态导入以避免不必要的依赖加载
+    const axios = (await import('axios')).default;
+    const { JsonRpcProvider } = await import('ethers');
+    const { ChainId, OrderBuilder } = await import('@predictdotfun/sdk');
+
+    const baseUrl = config.apiBaseUrl.replace(/\/+$/, '');
+    const http = axios.create({
+      baseURL: baseUrl,
+      timeout: 15000,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey,
+      },
+    });
+
+    // Step 1: Get auth message
+    let message = '';
+    try {
+      const res = await http.get('/v1/auth/message');
+      const payload = res.data?.data ?? res.data;
+      message = typeof payload === 'string' ? payload : String(payload?.message || '');
+    } catch {
+      const res = await http.get('/auth/message');
+      const payload = res.data?.data ?? res.data;
+      message = typeof payload === 'string' ? payload : String(payload?.message || '');
+    }
+
+    if (!message) {
+      console.log('❌ 自动获取 JWT 失败: 无法获取 auth message');
+      return undefined;
+    }
+
+    // Step 2: Sign message
+    const wallet = config.rpcUrl
+      ? new Wallet(config.privateKey, new JsonRpcProvider(config.rpcUrl))
+      : new Wallet(config.privateKey);
+
+    const signerAddress = config.predictAccountAddress || wallet.address;
+    let signature = '';
+
+    if (config.predictAccountAddress) {
+      const chainId = config.predictChainId ?? ChainId.BnbMainnet;
+      const orderBuilder = await OrderBuilder.make(chainId, wallet, {
+        predictAccount: config.predictAccountAddress,
+      });
+      signature = await orderBuilder.signPredictAccountMessage(message);
+    } else {
+      signature = await wallet.signMessage(message);
+    }
+
+    // Step 3: Exchange for JWT
+    let token = '';
+    try {
+      const res = await http.post('/v1/auth', { signer: signerAddress, signature, message });
+      const data = res.data?.data ?? res.data;
+      token = data?.token || data?.jwt || data?.accessToken || '';
+    } catch {
+      const res = await http.post('/auth', { signer: signerAddress, signature, message });
+      const data = res.data?.data ?? res.data;
+      token = data?.token || data?.jwt || data?.accessToken || '';
+    }
+
+    if (!token) {
+      console.log('❌ 自动获取 JWT 失败: auth 成功但未返回 token');
+      return undefined;
+    }
+
+    // Step 4: Write to .env
+    const envPath = process.env.ENV_PATH || path.join(process.cwd(), '.env');
+    const oldContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+    const updated = upsertEnvVar(oldContent, 'JWT_TOKEN', token);
+    fs.writeFileSync(envPath, updated, 'utf8');
+
+    console.log(`✅ JWT token 自动获取成功! Signer: ${signerAddress}`);
+    return token;
+  } catch (error: any) {
+    console.log(`❌ 自动获取 JWT 失败: ${error?.message || error}`);
+    return undefined;
+  }
+}
+
 function sortMarketsByLiquidityAndVolume(markets: Market[]): Market[] {
   const scoreMarket = (market: Market): number => {
     const liquidity = Math.log10(Number(market.liquidity_24h || 0) + 1) * 4;
@@ -678,10 +782,13 @@ export class PredictMarketMakerBot {
   private wsFeed?: PredictWebSocketFeed;
   private wsDirtyTokens: Set<string> = new Set();
   private wsDirtyUnsub?: () => void;
+  private wsLastCancelAt: Map<string, number> = new Map();
   private wsFallbackAt: Map<string, number> = new Map();
   private wsBadCount: Map<string, number> = new Map();
   private wsGapUntil: Map<string, number> = new Map();
   private wsHealthScore = 100;
+  private lastStateUpdate = 0;
+  private consecutiveLoopErrors = 0;
   private wsHealthTarget = 100;
   private wsHealthUpdatedAt = 0;
   private warnedMissingJwt = false;
@@ -734,12 +841,28 @@ export class PredictMarketMakerBot {
    * Initialize the bot
    */
   async initialize(): Promise<void> {
+    const initStart = Date.now();
     console.log('🚀 Initializing Predict.fun Market Maker Bot...\n');
 
     // Test API connection
     const connected = await this.api.testConnection();
     if (!connected) {
       throw new Error('Failed to connect to Predict.fun API');
+    }
+
+    // Auto-fetch JWT if missing
+    if (!this.config.jwtToken) {
+      console.log('⚠️  JWT_TOKEN 未配置，尝试自动获取...');
+      const fetchedToken = await autoFetchJwt(this.config);
+      if (fetchedToken) {
+        // Update config and recreate API client with JWT
+        (this.config as any).jwtToken = fetchedToken;
+        this.api = new PredictAPI(this.config.apiBaseUrl, this.config.apiKey, fetchedToken);
+        this.marketMaker = new MarketMaker(this.api, this.config);
+      } else {
+        console.log('⚠️  JWT 获取失败，将只能使用公共接口（无法下单）');
+        console.log('   手动获取: npm run auth:jwt');
+      }
     }
 
     // Select markets to trade
@@ -752,11 +875,11 @@ export class PredictMarketMakerBot {
     if (this.config.jwtToken) {
       await this.marketMaker.updateState(this.getAccountAddressForQueries());
     } else if (!this.warnedMissingJwt) {
-      console.log('⚠️  JWT_TOKEN missing, skip orders/positions sync (run: npm run auth:jwt)');
+      console.log('⚠️  JWT_TOKEN missing, skip orders/positions sync');
       this.warnedMissingJwt = true;
     }
 
-    console.log('✅ Initialization complete\n');
+    console.log(`✅ Initialization complete (${((Date.now() - initStart) / 1000).toFixed(1)}s)\n`);
   }
 
   /**
@@ -817,7 +940,7 @@ export class PredictMarketMakerBot {
           const l1Bid = Number(orderbook.best_bid || 0);
           const l1Ask = Number(orderbook.best_ask || 0);
           const spreadPenalty =
-            l1Bid > 0 && l1Ask > 0 && Number.isFinite(orderbook.spread_pct) ? Math.max(0, orderbook.spread_pct) : 1;
+            l1Bid > 0 && l1Ask > 0 && Number.isFinite(orderbook.spread_pct ?? 0) ? Math.max(0, orderbook.spread_pct ?? 0) : 1;
           return {
             market,
             score:
@@ -870,10 +993,32 @@ export class PredictMarketMakerBot {
     this.wsDirtyUnsub = this.wsFeed.onOrderbook((tokenId) => {
       if (this.marketByToken.has(tokenId)) {
         this.wsDirtyTokens.add(tokenId);
+        // v20: 防抖 — 同一token 500ms内只撤一次
+        const now = Date.now();
+        const lastCancel = this.wsLastCancelAt.get(tokenId) ?? 0;
+        if (now - lastCancel >= 150) {  // v24: 从500ms降到150ms
+          this.wsLastCancelAt.set(tokenId, now);
+          this.marketMaker.cancelOrdersForMarket(tokenId).catch((e) => {
+            console.warn(`⚠️ WS cancel-on-dirty失败(${tokenId.slice(0,8)}): ${e instanceof Error ? e.message : String(e)}`);
+          });
+        }
+        // v16 FIX: 也撤YES/NO子token的订单，WS可能推送的是父token但挂单在子token上
+        const market = this.marketByToken.get(tokenId);
+        if (market?.outcomes) {
+          for (const outcome of market.outcomes) {
+            if (outcome.onChainId && outcome.onChainId !== tokenId) {
+              const subLastCancel = this.wsLastCancelAt.get(outcome.onChainId) ?? 0;
+              if (now - subLastCancel >= 500) {
+                this.wsLastCancelAt.set(outcome.onChainId, now);
+                this.marketMaker.cancelOrdersForMarket(outcome.onChainId).catch(() => {});
+              }
+            }
+          }
+        }
       }
     });
     this.wsFeed.start();
-    console.log(`📡 Market Maker WS enabled (${wsUrl})`);
+    console.log(`📡 Market Maker WS enabled (${wsUrl}) — cancel-on-dirty active`);
   }
 
   private resolveMmWsMaxAgeMs(): number {
@@ -1121,9 +1266,13 @@ export class PredictMarketMakerBot {
         this.updateWsHealth();
         // 维护 WebSocket 健康状态（自动恢复）
         this.marketMaker.maintainWsHealth();
-        // Update state (private endpoint requires JWT)
+        // Update state (private endpoint requires JWT) — 每30秒同步一次，避免API过于频繁
         if (this.config.jwtToken) {
-          await this.marketMaker.updateState(this.getAccountAddressForQueries());
+          const now = Date.now();
+          if (now - this.lastStateUpdate > 30_000) {
+            await this.marketMaker.updateState(this.getAccountAddressForQueries());
+            this.lastStateUpdate = now;
+          }
         }
 
         const marketsToProcess = this.drainDirtyMarkets();
@@ -1144,9 +1293,12 @@ export class PredictMarketMakerBot {
             // Place/cancel orders as needed
             await this.marketMaker.placeMMOrders(market, orderbook);
           } catch (error) {
-            console.error(`Error processing market ${market.token_id}:`, error);
+            console.error(`Error processing market ${market.token_id}:`, error instanceof Error ? error.message : error);
           }
         }
+
+        // 成功处理一轮后重置错误计数
+        this.consecutiveLoopErrors = 0;
 
         // Print status
         this.marketMaker.printStatus();
@@ -1154,8 +1306,11 @@ export class PredictMarketMakerBot {
         // Wait for next iteration
         await this.sleep(this.getLoopSleepMs());
       } catch (error) {
-        console.error('Error in main loop:', error);
-        await this.sleep(this.getLoopSleepMs());
+        this.consecutiveLoopErrors++;
+        // 指数退避：连续错误时逐步增大等待时间（最多60秒）
+        const backoff = Math.min(60_000, this.getLoopSleepMs() * Math.pow(2, Math.min(this.consecutiveLoopErrors, 6)));
+        console.error(`Error in main loop (x${this.consecutiveLoopErrors}, ${Math.round(backoff/1000)}s backoff):`, error instanceof Error ? error.message : error);
+        await this.sleep(backoff);
       }
     }
   }
@@ -1176,6 +1331,18 @@ export class PredictMarketMakerBot {
   stop(): void {
     console.log('\n🛑 Stopping bot...');
     this.running = false;
+
+    // 撤销所有挂单 — 关闭前必须撤单，否则订单会一直挂在盘口
+    try {
+      if (this.marketMaker && typeof this.marketMaker.cancelAllOpenOrders === 'function') {
+        this.marketMaker.cancelAllOpenOrders().catch(e => {
+          console.error('⚠️ 停止时撤单失败:', e?.message || e);
+        });
+      }
+    } catch (e) {
+      console.error('⚠️ 停止时撤单异常:', e instanceof Error ? e.message : String(e));
+    }
+
     if (this.wsDirtyUnsub) {
       this.wsDirtyUnsub();
       this.wsDirtyUnsub = undefined;
@@ -1191,6 +1358,18 @@ export class PredictMarketMakerBot {
    */
   getSelectedMarketsCount(): number {
     return this.selectedMarkets.length;
+  }
+
+  /**
+   * Get live status from MarketMaker
+   */
+  getStatus() {
+    return {
+      openOrders: this.marketMaker?.getOpenOrdersCount() ?? 0,
+      positions: this.marketMaker?.getPositionCount() ?? 0,
+      sessionPnL: this.marketMaker?.getSessionPnL() ?? 0,
+      markets: this.selectedMarkets.length,
+    };
   }
 
   /**
@@ -1224,11 +1403,14 @@ export class PolymarketMarketMakerBot {
   private wsFeed?: PolymarketWebSocketFeed;
   private wsDirtyTokens: Set<string> = new Set();
   private wsDirtyUnsub?: () => void;
+  private wsLastCancelAt: Map<string, number> = new Map();
   private wsHealthScore = 100;
   private wsHealthTarget = 100;
   private wsHealthUpdatedAt = 0;
   private warnedStatusSync = false;
   private rewardPauseUntil: Map<string, number> = new Map();
+  private lastStateUpdate = 0;
+  private consecutiveLoopErrors = 0;
 
   private getAccountAddressForQueries(): string {
     return this.config.polymarketFunderAddress || this.wallet.address;
@@ -1588,10 +1770,32 @@ export class PolymarketMarketMakerBot {
     this.wsDirtyUnsub = this.wsFeed.onOrderbook((tokenId) => {
       if (this.marketByToken.has(tokenId)) {
         this.wsDirtyTokens.add(tokenId);
+        // v20: 防抖 — 同一token 500ms内只撤一次
+        const now = Date.now();
+        const lastCancel = this.wsLastCancelAt.get(tokenId) ?? 0;
+        if (now - lastCancel >= 150) {  // v24: 从500ms降到150ms
+          this.wsLastCancelAt.set(tokenId, now);
+          this.marketMaker.cancelOrdersForMarket(tokenId).catch((e) => {
+            console.warn(`⚠️ WS cancel-on-dirty失败(${tokenId.slice(0,8)}): ${e instanceof Error ? e.message : String(e)}`);
+          });
+        }
+        // v16 FIX: 也撤YES/NO子token的订单
+        const market = this.marketByToken.get(tokenId);
+        if (market?.outcomes) {
+          for (const outcome of market.outcomes) {
+            if (outcome.onChainId && outcome.onChainId !== tokenId) {
+              const subLastCancel = this.wsLastCancelAt.get(outcome.onChainId) ?? 0;
+              if (now - subLastCancel >= 500) {
+                this.wsLastCancelAt.set(outcome.onChainId, now);
+                this.marketMaker.cancelOrdersForMarket(outcome.onChainId).catch(() => {});
+              }
+            }
+          }
+        }
       }
     });
     this.wsFeed.start();
-    console.log('📡 Polymarket WS enabled (' + (this.config.polymarketWsUrl || 'wss://ws-subscriptions-clob.polymarket.com/ws/market') + ')');
+    console.log('📡 Polymarket WS enabled — cancel-on-dirty active');
   }
 
   private resolveMmWsMaxAgeMs(): number {
@@ -1678,10 +1882,16 @@ export class PolymarketMarketMakerBot {
     if (!this.config.mmWsOnlyDirty) {
       return this.selectedMarkets;
     }
-    const maxBatch = Math.max(1, Number(this.config.mmWsDirtyMaxBatch || 0)) || this.selectedMarkets.length;
-    const dirty = Array.from(this.wsDirtyTokens);
-    this.wsDirtyTokens.clear();
-    const batch = dirty.slice(0, maxBatch);
+    if (this.wsDirtyTokens.size === 0) {
+      return [];
+    }
+    const maxBatch = Math.max(0, Number(this.config.mmWsDirtyMaxBatch || 0));
+    const tokens = Array.from(this.wsDirtyTokens);
+    const batch = maxBatch > 0 ? tokens.slice(0, maxBatch) : tokens;
+    // 只删除已处理的token，未处理的留在Set里下次处理
+    for (const token of batch) {
+      this.wsDirtyTokens.delete(token);
+    }
     return batch
       .map((tokenId) => this.marketByToken.get(tokenId))
       .filter((market): market is Market => Boolean(market));
@@ -1703,6 +1913,17 @@ export class PolymarketMarketMakerBot {
       try {
         this.updateWsHealth();
         this.marketMaker.maintainWsHealth();
+
+        // 定期同步订单状态 — 防止重复下单或漏撤单
+        const now = Date.now();
+        if (now - this.lastStateUpdate > 30_000) {
+          try {
+            await this.marketMaker.updateState(this.getAccountAddressForQueries());
+            this.lastStateUpdate = now;
+          } catch (e) {
+            console.warn('⚠️ Polymarket updateState失败:', e instanceof Error ? e.message : String(e));
+          }
+        }
 
         const marketsToProcess = this.drainDirtyMarkets();
         if (marketsToProcess.length === 0) {
@@ -1728,11 +1949,16 @@ export class PolymarketMarketMakerBot {
           }
         }
 
+        // 成功后重置错误计数
+        this.consecutiveLoopErrors = 0;
+
         this.marketMaker.printStatus();
         await this.sleep(this.getLoopSleepMs());
       } catch (error) {
-        console.error('Error in main loop:', error);
-        await this.sleep(this.getLoopSleepMs());
+        this.consecutiveLoopErrors++;
+        const backoff = Math.min(60_000, this.config.refreshInterval * Math.pow(2, Math.min(this.consecutiveLoopErrors, 6)));
+        console.error('Error in main loop (x' + this.consecutiveLoopErrors + ', ' + Math.round(backoff/1000) + 's backoff):', error instanceof Error ? error.message : error);
+        await this.sleep(backoff);
       }
     }
   }
@@ -1745,13 +1971,33 @@ export class PolymarketMarketMakerBot {
   }
 
   stop(): void {
+    console.log('\n🛑 Stopping Polymarket bot...');
     this.running = false;
+    // 撤销所有挂单 — 关闭后订单留在盘口有被吃的风险
+    try {
+      if (this.marketMaker && typeof this.marketMaker.cancelAllOpenOrders === 'function') {
+        this.marketMaker.cancelAllOpenOrders().catch(e => {
+          console.error('⚠️ Polymarket停止时撤单失败:', e?.message || e);
+        });
+      }
+    } catch (e) {
+      console.error('⚠️ Polymarket停止时撤单异常:', e?.message || e);
+    }
     if (this.wsFeed) this.wsFeed.stop();
     if (this.wsDirtyUnsub) this.wsDirtyUnsub();
   }
 
   getSelectedMarketsCount(): number {
     return this.selectedMarkets.length;
+  }
+
+  getStatus() {
+    return {
+      openOrders: this.marketMaker?.getOpenOrdersCount() ?? 0,
+      positions: this.marketMaker?.getPositionCount() ?? 0,
+      sessionPnL: this.marketMaker?.getSessionPnL() ?? 0,
+      markets: this.selectedMarkets.length,
+    };
   }
 
   isRunning(): boolean {
@@ -1785,19 +2031,22 @@ async function main() {
   }
 }
 
-// Handle shutdown
-process.on('SIGINT', () => {
+// Handle shutdown — 等撤单完成再退出
+process.on('SIGINT', async () => {
   console.log('\n\nReceived SIGINT, shutting down gracefully...');
   if (activeBot) {
     activeBot.stop();
+    // 等待撤单完成（最多5秒）
+    await new Promise(resolve => setTimeout(resolve, 3000));
   }
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('\n\nReceived SIGTERM, shutting down gracefully...');
   if (activeBot) {
     activeBot.stop();
+    await new Promise(resolve => setTimeout(resolve, 3000));
   }
   process.exit(0);
 });

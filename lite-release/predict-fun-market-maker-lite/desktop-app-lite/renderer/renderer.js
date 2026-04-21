@@ -56,6 +56,92 @@ const reloadEnvBtn = document.getElementById('reloadEnv');
 const saveEnvBtn = document.getElementById('saveEnv');
 const api = window.liteApp;
 
+// ===== 做市模式参数 =====
+const modeConservativeBtn = document.getElementById('modeConservative');
+const modeAggressiveBtn = document.getElementById('modeAggressive');
+const applyModeBtn = document.getElementById('applyMode');
+const mmModeHint = document.getElementById('mmModeHint');
+
+const MM_MODES = {
+  conservative: {
+    label: '保守模式',
+    hint: '当前: 保守模式 — 动态第4档挂单，每侧3.5c缓冲，前方6000股保护',
+    env: {
+      MM_TRADING_MODE: 'conservative',
+    },
+    params: {
+      pSpreadBudget: '15%',
+      pHardMinBuffer: '3.5c',
+      pMinFrontDepth: '6000股',
+      pSafetyMargin: '25%',
+      pAbsMinBuffer: '3.5c',
+      pMaxVolatility: '0.5%',
+      pFillCooldown: '6小时',
+      pBlacklist: '2次/7天',
+      pDepthDrop: '5%',
+      pDangerous: '6.0c',
+      pBaseBoost: '1.3x',
+      pDepthBalance: '开启',
+    },
+  },
+  aggressive: {
+    label: '激进模式',
+    hint: '当前: 激进模式 — 动态第3档挂单，每侧3.0c缓冲，前方4000股保护',
+    env: {
+      MM_TRADING_MODE: 'aggressive',
+    },
+    params: {
+      pSpreadBudget: '20%',
+      pHardMinBuffer: '2.5c',
+      pMinFrontDepth: '4000股',
+      pSafetyMargin: '25%',
+      pAbsMinBuffer: '3.0c',
+      pMaxVolatility: '0.8%',
+      pFillCooldown: '4小时',
+      pBlacklist: '2次/48小时',
+      pDepthDrop: '8%',
+      pDangerous: '5.0c',
+      pBaseBoost: '1.2x',
+      pDepthBalance: '关闭',
+    },
+  },
+};
+
+let currentMMMode = 'conservative';
+
+function setMMModeUI(mode) {
+  currentMMMode = mode;
+  const cfg = MM_MODES[mode];
+  if (modeConservativeBtn) {
+    modeConservativeBtn.classList.toggle('active', mode === 'conservative');
+  }
+  if (modeAggressiveBtn) {
+    modeAggressiveBtn.classList.toggle('active', mode === 'aggressive');
+  }
+  if (mmModeHint) {
+    mmModeHint.textContent = cfg.hint;
+  }
+  for (const [id, val] of Object.entries(cfg.params)) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+}
+
+function detectMMModeFromEnv() {
+  const envMap = getEnvMap();
+  const mode = (envMap.get('MM_TRADING_MODE') || 'conservative').trim().toLowerCase();
+  if (mode === 'aggressive') {
+    // 检查是否真正匹配激进模式的参数（可能是旧配置）
+    const budget = envMap.get('MM_SCREEN_SPREAD_BUDGET_RATIO');
+    if (budget && parseFloat(budget) >= 0.5) {
+      return 'aggressive';
+    }
+  }
+  return 'conservative';
+}
+
+// ===== 原有变量 =====
+
 let lastRecommendations = [];
 let lastRecommendationVenue = '';
 let approvalState = '待检查';
@@ -322,6 +408,7 @@ function syncButtonState() {
   );
   setButtonDisabled(reloadManualMarketsBtn, !hasApi || busyActions.has('reloadManualMarkets'));
   setButtonDisabled(reloadEnvBtn, !hasApi || busyActions.has('reloadEnv'));
+  setButtonDisabled(applyModeBtn, !hasApi || busyActions.has('applyMode') || running, running ? '做市运行中时不允许切换模式' : '');
   setButtonDisabled(saveEnvBtn, !hasApi || busyActions.has('saveEnv') || running, running ? '做市运行中时不允许覆盖 .env' : '');
 }
 
@@ -875,6 +962,8 @@ async function refreshEnv() {
   }
   const configuredVenue = (envMap.get('MM_VENUE') || 'predict').toLowerCase();
   if (marketVenue) marketVenue.value = configuredVenue === 'polymarket' ? 'polymarket' : 'predict';
+  // 检测做市模式并更新UI
+  setMMModeUI(detectMMModeFromEnv());
   renderMarketCards(lastRecommendations, new Set(getConfiguredTokenIds()));
   await refreshPredictWalletStatus();
   await refreshPolymarketPreflight();
@@ -1016,6 +1105,27 @@ if (tplPolymarketBtn) {
       const r = await api.applyTemplate('polymarket');
       pushLog(r.ok ? '已应用 Polymarket 模板' : `模板失败: ${r.message || 'unknown'}`);
       await refreshEnv();
+    });
+}
+
+// ===== 做市模式切换事件 =====
+if (modeConservativeBtn) {
+  modeConservativeBtn.onclick = () => setMMModeUI('conservative');
+}
+if (modeAggressiveBtn) {
+  modeAggressiveBtn.onclick = () => setMMModeUI('aggressive');
+}
+if (applyModeBtn) {
+  applyModeBtn.onclick = () =>
+    runUiAction('applyMode', async () => {
+      if (!api || !envEditor) return;
+      const cfg = MM_MODES[currentMMMode];
+      let raw = envEditor.value || '';
+      for (const [key, value] of Object.entries(cfg.env)) {
+        raw = upsertEnv(raw, key, value);
+      }
+      envEditor.value = raw;
+      pushLog(`已切换到${cfg.label}参数，请点击"保存配置"使其生效。`);
     });
 }
 

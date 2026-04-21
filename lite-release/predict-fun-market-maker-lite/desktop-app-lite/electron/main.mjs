@@ -700,6 +700,11 @@ UNIFIED_STRATEGY_ENABLED=true
 ENABLE_TRADING=true
 AUTO_CONFIRM=true
 
+# ---- 做市防吃单策略 ----
+# 保守模式=conservative（推荐），激进模式=aggressive
+# 可在UI"做市防吃单策略"面板切换，也可直接改下面参数
+MM_TRADING_MODE=conservative
+
 # ---- 订单大小配置 ----
 # 每笔订单的最小股数（默认 100，Predict 积分规则要求最小 100）
 UNIFIED_STRATEGY_MIN_SIZE=${minSize}
@@ -764,6 +769,11 @@ UNIFIED_STRATEGY_ENABLED=true
 
 ENABLE_TRADING=false
 AUTO_CONFIRM=false
+
+# ---- 做市防吃单策略 ----
+# 保守模式=conservative（推荐），激进模式=aggressive
+# 可在UI"做市防吃单策略"面板切换，也可直接改下面参数
+MM_TRADING_MODE=conservative
 
 # ---- 订单大小配置 ----
 # 每笔订单的最小股数（默认 100）

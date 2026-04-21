@@ -321,6 +321,9 @@ export class PointsOptimizerEngineV2 {
 
   /**
    * 计算最优价差
+   *
+   * 重要：价差应该尽量宽（远离盘口），避免被吃单
+   * 目标是纯挂单赚积分，不是成交赚利润
    */
   private calculateOptimalSpread(
     market: Market,
@@ -333,7 +336,7 @@ export class PointsOptimizerEngineV2 {
 
     let targetSpread = currentSpread;
 
-    // 根据市场状况调整价差
+    // 根据市场状况调整价差 —— 目标是尽量宽
     switch (analysis.condition) {
       case MarketCondition.EXCELLENT:
         // 优秀市场：使用 85-90% 的最大价差
@@ -357,8 +360,9 @@ export class PointsOptimizerEngineV2 {
         break;
     }
 
-    // 确保不超过当前价差
-    targetSpread = Math.min(targetSpread, currentSpread);
+    // 取较大值：用目标价差和当前价差中更大的那个
+    // 这样不会把宽价差压窄（之前的 Math.min 会导致价差被压到 currentSpread 的极小值）
+    targetSpread = Math.max(targetSpread, currentSpread);
     // 确保不超过最大价差
     targetSpread = Math.min(targetSpread, maxSpread);
     // 确保不低于最小价差
@@ -430,6 +434,14 @@ export class PointsOptimizerEngineV2 {
 
   /**
    * 计算最优价格
+   *
+   * 重要变更：V2 优化器不再覆盖 calculatePrices 计算出的安全价格
+   * 而是只作为「最远可挂价格」的约束
+   *
+   * 对于买单：返回值应 >= calculatePrices 的 bid（离盘口更远的价格更低）
+   * 对于卖单：返回值应 <= calculatePrices 的 ask（离盘口更远的价格更高）
+   *
+   * 实际效果：让挂单在安全价差范围内，尽量远离盘口
    */
   private calculateOptimalPrice(
     currentPrice: number,
@@ -437,14 +449,18 @@ export class PointsOptimizerEngineV2 {
     side: 'BUY' | 'SELL',
     analysis: MarketAnalysis
   ): number {
+    // 使用价差的一半作为偏移，但方向是远离盘口
+    // 这样价格会在更安全的范围内
+    const halfSpread = optimalSpread / 2;
+
     if (side === 'BUY') {
-      // 买单：当前价 - 1/2 价差
-      const price = currentPrice - optimalSpread / 2;
-      return Math.max(0.0001, price);
+      // 买单：当前价 - 1/2 价差（离盘口更远 = 价格更低）
+      const price = currentPrice - halfSpread;
+      return Math.max(0.01, price);
     } else {
-      // 卖单：当前价 + 1/2 价差
-      const price = currentPrice + optimalSpread / 2;
-      return Math.min(0.9999, price);
+      // 卖单：当前价 + 1/2 价差（离盘口更远 = 价格更高）
+      const price = currentPrice + halfSpread;
+      return Math.min(0.99, price);
     }
   }
 

@@ -38,6 +38,80 @@
         <button id="tplPredict">套用 Predict 模板</button>
         <button id="tplPolymarket">套用 Polymarket 模板</button>
       </section>
+      <section class="mm-mode-section">
+        <div class="label">做市防吃单策略</div>
+        <div class="mm-mode-toggle">
+          <button id="modeConservative" class="mode-btn active">🛡️ 保守模式</button>
+          <button id="modeAggressive" class="mode-btn">⚡ 激进模式</button>
+        </div>
+        <div class="hint" id="mmModeHint">当前: 保守模式 — 动态第4档挂单，每侧3.5c缓冲，前方6000股保护</div>
+        <div class="wallet-grid mm-param-grid" id="mmParamGrid">
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">盘口价差上限</div>
+            <div class="wallet-value" id="pSpreadBudget">15%</div>
+            <div class="mm-param-desc">盘口价差占max_spread比例</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">每侧最低缓冲</div>
+            <div class="wallet-value" id="pHardMinBuffer">3.5c</div>
+            <div class="mm-param-desc">离盘口硬性最低距离</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">前方最低深度</div>
+            <div class="wallet-value" id="pMinFrontDepth">6000股</div>
+            <div class="mm-param-desc">前方保护层最低股数</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">安全边际</div>
+            <div class="wallet-value" id="pSafetyMargin">25%</div>
+            <div class="mm-param-desc">buffer扣除的安全比例</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">绝对距离保护</div>
+            <div class="wallet-value" id="pAbsMinBuffer">3.5c</div>
+            <div class="mm-param-desc">离盘口绝对最低距离</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">最大波动率</div>
+            <div class="wallet-value" id="pMaxVolatility">0.5%</div>
+            <div class="mm-param-desc">超过此波动率不挂单</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">被吃冷却</div>
+            <div class="wallet-value" id="pFillCooldown">6小时</div>
+            <div class="mm-param-desc">被吃后暂停挂单时间</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">黑名单</div>
+            <div class="wallet-value" id="pBlacklist">2次/7天</div>
+            <div class="mm-param-desc">连续被吃N次进黑名单</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">深度骤减撤单</div>
+            <div class="wallet-value" id="pDepthDrop">5%</div>
+            <div class="mm-param-desc">前方深度减少比例触发撤单</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">危险距离撤单</div>
+            <div class="wallet-value" id="pDangerous">6.0c</div>
+            <div class="mm-param-desc">离盘口近于此距离紧急撤</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">新市场缓冲加成</div>
+            <div class="wallet-value" id="pBaseBoost">1.3x</div>
+            <div class="mm-param-desc">新市场首次挂单缓冲倍数</div>
+          </div>
+          <div class="wallet-card mm-param">
+            <div class="wallet-title">深度均衡检查</div>
+            <div class="wallet-value" id="pDepthBalance">开启</div>
+            <div class="mm-param-desc">买/卖侧深度是否需均衡</div>
+          </div>
+        </div>
+        <div class="row">
+          <button id="applyMode" class="mode-apply-btn">应用当前模式参数到 .env</button>
+        </div>
+        <div class="hint">切换模式后点"应用"会自动更新 .env 中的 MM_TRADING_MODE 和相关防吃单参数。记得点"保存配置"生效。</div>
+      </section>
       <section class="row">
         <button id="getJwt" class="jwt-btn">🔑 获取 JWT Token</button>
       </section>

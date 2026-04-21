@@ -217,11 +217,8 @@ export class OrderManager {
     const side = params.side === 'BUY' ? Side.BUY : Side.SELL;
     const makerAddress = this.getMakerAddress();
 
-    // 将价格四舍五入到 2 位小数（API 限制：Max allowed is 2 decimal points）
-    const roundedPrice = Math.round(params.price * 100) / 100;
-
     const sharesWei = this.toWei(params.shares, 5);
-    const priceWei = this.toWei(roundedPrice, 6);
+    const priceWei = this.toWei(params.price, 6);
 
     const { pricePerShare, makerAmount, takerAmount } = this.orderBuilder.getLimitOrderAmounts({
       side,
@@ -306,7 +303,7 @@ export class OrderManager {
       .replace(/\.0+$/, '')
       .replace(/(\.\d*?)0+$/, '$1');
 
-    return parseUnits(asString || '0', 18);
+    return parseUnits(asString || '0', decimals);
   }
 
   private getLimitOrderAmounts(side: 'BUY' | 'SELL', price: number, shares: number) {

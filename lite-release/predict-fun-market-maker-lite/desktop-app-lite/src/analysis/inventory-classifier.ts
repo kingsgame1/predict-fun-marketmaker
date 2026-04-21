@@ -214,9 +214,12 @@ export class InventoryClassifier {
       ...userConfig,
       asymSpread: {
         ...defaultStrategy.asymSpread,
-        ...(userConfig.asymSpread || {})
+        ...(userConfig.asymSpread || {}),
       }
     };
+    // 确保数值字段不为undefined（展开可选字段可能引入undefined）
+    strategy.asymSpread.buySpreadMultiplier = strategy.asymSpread.buySpreadMultiplier ?? defaultStrategy.asymSpread.buySpreadMultiplier;
+    strategy.asymSpread.sellSpreadMultiplier = strategy.asymSpread.sellSpreadMultiplier ?? defaultStrategy.asymSpread.sellSpreadMultiplier;
 
     // 根据库存方向设置单边挂单
     if (netShares !== 0) {

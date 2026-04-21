@@ -1,29 +1,26 @@
 {
-  "name": "predict-fun-market-maker-lite",
+  "name": "predict-fun-market-maker",
   "version": "2.2.1",
-  "description": "Lite market-maker edition for Predict.fun and Polymarket",
-  "type": "module",
+  "description": "Automated market maker bot for Predict.fun & Polymarket - 双平台支持",
   "main": "dist/index.js",
+  "type": "module",
   "scripts": {
-    "start:mm": "tsx src/index.ts",
+    "start": "npm --prefix lite-release/predict-fun-market-maker-lite/desktop-app-lite start",
+    "start:cli": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "check:api": "node scripts/check-api.cjs",
-    "auth:jwt": "tsx src/auth-jwt.ts",
-    "setup:approvals": "tsx src/setup-approvals.ts",
-    "smoke:predict": "tsx scripts/smoke-trade.ts",
-    "template:predict": "node scripts/apply-mm-template.mjs predict",
-    "market:recommend": "tsx scripts/recommend-markets.ts",
-    "market:apply": "tsx scripts/recommend-markets.ts --apply",
-    "metrics:replay:polymarket": "tsx scripts/replay-polymarket-metrics.ts",
-    "app:install": "npm --prefix desktop-app-lite install",
-    "app:dev": "npm --prefix desktop-app-lite run dev"
+    "auth:jwt": "node --import tsx src/auth-jwt.ts",
+    "setup:approvals": "node --import tsx src/setup-approvals.ts",
+    "market:recommend": "node --import tsx scripts/market-recommender.ts",
+    "metrics:replay:polymarket": "node --import tsx scripts/replay-polymarket-metrics.ts"
   },
   "keywords": [
     "predict",
     "market-maker",
-    "liquidity"
+    "arbitrage",
+    "trading-bot"
   ],
+  "author": "",
   "license": "MIT",
   "dependencies": {
     "@polymarket/clob-client": "^5.2.3",
@@ -32,13 +29,16 @@
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.0",
-    "viem": "^2.21.4",
+    "express": "^4.22.1",
+    "open": "^10.2.0",
+    "viem": "^2.46.3",
     "ws": "^8.17.0"
   },
   "devDependencies": {
+    "@types/express": "^4.17.25",
     "@types/node": "^20.14.0",
     "@types/ws": "^8.5.10",
     "tsx": "^4.15.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.9.3"
   }
 }

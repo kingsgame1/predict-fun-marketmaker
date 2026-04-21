@@ -587,7 +587,12 @@ export class PolymarketAPI implements MakerApi {
       for (const orderId of orderIds) {
         await clientAny.cancelOrder({ orderID: orderId });
       }
+      return;
     }
+    console.error(
+      `[PolymarketAPI] removeOrders: no cancel method available on client; ${orderIds.length} order(s) not cancelled:`,
+      orderIds
+    );
   }
 
   async getOrders(makerAddress: string): Promise<Order[]> {
