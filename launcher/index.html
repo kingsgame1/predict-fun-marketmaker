@@ -780,11 +780,11 @@
         <div class="mode-card" id="modeConservative" onclick="switchMode('conservative')">
           <div class="mode-badge">ACTIVE</div>
           <div class="mode-name" style="color:var(--green);">保守模式</div>
-          <div class="mode-desc">动态第4档(前面3层挡着)，退让1.5c，绝对最低距离3.5c。智能填补3-4档gap。WS实时撤旧单+子token保护。</div>
+          <div class="mode-desc">动态第4档(前面3层挡着)，档位退让1.5c。智能填补3-4档gap。WS实时撤旧单+子token保护。</div>
           <div class="mode-params">
             <div class="mode-param">挂单档位 <b>第4档</b></div>
             <div class="mode-param">档位退让 <b>1.5c</b></div>
-            <div class="mode-param">最低距离 <b>3.5c</b></div>
+            <div class="mode-param">安全阈值 <b>6.0c</b></div>
             <div class="mode-param">深度 <b>6000股</b></div>
             <div class="mode-param">冷却 <b>6小时</b></div>
             <div class="mode-param">黑名单 <b>7天</b></div>
@@ -793,14 +793,42 @@
         <div class="mode-card" id="modeAggressive" onclick="switchMode('aggressive')">
           <div class="mode-badge">ACTIVE</div>
           <div class="mode-name" style="color:var(--orange);">激进模式</div>
-          <div class="mode-desc">动态第3档(前面2层挡着)，退让1.5c，绝对最低距离3.0c。智能填补2-3档gap。WS实时撤旧单+子token保护。</div>
+          <div class="mode-desc">动态第3档(前面2层挡着)，档位退让1.5c。智能填补2-3档gap。WS实时撤旧单+子token保护。</div>
           <div class="mode-params">
             <div class="mode-param">挂单档位 <b>第3档</b></div>
             <div class="mode-param">档位退让 <b>1.5c</b></div>
-            <div class="mode-param">最低距离 <b>3.0c</b></div>
+            <div class="mode-param">安全阈值 <b>5.0c</b></div>
             <div class="mode-param">深度 <b>4000股</b></div>
             <div class="mode-param">冷却 <b>4小时</b></div>
             <div class="mode-param">黑名单 <b>48小时</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 被吃对冲策略 -->
+    <div class="card" style="margin-top:12px;">
+      <div class="card-header">
+        <div class="card-title">被吃对冲策略</div>
+        <div id="currentHedgeLabel" style="font-size:11px;color:var(--text-2);font-family:'JetBrains Mono',monospace;">INIT...</div>
+      </div>
+      <div class="mode-section">
+        <div class="mode-card" id="hedgeFlatten" onclick="switchHedge('FLATTEN')" style="min-height:auto;">
+          <div class="mode-badge" id="badgeFlatten" style="display:none;">ACTIVE</div>
+          <div class="mode-name" style="color:var(--cyan,#00d4ff);">卖出平仓</div>
+          <div class="mode-desc" style="font-size:11px;">被吃持有多头 → 立即卖出YES份额平仓</div>
+          <div class="mode-params">
+            <div class="mode-param">触发 <b>≥30股</b></div>
+            <div class="mode-param">滑点 <b>≤2.5%</b></div>
+          </div>
+        </div>
+        <div class="mode-card" id="hedgeBuyOpp" onclick="switchHedge('BUY_OPPOSITE')" style="min-height:auto;">
+          <div class="mode-badge" id="badgeBuyOpp" style="display:none;">ACTIVE</div>
+          <div class="mode-name" style="color:var(--purple,#a855f7);">买入反向</div>
+          <div class="mode-desc" style="font-size:11px;">被吃持YES → 买NO对冲(YES+NO=$1锁定)</div>
+          <div class="mode-params">
+            <div class="mode-param">触发 <b>≥30股</b></div>
+            <div class="mode-param">Fallback <b>卖出平仓</b></div>
           </div>
         </div>
       </div>
@@ -977,6 +1005,7 @@
       setupLogListener();
       loadJwtStatus();
       loadPolyStatus();
+      loadHedgeMode();
     });
 
     // ==================== 模式切换 ====================
@@ -1012,6 +1041,51 @@
       aggressive.className = 'mode-card' + (currentMode === 'aggressive' ? ' active-aggressive' : '');
       label.textContent = currentMode === 'conservative' ? '● 保守模式' : '● 激进模式';
       label.style.color = currentMode === 'conservative' ? 'var(--green)' : 'var(--orange)';
+    }
+
+    // ==================== 对冲策略 ====================
+    let currentHedge = 'FLATTEN';
+    const hedgeLabels = { FLATTEN: '卖出平仓', BUY_OPPOSITE: '买入反向' };
+    const hedgeColors = { FLATTEN: 'var(--cyan,#00d4ff)', BUY_OPPOSITE: 'var(--purple,#a855f7)' };
+
+    async function switchHedge(mode) {
+      if (mode === currentHedge) return;
+      if (appRunning) {
+        showToast(`请先停止做市商再切换对冲策略`, 'error');
+        return;
+      }
+      const result = await window.electronAPI.setConfig('HEDGE_MODE', mode);
+      if (result.success) {
+        currentHedge = mode;
+        updateHedgeUI();
+        showToast(`对冲策略: ${hedgeLabels[mode]}，重启做市商后生效`, 'success');
+      }
+    }
+
+    function updateHedgeUI() {
+      const flattenCard = document.getElementById('hedgeFlatten');
+      const buyOppCard = document.getElementById('hedgeBuyOpp');
+      const flattenBadge = document.getElementById('badgeFlatten');
+      const buyOppBadge = document.getElementById('badgeBuyOpp');
+
+      if (flattenCard) flattenCard.className = currentHedge === 'FLATTEN' ? 'mode-card active-aggressive' : 'mode-card';
+      if (buyOppCard) buyOppCard.className = currentHedge === 'BUY_OPPOSITE' ? 'mode-card active-aggressive' : 'mode-card';
+      if (flattenBadge) flattenBadge.style.display = currentHedge === 'FLATTEN' ? 'block' : 'none';
+      if (buyOppBadge) buyOppBadge.style.display = currentHedge === 'BUY_OPPOSITE' ? 'block' : 'none';
+
+      const label = document.getElementById('currentHedgeLabel');
+      if (label) {
+        label.textContent = '● ' + (hedgeLabels[currentHedge] || '卖出平仓');
+        label.style.color = hedgeColors[currentHedge] || 'var(--cyan,#00d4ff)';
+      }
+    }
+
+    async function loadHedgeMode() {
+      try {
+        const cfg = await window.electronAPI.getConfig();
+        currentHedge = cfg.HEDGE_MODE || 'FLATTEN';
+      } catch { currentHedge = 'FLATTEN'; }
+      updateHedgeUI();
     }
 
     // ==================== 启动/停止 ====================

@@ -9209,6 +9209,13 @@ export class MarketMaker {
     const mode = this.config.hedgeMode ?? 'FLATTEN';
     const shares = Math.abs(delta);
 
+    // 买入反向对冲：被吃YES→买NO，被吃NO→买YES
+    if (mode === 'BUY_OPPOSITE') {
+      await this.buyOppositeHedge(tokenId, delta, shares, question);
+      this.lastHedgeAt.set(tokenId, Date.now());
+      return;
+    }
+
     if (mode === 'CROSS' && this.crossAggregator && this.crossExecutionRouter) {
       try {
         const hedgeLeg = await this.buildCrossHedgeLeg(tokenId, question, delta, shares);
@@ -9223,6 +9230,7 @@ export class MarketMaker {
       }
     }
 
+    // FLATTEN 或 CROSS fallback：卖出平仓
     await this.flattenOnPredict(tokenId, delta, shares);
     this.lastHedgeAt.set(tokenId, Date.now());
   }
@@ -9360,18 +9368,95 @@ export class MarketMaker {
       return;
     }
 
-    const side = delta > 0 ? 'SELL' : 'BUY';
+    // 被吃单 = 我们的BUY成交 = 持有多头，只做SELL平仓
+    // delta < 0 表示空头（卖单被吃），做市商不主动买回来
+    if (delta <= 0) {
+      console.log(`🛡️ Skip flatten: delta=${delta}（空头不做买入平仓）`);
+      return;
+    }
+
     const market = await this.api.getMarket(tokenId);
     const orderbook = await this.api.getOrderbook(tokenId);
     const payload = await this.orderManager.buildMarketOrderPayload({
       market,
-      side,
+      side: 'SELL',
       shares,
       orderbook,
       slippageBps: String(slippageOverride ?? this.config.hedgeMaxSlippageBps ?? 250),
     });
     await this.api.createOrder(payload);
-    console.log(`🛡️ Flattened position on Predict (${side} ${shares})`);
+    console.log(`🛡️ Flattened position on Predict (SELL ${shares} shares)`);
+  }
+
+  /**
+   * 买入反向对冲：被吃YES → 买NO，被吃NO → 买YES
+   * 利用 YES+NO=$1 的互补关系，买入对手方token对冲掉敞口
+   */
+  private async buyOppositeHedge(
+    tokenId: string,
+    delta: number,
+    shares: number,
+    question: string
+  ): Promise<void> {
+    if (!this.orderManager) return;
+
+    // delta < 0 表示空头（卖单被吃），不主动买反向对冲
+    if (delta <= 0) {
+      console.log(`🛡️ Skip buy-opposite: delta=${delta}（空头不做买入反向对冲）`);
+      return;
+    }
+
+    const market = this.marketByToken.get(tokenId);
+    if (!market) {
+      console.warn(`⚠️ 买入反向对冲: 找不到市场 ${tokenId.slice(0, 8)}，fallback到平仓`);
+      await this.flattenOnPredict(tokenId, delta, shares);
+      return;
+    }
+
+    const { yesTokenId, noTokenId } = this.getYesNoTokenIds(market);
+
+    // 判断被吃的token是YES还是NO
+    const isYesToken = tokenId === yesTokenId || (!noTokenId && tokenId === market.token_id);
+    const isNoToken = tokenId === noTokenId;
+
+    if (!isYesToken && !isNoToken) {
+      // 无法确定方向，fallback到平仓
+      console.warn(`⚠️ 买入反向对冲: 无法确定YES/NO方向，fallback到平仓`);
+      await this.flattenOnPredict(tokenId, delta, shares);
+      return;
+    }
+
+    // 被吃YES → 买NO对冲，被吃NO → 买YES对冲
+    const oppositeTokenId = isYesToken ? noTokenId : yesTokenId;
+    if (!oppositeTokenId) {
+      console.warn(`⚠️ 买入反向对冲: 找不到反向token，fallback到平仓`);
+      await this.flattenOnPredict(tokenId, delta, shares);
+      return;
+    }
+
+    try {
+      const oppositeMarket = await this.api.getMarket(oppositeTokenId);
+      const oppositeBook = await this.api.getOrderbook(oppositeTokenId);
+      const slippage = this.config.hedgeMaxSlippageBps ?? 250;
+
+      // 买入反向token，无论delta方向都买
+      const payload = await this.orderManager.buildMarketOrderPayload({
+        market: oppositeMarket,
+        side: 'BUY',
+        shares,
+        orderbook: oppositeBook,
+        slippageBps: String(slippage),
+      });
+      await this.api.createOrder(payload);
+
+      const direction = isYesToken ? '被吃YES→买NO' : '被吃NO→买YES';
+      console.log(`🛡️ 买入反向对冲: ${direction} ${shares}股 (${question.slice(0, 30)}...)`);
+      this.recordMmEvent('HEDGE_BUY_OPPOSITE', `${direction} shares=${shares}`, tokenId);
+    } catch (error) {
+      console.error(`❌ 买入反向对冲失败，fallback到平仓: ${error.message}`);
+      // 买反向失败 → fallback平仓
+      await this.flattenOnPredict(tokenId, delta, shares);
+    }
   }
 
   /**

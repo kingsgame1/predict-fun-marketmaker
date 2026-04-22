@@ -15,11 +15,19 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execSync } = require('child_process');
-const Store = require('electron-store');
 const https = require('https');
 const http = require('http');
 
-const store = new Store();
+// 简易JSON存储（替代electron-store）
+const STORE_PATH = path.join(app.getPath('userData'), 'config.json');
+const store = {
+  _data: {},
+  _load() { try { this._data = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8')); } catch { this._data = {}; } },
+  _save() { try { fs.mkdirSync(path.dirname(STORE_PATH), { recursive: true }); fs.writeFileSync(STORE_PATH, JSON.stringify(this._data, null, 2)); } catch {} },
+  get(key) { this._load(); return this._data[key]; },
+  set(key, val) { this._load(); this._data[key] = val; this._save(); },
+  delete(key) { this._load(); delete this._data[key]; this._save(); },
+};
 let mainWindow = null;
 let appProcess = null;
 

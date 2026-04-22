@@ -570,7 +570,7 @@ export interface Config {
   pauseAfterVolatilityMs?: number;
   hedgeOnFill?: boolean;
   hedgeTriggerShares?: number;
-  hedgeMode?: 'FLATTEN' | 'CROSS' | 'NONE';
+  hedgeMode?: 'FLATTEN' | 'BUY_OPPOSITE' | 'CROSS' | 'NONE';
   hedgeMaxSlippageBps?: number;
   crossPlatformEnabled?: boolean;
   crossPlatformMinProfit?: number;

@@ -2,9 +2,7 @@
   "name": "predict-fun-market-maker",
   "version": "2.2.4",
   "private": true,
-  "type": "module",
   "main": "main.js",
-  "description": "Market Maker Desktop App for Predict.fun and Polymarket",
   "author": {
     "name": "ccjing",
     "email": "ccjing.eth@gmail.com"
@@ -12,7 +10,7 @@
   "homepage": "https://github.com/ccjingeth/predict-fun-marketmaker",
   "scripts": {
     "start": "electron .",
-    "prebuild": "node build-scripts/copy-source.js",
+    "prebuild": "node build-scripts/copy-source.mjs",
     "build": "npm run prebuild && electron-builder --mac --win --linux",
     "build:mac": "npm run prebuild && electron-builder --mac",
     "build:win": "npm run prebuild && electron-builder --win",
@@ -20,8 +18,7 @@
   },
   "devDependencies": {
     "electron": "^30.0.0",
-    "electron-builder": "^24.13.3",
-    "electron-store": "^8.1.0"
+    "electron-builder": "^24.13.3"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.2.3",
@@ -54,23 +51,55 @@
     ],
     "mac": {
       "target": [
-        {"target": "dmg", "arch": ["arm64"]},
-        {"target": "zip", "arch": ["arm64"]}
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.finance",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [
-        {"target": "nsis", "arch": ["x64"]},
-        {"target": "portable", "arch": ["x64"]}
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "${productName} Setup ${version}.${ext}"
     },
     "linux": {
       "target": [
-        {"target": "AppImage", "arch": ["x64", "arm64"]},
-        {"target": "deb", "arch": ["x64", "arm64"]}
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "Office",
       "artifactName": "${productName}-${version}.${ext}",
