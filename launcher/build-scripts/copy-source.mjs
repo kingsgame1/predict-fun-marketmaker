@@ -48,6 +48,13 @@ if (fs.existsSync(path.join(ROOT, 'tsconfig.json'))) {
   fs.copySync(path.join(ROOT, 'tsconfig.json'), path.join(RUNTIME, 'tsconfig.json'));
 }
 
+// 3b. 复制 .env（打包后APP需要配置文件）
+const envPath = path.join(ROOT, '.env');
+if (fs.existsSync(envPath)) {
+  fs.copySync(envPath, path.join(RUNTIME, '.env'));
+  console.log('[copy-source] Copied .env');
+}
+
 // 4. 安装依赖
 console.log('[copy-source] Installing dependencies...');
 execSync('npm install --production', { cwd: RUNTIME, stdio: 'inherit' });
