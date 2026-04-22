@@ -2,6 +2,7 @@
   "name": "predict-fun-market-maker",
   "version": "2.2.4",
   "private": true,
+  "type": "module",
   "main": "main.js",
   "description": "Market Maker Desktop App for Predict.fun and Polymarket",
   "author": {
@@ -19,7 +20,8 @@
   },
   "devDependencies": {
     "electron": "^30.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "electron-store": "^8.1.0"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.2.3",
