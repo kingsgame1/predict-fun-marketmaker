@@ -1,6 +1,6 @@
 {
   "name": "predict-fun-market-maker",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "description": "Automated market maker bot for Predict.fun & Polymarket - 双平台支持",
   "main": "dist/index.js",
   "type": "module",
