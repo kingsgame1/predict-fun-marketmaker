@@ -18,7 +18,8 @@
   },
   "devDependencies": {
     "electron": "^30.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.2.3",
@@ -44,6 +45,7 @@
       "preload.js",
       "index.html",
       "monitor.html",
+      "README.md",
       "scripts/**/*",
       "runtime-dist/**/*",
       "icon.*",
@@ -102,7 +104,7 @@
         }
       ],
       "category": "Office",
-      "artifactName": "${productName}-${version}.${ext}",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "maintainer": "ccjing <ccjing.eth@gmail.com>"
     },
     "nsis": {

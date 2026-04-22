@@ -1,0 +1,23 @@
+{
+  "venue": "predict",
+  "apiBaseUrl": "https://api.predict.fun",
+  "rpcUrl": "https://polygon-rpc.com",
+  "privateKey": "YOUR_PRIVATE_KEY_HERE",
+  "predictAccountAddress": "YOUR_PREDICT_ACCOUNT_ADDRESS",
+  "apiKey": "YOUR_API_KEY",
+  "jwtToken": "YOUR_JWT_TOKEN",
+  "mmTradingMode": "conservative",
+  "spread": 0.015,
+  "orderSize": 10,
+  "maxPosition": 100,
+  "cancelThreshold": 0.001,
+  "repriceThreshold": 0.005,
+  "minOrderIntervalMs": 5000,
+  "mmMinFrontDepthShares": 5000,
+  "mmMinBookBufferCents": 3.0,
+  "mmScreenSpreadBudgetRatio": 0.6,
+  "mmScreenHardMinBufferCents": 1.5,
+  "mmPositionMonitorEnabled": true,
+  "mmFillCooldownMs": 300000,
+  "mmProgressiveQuoteEnabled": true
+}
