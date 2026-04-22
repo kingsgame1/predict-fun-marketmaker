@@ -39,6 +39,20 @@ async function autoFetchJwt(config: ReturnType<typeof loadConfig>): Promise<stri
 
   console.log('🔐 检测到 JWT_TOKEN 缺失，尝试自动获取...');
 
+  // 重试包装函数
+  async function retry<T>(fn: () => Promise<T>, retries = 3, delayMs = 2000): Promise<T> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        if (i === retries - 1) throw err;
+        console.log(`[JWT] 重试 ${i + 1}/${retries - 1} (${err?.message || 'unknown error'})...`);
+        await new Promise(r => setTimeout(r, delayMs * (i + 1))); // 指数退避
+      }
+    }
+    throw new Error('Retry exhausted');
+  }
+
   try {
     // 动态导入以避免不必要的依赖加载
     const axios = (await import('axios')).default;
@@ -55,14 +69,14 @@ async function autoFetchJwt(config: ReturnType<typeof loadConfig>): Promise<stri
       },
     });
 
-    // Step 1: Get auth message
+    // Step 1: Get auth message (带重试)
     let message = '';
     try {
-      const res = await http.get('/v1/auth/message');
+      const res = await retry(() => http.get('/v1/auth/message'));
       const payload = res.data?.data ?? res.data;
       message = typeof payload === 'string' ? payload : String(payload?.message || '');
     } catch {
-      const res = await http.get('/auth/message');
+      const res = await retry(() => http.get('/auth/message'));
       const payload = res.data?.data ?? res.data;
       message = typeof payload === 'string' ? payload : String(payload?.message || '');
     }
@@ -90,14 +104,14 @@ async function autoFetchJwt(config: ReturnType<typeof loadConfig>): Promise<stri
       signature = await wallet.signMessage(message);
     }
 
-    // Step 3: Exchange for JWT
+    // Step 3: Exchange for JWT (带重试)
     let token = '';
     try {
-      const res = await http.post('/v1/auth', { signer: signerAddress, signature, message });
+      const res = await retry(() => http.post('/v1/auth', { signer: signerAddress, signature, message }));
       const data = res.data?.data ?? res.data;
       token = data?.token || data?.jwt || data?.accessToken || '';
     } catch {
-      const res = await http.post('/auth', { signer: signerAddress, signature, message });
+      const res = await retry(() => http.post('/auth', { signer: signerAddress, signature, message }));
       const data = res.data?.data ?? res.data;
       token = data?.token || data?.jwt || data?.accessToken || '';
     }
