@@ -612,6 +612,17 @@ safeHandle('start-app', async () => startMainApp());
 safeHandle('stop-app', async () => stopMainApp());
 safeHandle('get-app-status', async () => ({ running: !!appProcess, pid: appProcess?.pid ?? null }));
 
+// 紧急撤单: 写入 flag 文件，子进程定期检查
+safeHandle('emergency-cancel-all', async () => {
+  if (!appProcess) {
+    return { success: false, message: '没有运行中的做市商' };
+  }
+  const flagPath = path.join(getProjectPath(), 'emergency-cancel.flag');
+  fs.writeFileSync(flagPath, String(Date.now()), 'utf-8');
+  console.log('[紧急撤单] 已发送撤单信号');
+  return { success: true, message: '撤单信号已发送，做市商正在执行' };
+});
+
 safeHandle('open-project-folder', async () => { shell.openPath(getProjectPath()); return { success: true }; });
 safeHandle('open-config-file', async () => {
   const envPath = path.join(getProjectPath(), '.env');

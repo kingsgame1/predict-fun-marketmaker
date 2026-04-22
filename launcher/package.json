@@ -1,6 +1,6 @@
 {
   "name": "predict-fun-market-maker",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "private": true,
   "main": "main.js",
   "author": {

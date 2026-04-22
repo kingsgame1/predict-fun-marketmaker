@@ -54,4 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('app-log', handler);
   },
   removeLogListener: () => ipcRenderer.removeAllListeners('app-log'),
+
+  // 紧急撤单
+  emergencyCancelAll: () => ipcRenderer.invoke('emergency-cancel-all'),
 });

@@ -293,6 +293,32 @@
       cursor: not-allowed;
       animation: none;
     }
+    .btn-emergency {
+      padding: 10px 16px;
+      border-radius: 3px;
+      border: 1px solid var(--red-border);
+      background: var(--red-bg);
+      color: var(--red);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .btn-emergency:hover {
+      background: rgba(255,45,85,0.14);
+      border-color: rgba(255,45,85,0.4);
+      box-shadow: 0 0 20px rgba(255,45,85,0.15);
+    }
+    .btn-emergency:active {
+      transform: scale(0.97);
+    }
 
     /* ==================== SYSTEM STATUS ==================== */
     .sys-grid {
@@ -841,6 +867,9 @@
           <span id="btnIcon">▶</span>
           <span id="btnText">启动做市商</span>
         </button>
+        <button class="btn-emergency" id="btnEmergency" onclick="emergencyCancel()" style="display:none;" title="立即撤销所有挂单">
+          <span style="font-size:14px;">🚨</span> 紧急撤单
+        </button>
       </div>
     </div>
 
@@ -1143,15 +1172,37 @@
       const btn = document.getElementById('btnStart');
       const icon = document.getElementById('btnIcon');
       const text = document.getElementById('btnText');
+      const emergencyBtn = document.getElementById('btnEmergency');
       
       if (appRunning) {
         btn.className = 'btn-start running';
         icon.textContent = '■';
         text.textContent = '停止做市商';
+        emergencyBtn.style.display = 'flex';
       } else {
         btn.className = 'btn-start idle';
         icon.textContent = '▶';
         text.textContent = '启动做市商';
+        emergencyBtn.style.display = 'none';
+      }
+    }
+
+    // 紧急撤单
+    async function emergencyCancel() {
+      const btn = document.getElementById('btnEmergency');
+      if (!confirm('确定要立即撤销所有挂单？\n\n此操作不会停止做市商，仅撤销当前挂单。')) return;
+      btn.disabled = true;
+      try {
+        const result = await window.electronAPI.emergencyCancelAll();
+        if (result.success) {
+          showToast('撤单信号已发送，做市商正在执行', 'success');
+        } else {
+          showToast(result.message || '撤单失败', 'error');
+        }
+      } catch (e) {
+        showToast('撤单异常: ' + String(e), 'error');
+      } finally {
+        btn.disabled = false;
       }
     }
 

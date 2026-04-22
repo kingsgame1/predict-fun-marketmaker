@@ -45,6 +45,9 @@ import { pointsManager } from './mm/points/points-manager.js';
 import { pointsOptimizerEngine, type PointsMarketScore } from './mm/points/points-optimizer.js';
 import { pointsSystemIntegration } from './mm/points/points-integration.js';
 import { pointsOptimizerEngineV2, type OptimizedOrderParams } from './mm/points/points-optimizer-v2.js';
+import { alertFill, alertApiFailure } from './utils/alert.js';
+import { startSnapshotTimer, stopSnapshotTimer } from './utils/snapshot.js';
+import { recordFill } from './utils/daily-report.js';
 
 // CRITICAL FIX #2: 统一的持仓快照接口，解决类型不一致问题
 interface PositionSnapshot {
@@ -9068,6 +9071,10 @@ export class MarketMaker {
           const deltaYes = currentYes - prevYes;
           const side = deltaYes > 0 ? 'BUY' : 'SELL';
           const filledShares = Math.abs(deltaYes);
+          // 实时告警: 订单被吃
+          alertFill(market.token_id || market.condition_id || '', side, market.yes_price || 0.5, filledShares);
+          // 记录到日报
+          recordFill(filledShares, 0, 0);
           try {
             await this.handleUnifiedOrderFill(market, side, 'YES', filledShares);
           } catch (error) {
@@ -9081,6 +9088,10 @@ export class MarketMaker {
           const deltaNo = currentNo - prevNo;
           const side = deltaNo > 0 ? 'BUY' : 'SELL';
           const filledShares = Math.abs(deltaNo);
+          // 实时告警: 订单被吃
+          alertFill(market.token_id || market.condition_id || '', side, market.no_price || 0.5, filledShares);
+          // 记录到日报
+          recordFill(filledShares, 0, 0);
           try {
             await this.handleUnifiedOrderFill(market, side, 'NO', filledShares);
           } catch (error) {
@@ -10926,6 +10937,12 @@ export class MarketMaker {
 
     // 获取目标 token_id
     const targetTokenId = token === 'YES' ? yesTokenId : noTokenId;
+
+    // 记录对冲操作到日报
+    const hedgePrice = token === 'YES' ? (market.yes_price || 0.5) : (market.no_price || 0.5);
+    const estimatedCost = action.shares * hedgePrice;
+    const { recordFill } = await import('./utils/daily-report.js');
+    recordFill(0, 0, estimatedCost);
 
     // 执行对冲操作，使用正确的 token_id
     switch (action.type) {

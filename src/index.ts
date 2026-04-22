@@ -16,6 +16,10 @@ import { PredictWebSocketFeed } from './external/predict-ws.js';
 import { PolymarketWebSocketFeed } from './external/polymarket-ws.js';
 import { PolymarketOrderManager } from './order-manager-polymarket.js';
 import type { Market, Orderbook } from './types.js';
+import { setupLogger } from './utils/logger.js';
+
+// 启动日志系统（最早，确保所有console输出都落盘）
+setupLogger();
 
 // ==================== JWT 自动获取 ====================
 function upsertEnvVar(envContent: string, key: string, value: string): string {
@@ -1277,6 +1281,19 @@ export class PredictMarketMakerBot {
 
     while (this.running) {
       try {
+        // 紧急撤单检查（APP一键全撤信号）
+        const cancelFlagPath = path.join(process.cwd(), 'emergency-cancel.flag');
+        if (fs.existsSync(cancelFlagPath)) {
+          console.log('🚨 检测到紧急撤单信号，执行撤单...');
+          try {
+            await this.marketMaker.cancelAllOpenOrders();
+            console.log('✅ 紧急撤单完成');
+          } catch (e) {
+            console.error('❌ 紧急撤单失败:', e);
+          }
+          fs.unlinkSync(cancelFlagPath);
+        }
+
         this.updateWsHealth();
         // 维护 WebSocket 健康状态（自动恢复）
         this.marketMaker.maintainWsHealth();
@@ -1337,6 +1354,11 @@ export class PredictMarketMakerBot {
       throw new Error('Bot is already running');
     }
     await this.run();
+    // 启动状态快照定时器
+    if (this.marketMaker) {
+      const { startSnapshotTimer } = await import('./utils/snapshot.js');
+      startSnapshotTimer(this.marketMaker);
+    }
   }
 
   /**
@@ -1364,6 +1386,9 @@ export class PredictMarketMakerBot {
       this.wsFeed.stop();
       this.wsFeed = undefined;
     }
+    // 停止状态快照定时器
+    const { stopSnapshotTimer } = await import('./utils/snapshot.js');
+    stopSnapshotTimer();
   }
 
   /**
@@ -1924,6 +1949,19 @@ export class PolymarketMarketMakerBot {
 
     while (this.running) {
       try {
+        // 紧急撤单检查（APP一键全撤信号）
+        const cancelFlagPath = path.join(process.cwd(), 'emergency-cancel.flag');
+        if (fs.existsSync(cancelFlagPath)) {
+          console.log('🚨 检测到紧急撤单信号，执行撤单...');
+          try {
+            await this.marketMaker.cancelAllOpenOrders();
+            console.log('✅ 紧急撤单完成');
+          } catch (e) {
+            console.error('❌ 紧急撤单失败:', e);
+          }
+          fs.unlinkSync(cancelFlagPath);
+        }
+
         this.updateWsHealth();
         this.marketMaker.maintainWsHealth();
 
@@ -1981,6 +2019,11 @@ export class PolymarketMarketMakerBot {
       throw new Error('Bot is already running');
     }
     await this.run();
+    // 启动状态快照定时器
+    if (this.marketMaker) {
+      const { startSnapshotTimer } = await import('./utils/snapshot.js');
+      startSnapshotTimer(this.marketMaker);
+    }
   }
 
   async stop(): Promise<void> {
