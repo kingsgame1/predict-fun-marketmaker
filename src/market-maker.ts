@@ -9072,7 +9072,7 @@ export class MarketMaker {
           const side = deltaYes > 0 ? 'BUY' : 'SELL';
           const filledShares = Math.abs(deltaYes);
           // 实时告警: 订单被吃
-          alertFill(market.token_id || market.condition_id || '', side, market.yes_price || 0.5, filledShares);
+          alertFill(market.token_id || market.condition_id || '', side, (market as any).yes_price || 0.5, filledShares);
           // 记录到日报
           recordFill(filledShares, 0, 0);
           try {
@@ -9089,7 +9089,7 @@ export class MarketMaker {
           const side = deltaNo > 0 ? 'BUY' : 'SELL';
           const filledShares = Math.abs(deltaNo);
           // 实时告警: 订单被吃
-          alertFill(market.token_id || market.condition_id || '', side, market.no_price || 0.5, filledShares);
+          alertFill(market.token_id || market.condition_id || '', side, (market as any).no_price || 0.5, filledShares);
           // 记录到日报
           recordFill(filledShares, 0, 0);
           try {
@@ -10939,7 +10939,7 @@ export class MarketMaker {
     const targetTokenId = token === 'YES' ? yesTokenId : noTokenId;
 
     // 记录对冲操作到日报
-    const hedgePrice = token === 'YES' ? (market.yes_price || 0.5) : (market.no_price || 0.5);
+    const hedgePrice = token === 'YES' ? ((market as any).yes_price || 0.5) : ((market as any).no_price || 0.5);
     const estimatedCost = action.shares * hedgePrice;
     const { recordFill } = await import('./utils/daily-report.js');
     recordFill(0, 0, estimatedCost);
