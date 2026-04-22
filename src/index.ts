@@ -1342,16 +1342,15 @@ export class PredictMarketMakerBot {
   /**
    * Stop the bot
    */
-  stop(): void {
-    console.log('\n🛑 Stopping bot...');
+  async stop(): Promise<void> {
+    console.log('\n\ud83d\uded1 Stopping bot...');
     this.running = false;
 
-    // 撤销所有挂单 — 关闭前必须撤单，否则订单会一直挂在盘口
+    // P1 FIX: 撤销所有挂单 — 等待完成再退出，否则订单会一直挂在盘口
     try {
       if (this.marketMaker && typeof this.marketMaker.cancelAllOpenOrders === 'function') {
-        this.marketMaker.cancelAllOpenOrders().catch(e => {
-          console.error('⚠️ 停止时撤单失败:', e?.message || e);
-        });
+        await this.marketMaker.cancelAllOpenOrders();
+        console.log('✅ 所有挂单已撤销');
       }
     } catch (e) {
       console.error('⚠️ 停止时撤单异常:', e instanceof Error ? e.message : String(e));
@@ -1984,15 +1983,14 @@ export class PolymarketMarketMakerBot {
     await this.run();
   }
 
-  stop(): void {
-    console.log('\n🛑 Stopping Polymarket bot...');
+  async stop(): Promise<void> {
+    console.log('\n\ud83d\uded1 Stopping Polymarket bot...');
     this.running = false;
-    // 撤销所有挂单 — 关闭后订单留在盘口有被吃的风险
+    // P1 FIX: 撤销所有挂单 — 等待完成再退出，否则订单会一直挂在盘口
     try {
       if (this.marketMaker && typeof this.marketMaker.cancelAllOpenOrders === 'function') {
-        this.marketMaker.cancelAllOpenOrders().catch(e => {
-          console.error('⚠️ Polymarket停止时撤单失败:', e?.message || e);
-        });
+        await this.marketMaker.cancelAllOpenOrders();
+        console.log('✅ Polymarket所有挂单已撤销');
       }
     } catch (e) {
       console.error('⚠️ Polymarket停止时撤单异常:', e?.message || e);
@@ -2049,9 +2047,8 @@ async function main() {
 process.on('SIGINT', async () => {
   console.log('\n\nReceived SIGINT, shutting down gracefully...');
   if (activeBot) {
-    activeBot.stop();
-    // 等待撤单完成（最多5秒）
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await activeBot.stop();
+    console.log('✅ 撤单完成，安全退出');
   }
   process.exit(0);
 });
@@ -2059,8 +2056,8 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   console.log('\n\nReceived SIGTERM, shutting down gracefully...');
   if (activeBot) {
-    activeBot.stop();
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await activeBot.stop();
+    console.log('✅ 撤单完成，安全退出');
   }
   process.exit(0);
 });

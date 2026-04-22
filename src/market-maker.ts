@@ -251,6 +251,8 @@ export class MarketMaker {
   private riskThrottleState: Map<string, { score: number; lastUpdate: number; coolOffUntil: number }> = new Map();
   private nearTouchBurst: Map<string, { count: number; windowStart: number }> = new Map();
   private fillBurst: Map<string, { count: number; windowStart: number }> = new Map();
+  // P1 FIX: 下单互斥锁，防止余额检查→下单之间的TOCTOU竞争条件
+  private placeOrderLock: Promise<void> = Promise.resolve();
   // 积分优化相关字段
   private pointsScores: Map<string, PointsMarketScore> = new Map();
   private pointsLastReportAt = 0;
@@ -8404,6 +8406,32 @@ export class MarketMaker {
       return false;
     }
 
+    // P1 FIX: BUY侧下单加锁，防止余额检查→下单之间的TOCTOU竞争条件
+    // SELL侧不涉及抵押品余额，无需锁定
+    if (side === 'BUY') {
+      const previousLock = this.placeOrderLock;
+      let resolveLock: () => void;
+      this.placeOrderLock = new Promise<void>(resolve => { resolveLock = resolve; });
+      await previousLock;
+      try {
+        return await this.doPlaceLimitOrder(market, side, price, shares, currentSpread, quotePrices);
+      } finally {
+        resolveLock!();
+      }
+    }
+
+    return this.doPlaceLimitOrder(market, side, price, shares, currentSpread, quotePrices);
+  }
+
+  private async doPlaceLimitOrder(
+    market: Market,
+    side: 'BUY' | 'SELL',
+    price: number,
+    shares: number,
+    currentSpread?: number,
+    quotePrices?: QuotePrices | null
+  ): Promise<boolean> {
+
     if (!this.orderManager) {
       return false;
     }
@@ -8693,7 +8721,7 @@ export class MarketMaker {
         response?.order?.hash ||
         response?.data?.order?.hash ||
         payload?.data?.order?.hash ||
-        `local-${Date.now()}`;
+        `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       this.openOrders.set(String(orderHash), {
         order_hash: String(orderHash),
@@ -8855,12 +8883,22 @@ export class MarketMaker {
         console.log(`❌ Canceled ${order.order_hash.substring(0, 10)}...`);
         return true;
       } catch (error) {
+        const errMsg = this.getErrorMessage(error).toLowerCase();
+        const isAlreadyFilled = errMsg.includes('already filled') || errMsg.includes('order filled') || errMsg.includes('fully filled');
+        const isAlreadyCanceled = errMsg.includes('already canceled') || errMsg.includes('order not found') || errMsg.includes('does not exist');
+
+        if (isAlreadyFilled || isAlreadyCanceled) {
+          // P0 FIX: 订单已成交或已撤销，从openOrders删除避免幽灵订单
+          this.openOrders.delete(order.order_hash);
+          console.warn(`✅ 订单已${isAlreadyFilled ? '成交' : '撤销'}，从openOrders移除: ${order.order_hash.substring(0, 10)}...`);
+          return true;
+        }
+
         if (attempt < maxRetries) {
           console.warn(`⚠️ 撤单失败(尝试${attempt+1}/${maxRetries})，重试: ${order.order_hash.substring(0, 10)}...`);
           await this.sleep(500 * (attempt + 1)); // 递增延迟
         } else {
           console.error(`❌ 撤单最终失败(${maxRetries+1}次)，订单可能仍在盘口: ${order.order_hash.substring(0, 10)}...`, error);
-          // 不从openOrders中删除 — 保持跟踪，下次循环会再次尝试撤单
           this.recordMmEvent('CANCEL_FAILED', `order=${order.order_hash.substring(0, 10)} error=${this.getErrorMessage(error)}`, order.token_id);
           return false;
         }

@@ -380,7 +380,11 @@ export class PolymarketWebSocketFeed {
       return;
     }
     for (const callback of this.orderbookSubscribers) {
-      callback(assetId, orderbook);
+      try {
+        callback(assetId, orderbook);
+      } catch (e) {
+        console.error(`⚠️ polymarket-ws notifyOrderbook callback error for ${assetId}:`, e);
+      }
     }
   }
 }

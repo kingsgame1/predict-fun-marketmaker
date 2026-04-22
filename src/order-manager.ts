@@ -81,11 +81,19 @@ export class OrderManager {
   }
 
   static async create(config: Config): Promise<OrderManager> {
+    if (!config.privateKey || typeof config.privateKey !== 'string' || config.privateKey.length < 32) {
+      throw new Error('Invalid privateKey: must be a non-empty hex string (length >= 32)');
+    }
     const chainId = config.predictChainId ?? ChainId.BnbMainnet;
     const provider = config.rpcUrl
       ? new JsonRpcProvider(config.rpcUrl)
       : (ProviderByChainId[chainId] as JsonRpcProvider);
-    const wallet = new Wallet(config.privateKey, provider);
+    let wallet: Wallet;
+    try {
+      wallet = new Wallet(config.privateKey, provider);
+    } catch (e) {
+      throw new Error(`Failed to initialize wallet: ${e instanceof Error ? e.message : String(e)}`);
+    }
 
     const orderBuilder = await OrderBuilder.make(chainId, wallet, {
       ...(config.predictAccountAddress ? { predictAccount: config.predictAccountAddress } : {}),
@@ -214,6 +222,22 @@ export class OrderManager {
   }
 
   async buildLimitOrderPayload(params: LimitOrderParams): Promise<any> {
+    // P0 FIX: 严格参数验证，防止NaN/Infinity/0/负数上链
+    if (!params || typeof params !== 'object') {
+      throw new Error('buildLimitOrderPayload: params is required');
+    }
+    const price = Number(params.price);
+    const shares = Number(params.shares);
+    if (!Number.isFinite(price) || price <= 0 || price >= 1) {
+      throw new Error(`buildLimitOrderPayload: invalid price=${params.price} (must be 0 < price < 1)`);
+    }
+    if (!Number.isFinite(shares) || shares <= 0) {
+      throw new Error(`buildLimitOrderPayload: invalid shares=${params.shares} (must be > 0)`);
+    }
+    if (!params.market || !params.market.token_id) {
+      throw new Error('buildLimitOrderPayload: market.token_id is required');
+    }
+
     const side = params.side === 'BUY' ? Side.BUY : Side.SELL;
     const makerAddress = this.getMakerAddress();
 
@@ -297,7 +321,10 @@ export class OrderManager {
   }
 
   private toWei(value: number, decimals: number): bigint {
-    const normalized = Number.isFinite(value) && value > 0 ? value : 0;
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`Invalid value for toWei: ${value} (must be finite and > 0)`);
+    }
+    const normalized = value;
     const asString = normalized
       .toFixed(decimals)
       .replace(/\.0+$/, '')

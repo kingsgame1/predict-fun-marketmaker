@@ -273,13 +273,21 @@ export class PredictWebSocketFeed {
     const tokens = this.topicToTokens.get(topicId);
     if (!tokens || tokens.size === 0) {
       for (const callback of this.orderbookSubscribers) {
-        callback(topicId, { ...orderbook, token_id: topicId });
+        try {
+          callback(topicId, { ...orderbook, token_id: topicId });
+        } catch (e) {
+          console.error(`⚠️ predict-ws notifyOrderbook callback error:`, e);
+        }
       }
       return;
     }
     for (const tokenId of tokens) {
       for (const callback of this.orderbookSubscribers) {
-        callback(tokenId, { ...orderbook, token_id: tokenId });
+        try {
+          callback(tokenId, { ...orderbook, token_id: tokenId });
+        } catch (e) {
+          console.error(`⚠️ predict-ws notifyOrderbook callback error for ${tokenId}:`, e);
+        }
       }
     }
   }
