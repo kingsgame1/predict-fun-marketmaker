@@ -461,6 +461,12 @@ async function fetchPredictJwt() {
     let signature = '';
     let signerAddress = accountAddress;
     
+    // Validate address: reject placeholder / zero addresses
+    const isValidAddr = /^0x[0-9a-fA-F]{40}$/.test(accountAddress || '') && (accountAddress || '').toLowerCase() !== '0x' + '0'.repeat(40);
+    if (!isValidAddr) {
+      signerAddress = '';
+    }
+    
     try {
       // Try using the project's ethers dependency
       const ethersPath = path.join(projectPath, 'node_modules', 'ethers');
@@ -475,7 +481,7 @@ async function fetchPredictJwt() {
       
       // Check if predict SDK is available for account signing
       let usedAccountSigner = false;
-      if (accountAddress) {
+      if (isValidAddr) {
         try {
           const sdkPath = path.join(projectPath, 'node_modules', '@predictdotfun', 'sdk');
           if (fs.existsSync(sdkPath)) {
@@ -487,7 +493,9 @@ async function fetchPredictJwt() {
             signature = await orderBuilder.signPredictAccountMessage(message);
             usedAccountSigner = true;
           }
-        } catch {}
+        } catch (sdkErr) {
+          console.log(`[JWT] PredictAccount signer failed: ${sdkErr.message}, falling back to EOA`);
+        }
       }
       
       if (!usedAccountSigner) {

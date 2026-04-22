@@ -72,16 +72,26 @@ async function main() {
     ? new Wallet(config.privateKey, new JsonRpcProvider(config.rpcUrl))
     : new Wallet(config.privateKey);
 
-  const signerAddress = config.predictAccountAddress || wallet.address;
+  // Validate address: reject placeholder / zero addresses
+  const rawAddr = config.predictAccountAddress?.trim() || '';
+  const isValidAddr = /^0x[0-9a-fA-F]{40}$/.test(rawAddr) && rawAddr.toLowerCase() !== '0x' + '0'.repeat(40);
+  const signerAddress = isValidAddr ? rawAddr : wallet.address;
 
   let signature = '';
-  if (config.predictAccountAddress) {
-    const chainId = config.predictChainId ?? ChainId.BnbMainnet;
-    const orderBuilder = await OrderBuilder.make(chainId, wallet, {
-      predictAccount: config.predictAccountAddress,
-    });
-    signature = await orderBuilder.signPredictAccountMessage(message);
-  } else {
+  let usedPredictAccount = false;
+  if (isValidAddr) {
+    try {
+      const chainId = config.predictChainId ?? ChainId.BnbMainnet;
+      const orderBuilder = await OrderBuilder.make(chainId, wallet, {
+        predictAccount: rawAddr,
+      });
+      signature = await orderBuilder.signPredictAccountMessage(message);
+      usedPredictAccount = true;
+    } catch {
+      // fall through to EOA
+    }
+  }
+  if (!usedPredictAccount) {
     signature = await wallet.signMessage(message);
   }
 

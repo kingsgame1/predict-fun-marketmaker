@@ -100,19 +100,29 @@ async function main() {
     : new Wallet(config.privateKey);
   console.log(`✅ Wallet created: ${wallet.address}`);
 
-  const signerAddress = config.predictAccountAddress || wallet.address;
+  // Validate address: reject placeholder / zero addresses
+  const rawAddr = config.predictAccountAddress?.trim() || '';
+  const isValidAddr = /^0x[0-9a-fA-F]{40}$/.test(rawAddr) && rawAddr.toLowerCase() !== '0x' + '0'.repeat(40);
+  const signerAddress = isValidAddr ? rawAddr : wallet.address;
 
   console.log(`🔐 Step 3: Sign message (signer=${signerAddress})...`);
   let signature = '';
-  if (config.predictAccountAddress) {
+  let usedPredictAccount = false;
+  if (isValidAddr) {
     console.log('   Using PredictAccount signer...');
-    const chainId = config.predictChainId ?? ChainId.BnbMainnet;
-    const orderBuilder = await OrderBuilder.make(chainId, wallet, {
-      predictAccount: config.predictAccountAddress,
-    });
-    signature = await orderBuilder.signPredictAccountMessage(message);
-    console.log('✅ PredictAccount signature done');
-  } else {
+    try {
+      const chainId = config.predictChainId ?? ChainId.BnbMainnet;
+      const orderBuilder = await OrderBuilder.make(chainId, wallet, {
+        predictAccount: rawAddr,
+      });
+      signature = await orderBuilder.signPredictAccountMessage(message);
+      usedPredictAccount = true;
+      console.log('✅ PredictAccount signature done');
+    } catch (err: any) {
+      console.log(`   PredictAccount signer failed (${err?.message || err}), falling back to EOA...`);
+    }
+  }
+  if (!usedPredictAccount) {
     console.log('   Using EOA signer...');
     signature = await wallet.signMessage(message);
     console.log('✅ EOA signature done');
