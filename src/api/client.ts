@@ -287,6 +287,7 @@ export class PredictAPI {
       volume_24h: Number(volume24h ?? 0),
       liquidity_24h: Number(liquidity24h ?? 0),
       outcomes,
+      liquidity_activation: raw?.liquidity_activation ?? raw?.liquidityActivation ?? raw?.points_rules ?? raw?.reward_rules,
     };
   }
 

@@ -3944,25 +3944,21 @@ export class MarketMaker {
 
     // ===== 核心筛选 =====
 
-    // 检查0: 必须有积分规则
+    // 检查0: 必须有积分规则（无规则时使用默认fallback允许交易）
     if (!liquidityRules) {
-      return { safe: false, reason: '无积分规则' };
+      console.log(`[MarketScreen] ${tokenId} 无积分规则，使用默认参数继续筛选`);
     }
-    if (liquidityRules.active === false) {
-      return { safe: false, reason: '积分规则已停用' };
-    }
-    if (maxSpreadCents <= 0) {
-      return { safe: false, reason: '无max_spread规则' };
-    }
+    const effectiveMaxSpreadCents = maxSpreadCents > 0 ? maxSpreadCents : 8.0; // 默认允许最大价4分（0.04）
+    const effectiveRules = liquidityRules || { active: true, max_spread_cents: effectiveMaxSpreadCents, description: 'default-fallback' };
 
     // 检查1: 盘口价差比例（保守:40% 激进:50%）
     // 盘口价差越大 → 留给你的缓冲越小 → 越容易被吃
-    if (bookSpreadCents > maxSpreadCents * mode.spreadBudgetRatio) {
-      return { safe: false, reason: `盘口价差过大(${bookSpreadCents.toFixed(1)}c > ${(maxSpreadCents * mode.spreadBudgetRatio).toFixed(1)}c)` };
+    if (bookSpreadCents > effectiveMaxSpreadCents * mode.spreadBudgetRatio) {
+      return { safe: false, reason: `盘口价差过大(${bookSpreadCents.toFixed(1)}c > ${(effectiveMaxSpreadCents * mode.spreadBudgetRatio).toFixed(1)}c)` };
     }
 
     // 检查2: 每侧缓冲最低要求（保守:2.5c 激进:2.0c）
-    const bufferPerSide = (maxSpreadCents - bookSpreadCents) / 2;
+    const bufferPerSide = (effectiveMaxSpreadCents - bookSpreadCents) / 2;
     if (bufferPerSide < mode.hardMinBuffer) {
       return { safe: false, reason: `缓冲不足(${bufferPerSide.toFixed(2)}c < ${mode.hardMinBuffer}c最低)` };
     }
