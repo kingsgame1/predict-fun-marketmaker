@@ -54,7 +54,12 @@ export function loadConfig(): Config {
     apiBaseUrl: process.env.API_BASE_URL || 'https://api.predict.fun',
     privateKey: process.env.PRIVATE_KEY || '',
     rpcUrl: process.env.RPC_URL,
-    predictAccountAddress: process.env.PREDICT_ACCOUNT_ADDRESS,
+    predictAccountAddress: (() => {
+      const addr = process.env.PREDICT_ACCOUNT_ADDRESS?.trim();
+      // 过滤空地址、占位符、全零地址
+      if (!addr || /^0x0+$/i.test(addr) || addr.length < 42) return undefined;
+      return addr;
+    })(),
     apiKey: process.env.API_KEY,
     jwtToken: process.env.JWT_TOKEN,
     spread: parseFloat(process.env.SPREAD || '0.02'),

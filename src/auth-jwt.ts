@@ -56,6 +56,10 @@ async function main() {
   const baseUrl = config.apiBaseUrl.replace(/\/+$/, '');
   const envPath = process.env.ENV_PATH || path.join(process.cwd(), '.env');
 
+  console.log(`🔐 API: ${baseUrl}`);
+  console.log(`🔐 RPC: ${config.rpcUrl || '(none)'}`);
+  console.log(`🔐 Account: ${config.predictAccountAddress || '(EOA)'}`);
+
   const http = axios.create({
     baseURL: baseUrl,
     timeout: 30000,
@@ -65,40 +69,56 @@ async function main() {
     },
   });
 
-  console.log('🔐 Generating JWT token...');
+  console.log('🔐 Step 1: Fetch auth message...');
 
   let message = '';
   try {
     const res = await retryFetch(() => http.get('/v1/auth/message'));
     const payload = unwrapData<any>(res.data);
     message = typeof payload === 'string' ? payload : String(payload?.message || '');
-  } catch {
-    const res = await retryFetch(() => http.get('/auth/message'));
-    const payload = unwrapData<any>(res.data);
-    message = typeof payload === 'string' ? payload : String(payload?.message || '');
+    console.log(`✅ Auth message received (${message.length} chars)`);
+  } catch (err1: any) {
+    console.log(`   /v1/auth/message failed: ${err1.message}`);
+    try {
+      const res = await retryFetch(() => http.get('/auth/message'));
+      const payload = unwrapData<any>(res.data);
+      message = typeof payload === 'string' ? payload : String(payload?.message || '');
+      console.log(`✅ Auth message received (fallback, ${message.length} chars)`);
+    } catch (err2: any) {
+      console.log(`   /auth/message failed: ${err2.message}`);
+      throw new Error('Failed to fetch auth message from both endpoints');
+    }
   }
 
   if (!message) {
-    throw new Error('Failed to fetch auth message');
+    throw new Error('Auth message is empty');
   }
 
+  console.log('🔐 Step 2: Create wallet...');
   const wallet = config.rpcUrl
     ? new Wallet(config.privateKey, new JsonRpcProvider(config.rpcUrl))
     : new Wallet(config.privateKey);
+  console.log(`✅ Wallet created: ${wallet.address}`);
 
   const signerAddress = config.predictAccountAddress || wallet.address;
 
+  console.log(`🔐 Step 3: Sign message (signer=${signerAddress})...`);
   let signature = '';
   if (config.predictAccountAddress) {
+    console.log('   Using PredictAccount signer...');
     const chainId = config.predictChainId ?? ChainId.BnbMainnet;
     const orderBuilder = await OrderBuilder.make(chainId, wallet, {
       predictAccount: config.predictAccountAddress,
     });
     signature = await orderBuilder.signPredictAccountMessage(message);
+    console.log('✅ PredictAccount signature done');
   } else {
+    console.log('   Using EOA signer...');
     signature = await wallet.signMessage(message);
+    console.log('✅ EOA signature done');
   }
 
+  console.log('🔐 Step 4: Exchange for JWT...');
   let token = '';
   try {
     const res = await retryFetch(() => http.post('/v1/auth', {
@@ -109,7 +129,9 @@ async function main() {
 
     const data = unwrapData<any>(res.data);
     token = data?.token || data?.jwt || data?.accessToken || '';
-  } catch {
+    console.log(`✅ /v1/auth response received`);
+  } catch (err1: any) {
+    console.log(`   /v1/auth failed: ${err1.message}`);
     const res = await retryFetch(() => http.post('/auth', {
       signer: signerAddress,
       signature,
@@ -118,12 +140,14 @@ async function main() {
 
     const data = unwrapData<any>(res.data);
     token = data?.token || data?.jwt || data?.accessToken || '';
+    console.log(`✅ /auth response received (fallback)`);
   }
 
   if (!token) {
     throw new Error('Auth succeeded but JWT token was not found in response');
   }
 
+  console.log('🔐 Step 5: Save to .env...');
   const oldContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
   const updated = upsertEnvVar(oldContent, 'JWT_TOKEN', token);
   fs.mkdirSync(path.dirname(envPath), { recursive: true });
