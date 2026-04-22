@@ -3948,7 +3948,7 @@ export class MarketMaker {
     if (!liquidityRules) {
       console.log(`[MarketScreen] ${tokenId} 无积分规则，使用默认参数继续筛选`);
     }
-    const effectiveMaxSpreadCents = maxSpreadCents > 0 ? maxSpreadCents : 8.0; // 默认允许最大价4分（0.04）
+    const effectiveMaxSpreadCents = maxSpreadCents > 0 ? maxSpreadCents : 20.0; // fallback: 允许最大价20c（0.20）
     const effectiveRules = liquidityRules || { active: true, max_spread_cents: effectiveMaxSpreadCents, description: 'default-fallback' };
 
     // 检查1: 盘口价差比例（保守:40% 激进:50%）
@@ -3959,7 +3959,7 @@ export class MarketMaker {
 
     // 检查2: 每侧缓冲最低要求（保守:2.5c 激进:2.0c）
     const bufferPerSide = (effectiveMaxSpreadCents - bookSpreadCents) / 2;
-    if (bufferPerSide < mode.hardMinBuffer) {
+    if (bufferPerSide + 0.005 < mode.hardMinBuffer) {
       return { safe: false, reason: `缓冲不足(${bufferPerSide.toFixed(2)}c < ${mode.hardMinBuffer}c最低)` };
     }
 
