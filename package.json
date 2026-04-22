@@ -1,11 +1,11 @@
 {
   "name": "predict-fun-market-maker",
-  "version": "2.2.1",
+  "version": "2.2.4",
   "description": "Automated market maker bot for Predict.fun & Polymarket - 双平台支持",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "start": "npm --prefix lite-release/predict-fun-market-maker-lite/desktop-app-lite start",
+    "start": "npm --prefix launcher start",
     "start:cli": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

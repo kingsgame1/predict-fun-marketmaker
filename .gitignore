@@ -9,6 +9,8 @@ desktop-app/dist-pack/
 desktop-app/dist/
 lite-release/*/desktop-app-lite/dist/
 lite-release/*/desktop-app-lite/runtime-dist/
+launcher/dist/
+launcher/runtime-dist/
 *.dmg
 *.exe
 *.zip

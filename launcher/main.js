@@ -58,7 +58,15 @@ function createWindow() {
 function getProjectPath() {
   let projectPath = store.get('projectPath');
   if (!projectPath) {
+    // 开发模式：指向项目根目录
+    // 打包模式：如果上级目录没有package.json，尝试runtime-dist
     projectPath = path.resolve(__dirname, '..');
+    if (!fs.existsSync(path.join(projectPath, 'package.json'))) {
+      const runtimePath = path.resolve(__dirname, 'runtime-dist');
+      if (fs.existsSync(runtimePath)) {
+        projectPath = runtimePath;
+      }
+    }
     store.set('projectPath', projectPath);
   }
   return projectPath;
@@ -223,7 +231,7 @@ function checkSystemEnvironment() {
 
 // ==================== HTTP 请求工具 ====================
 
-function httpGet(urlStr, headers = {}, timeout = 15000) {
+function httpGet(urlStr, headers = {}, timeout = 30000) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlStr);
     const mod = url.protocol === 'https:' ? https : http;
@@ -243,7 +251,7 @@ function httpGet(urlStr, headers = {}, timeout = 15000) {
   });
 }
 
-function httpPost(urlStr, body, headers = {}, timeout = 15000) {
+function httpPost(urlStr, body, headers = {}, timeout = 30000) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlStr);
     const mod = url.protocol === 'https:' ? https : http;
@@ -412,15 +420,26 @@ async function fetchPredictJwt() {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['x-api-key'] = apiKey;
   
+  async function retryHttp(fn, retries = 3, delayMs = 2000) {
+    for (let i = 0; i < retries; i++) {
+      try { return await fn(); }
+      catch (err) {
+        if (i === retries - 1) throw err;
+        console.log(`[JWT] 重试 ${i+1}/${retries-1} (${err.message})...`);
+        await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+      }
+    }
+  }
+  
   try {
     // Step 1: Get auth message
     let message = '';
     try {
-      const res = await httpGet(`${baseUrl}/v1/auth/message`, headers);
+      const res = await retryHttp(() => httpGet(`${baseUrl}/v1/auth/message`, headers));
       const payload = res.data?.data ?? res.data;
       message = typeof payload === 'string' ? payload : String(payload?.message || '');
     } catch {
-      const res = await httpGet(`${baseUrl}/auth/message`, headers);
+      const res = await retryHttp(() => httpGet(`${baseUrl}/auth/message`, headers));
       const payload = res.data?.data ?? res.data;
       message = typeof payload === 'string' ? payload : String(payload?.message || '');
     }
@@ -474,12 +493,12 @@ async function fetchPredictJwt() {
     // Step 3: Exchange for JWT
     let token = '';
     try {
-      const res = await httpPost(`${baseUrl}/v1/auth`, { signer: signerAddress, signature, message }, headers);
+      const res = await retryHttp(() => httpPost(`${baseUrl}/v1/auth`, { signer: signerAddress, signature, message }, headers));
       const data = res.data?.data ?? res.data;
       token = data?.token || data?.jwt || data?.accessToken || '';
     } catch {
       try {
-        const res = await httpPost(`${baseUrl}/auth`, { signer: signerAddress, signature, message }, headers);
+        const res = await retryHttp(() => httpPost(`${baseUrl}/auth`, { signer: signerAddress, signature, message }, headers));
         const data = res.data?.data ?? res.data;
         token = data?.token || data?.jwt || data?.accessToken || '';
       } catch (err2) {

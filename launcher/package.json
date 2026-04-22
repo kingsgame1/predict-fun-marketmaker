@@ -1,13 +1,83 @@
 {
-  "name": "predict-fun-launcher",
-  "version": "1.0.0",
-  "description": "Predict.fun Market Maker Launcher - 简化版",
+  "name": "predict-fun-market-maker",
+  "version": "2.2.4",
+  "private": true,
   "main": "main.js",
+  "description": "Market Maker Desktop App for Predict.fun and Polymarket",
+  "author": {
+    "name": "ccjing",
+    "email": "ccjing.eth@gmail.com"
+  },
+  "homepage": "https://github.com/ccjingeth/predict-fun-marketmaker",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "prebuild": "node build-scripts/copy-source.js",
+    "build": "npm run prebuild && electron-builder --mac --win --linux",
+    "build:mac": "npm run prebuild && electron-builder --mac",
+    "build:win": "npm run prebuild && electron-builder --win",
+    "build:linux": "npm run prebuild && electron-builder --linux"
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-store": "^8.1.0"
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "^5.2.3",
+    "@polymarket/order-utils": "^3.0.1",
+    "@predictdotfun/sdk": "^1.0.0",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.0",
+    "fs-extra": "^11.2.0",
+    "tsx": "^4.15.0",
+    "typescript": "^5.5.0",
+    "viem": "^2.21.4",
+    "ws": "^8.17.0"
+  },
+  "build": {
+    "appId": "com.predictfun.marketmaker",
+    "productName": "PredictFun Market Maker",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "monitor.html",
+      "scripts/**/*",
+      "runtime-dist/**/*",
+      "icon.*",
+      "build/**/*"
+    ],
+    "mac": {
+      "target": [
+        {"target": "dmg", "arch": ["arm64"]},
+        {"target": "zip", "arch": ["arm64"]}
+      ],
+      "category": "public.app-category.finance",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {"target": "nsis", "arch": ["x64"]},
+        {"target": "portable", "arch": ["x64"]}
+      ],
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        {"target": "AppImage", "arch": ["x64", "arm64"]},
+        {"target": "deb", "arch": ["x64", "arm64"]}
+      ],
+      "category": "Office",
+      "artifactName": "${productName}-${version}.${ext}",
+      "maintainer": "ccjing <ccjing.eth@gmail.com>"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "asar": true
   }
 }

@@ -32,6 +32,20 @@ function unwrapData<T>(payload: any): T {
   return payload as T;
 }
 
+async function retryFetch<T>(fn: () => Promise<T>, retries = 3, delayMs = 2000): Promise<T> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isLast = i === retries - 1;
+      if (isLast) throw err;
+      console.log(`   重试 ${i + 1}/${retries - 1} (${err?.message || err})...`);
+      await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 async function main() {
   const config = loadConfig();
 
@@ -44,7 +58,7 @@ async function main() {
 
   const http = axios.create({
     baseURL: baseUrl,
-    timeout: 15000,
+    timeout: 30000,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': config.apiKey,
@@ -55,11 +69,11 @@ async function main() {
 
   let message = '';
   try {
-    const res = await http.get('/v1/auth/message');
+    const res = await retryFetch(() => http.get('/v1/auth/message'));
     const payload = unwrapData<any>(res.data);
     message = typeof payload === 'string' ? payload : String(payload?.message || '');
   } catch {
-    const res = await http.get('/auth/message');
+    const res = await retryFetch(() => http.get('/auth/message'));
     const payload = unwrapData<any>(res.data);
     message = typeof payload === 'string' ? payload : String(payload?.message || '');
   }
@@ -87,20 +101,20 @@ async function main() {
 
   let token = '';
   try {
-    const res = await http.post('/v1/auth', {
+    const res = await retryFetch(() => http.post('/v1/auth', {
       signer: signerAddress,
       signature,
       message,
-    });
+    }));
 
     const data = unwrapData<any>(res.data);
     token = data?.token || data?.jwt || data?.accessToken || '';
   } catch {
-    const res = await http.post('/auth', {
+    const res = await retryFetch(() => http.post('/auth', {
       signer: signerAddress,
       signature,
       message,
-    });
+    }));
 
     const data = unwrapData<any>(res.data);
     token = data?.token || data?.jwt || data?.accessToken || '';
