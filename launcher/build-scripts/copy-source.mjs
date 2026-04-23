@@ -36,11 +36,16 @@ if (fs.existsSync(scriptsDir)) {
 // 3. 复制 package.json 和 tsconfig.json（给npm install + tsc用）
 const pkg = fs.readJsonSync(path.join(ROOT, 'package.json'));
 // 保留 dependencies 和 scripts（打包后需要 start:cli 等脚本）
+// 注意：tsx 和 typescript 是 devDependencies，但运行时需要，所以也加入
 const minimalPkg = {
   name: pkg.name,
   version: pkg.version,
   type: pkg.type || 'module',
-  dependencies: pkg.dependencies || {},
+  dependencies: {
+    ...(pkg.dependencies || {}),
+    tsx: pkg.devDependencies?.tsx || '^4.15.0',
+    typescript: pkg.devDependencies?.typescript || '^5.9.3',
+  },
   scripts: pkg.scripts || {},
 };
 fs.writeJsonSync(path.join(RUNTIME, 'package.json'), minimalPkg, { spaces: 2 });
