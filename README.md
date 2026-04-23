@@ -16,7 +16,7 @@
 
 ---
 
-## 快速开始
+## 快速开始（桌面App）
 
 ### 第1步：下载安装
 
@@ -24,71 +24,108 @@
 
 | 系统 | 下载文件 | 安装方式 |
 |------|----------|----------|
-| Mac (M芯片) | `...arm64.dmg` | 双击打开，拖到 Applications |
-| Windows | `...Setup.exe` | 双击安装，按提示走 |
-| Linux (通用) | `...AppImage` | `chmod +x && ./` 运行 |
-| Linux (Debian) | `...deb` | `sudo dpkg -i *.deb && sudo apt-get install -f` |
+| Mac (M芯片) | `PredictFun.Market.Maker-x.x.x-arm64.dmg` | 双击打开，拖到 Applications |
+| Mac (Intel) | `PredictFun.Market.Maker-x.x.x-x64.dmg` | 双击打开，拖到 Applications |
+| Windows | `PredictFun.Market.Maker-x.x.x-x64.exe` | 双击即可运行（便携版） |
+| Linux (Debian/Ubuntu) | `PredictFun.Market.Maker-x.x.x-amd64.deb` | `sudo dpkg -i *.deb && sudo apt-get install -f` |
+| Linux (通用) | `PredictFun.Market.Maker-x.x.x-x86_64.AppImage` | `chmod +x *.AppImage && ./*.AppImage` |
+| Linux (ARM) | `PredictFun.Market.Maker-x.x.x-arm64.AppImage` | `chmod +x *.AppImage && ./*.AppImage` |
 
 > **安全提示**：因为没有付费代码签名证书，首次打开会被系统拦截。
-> - **Mac**：右键点 app → 打开，或终端执行 `xattr -cr /Applications/PredictFun\ Market\ Maker\ Lite.app`
+> - **Mac**：系统偏好设置 → 安全与隐私 → 通用 → 点击"仍然允许"，或终端执行 `xattr -cr /Applications/PredictFun\ Market\ Maker.app`
 > - **Windows**：点"更多信息" → "仍要运行"
 > - **Linux AppImage**：确保装了 `libfuse2`：`sudo apt install libfuse2`
 
-### 第2步：选择平台和模式
+### 第2步：启动App
 
-1. 打开App后，点击 **"套用 Predict 模板"** 或 **"套用 Polymarket 模板"**
-2. 选择交易模式：
-   - **🛡️ 保守模式**（推荐新手）— 动态第4档挂单，极低被吃概率
-   - **⚡ 激进模式** — 动态第3档挂单，积分更多但偶尔可能被吃
-3. 点击 **"应用当前模式参数到 .env"**
+打开App后，会看到一个终端风格的控制台界面。首先检查顶部"系统状态"卡片，确保：
+- Node.js ✅
+- npm ✅
+- 项目文件 ✅
+- 配置文件 ✅
+
+如果配置文件显示❌，点击"打开配置目录"按钮，在弹出的目录中编辑 `.env` 文件（见第3步）。
 
 ### 第3步：填写配置
 
-点击模板后，编辑区会自动填好默认参数。你只需要改 **必填项**：
+在App右侧的**参数配置**面板中，填写以下必填项：
+
+**通用配置：**
+
+```
+ORDER_SIZE=100              # 每笔挂单金额（美元），建议 ≥ 100
+MAX_POSITION=100            # 单市场最大持仓（美元）
+ENABLE_TRADING=true         # 是否开启真实交易（false=模拟测试）
+```
 
 **Predict.fun 必填（3项）：**
 
+在认证面板的 Predict.fun 区域填写：
+
 ```
-API_KEY=你的 Predict API Key
-PRIVATE_KEY=你的钱包私钥（不带0x）
-PREDICT_ACCOUNT_ADDRESS=你的账户地址（0x开头）
+API_KEY=your_predict_api_key_here
+PRIVATE_KEY=your_private_key_here        # 不带 0x 前缀
+PREDICT_ACCOUNT_ADDRESS=0x...            # 你的钱包地址（0x开头）
 ```
+
+- `API_KEY`：从 [Predict.fun](https://predict.fun) 获取
+- `PRIVATE_KEY`：你的钱包私钥
+- `PREDICT_ACCOUNT_ADDRESS`：对应的公开地址
 
 **Polymarket 必填（2-3项）：**
 
+在认证面板的 Polymarket 区域填写：
+
 ```
-POLYMARKET_PRIVATE_KEY=你的 Polymarket 私钥
-POLYMARKET_FUNDER_ADDRESS=你的 Funder 地址
+POLYMARKET_PRIVATE_KEY=your_polymarket_private_key
+POLYMARKET_FUNDER_ADDRESS=your_funder_address
 ```
 
-> Polymarket API 凭证建议用App里的 **"检查 Polymarket 预检"** 按钮自动派生，不用手动填。
-> 实盘需要的是 **用户 CLOB API 凭证（L2）**，不是 Builder / Relayer key。
+- `POLYMARKET_PRIVATE_KEY`：Polymarket 钱包私钥
+- `POLYMARKET_FUNDER_ADDRESS`：你的 Funder 地址
 
-点击 **"保存配置"**。
+> 点击认证面板中的"检查 Polymarket 预检"按钮，可以自动检测API凭证、USDC余额和合约授权状态。
 
-### 第4步：获取认证（仅 Predict 需要）
+填完后点击"保存配置"，会自动刷新系统状态。
 
-1. 确保第3步的3项已填写并保存
-2. 点击 **"🔑 获取 JWT Token"**
-3. 等几秒，日志显示成功即可
+### 第4步：选择模式
 
-### 第5步：验证账户
+1. 在"交易模式"区域选择：
+   - **保守模式**（推荐新手）— 动态第4档挂单，极低被吃概率
+   - **激进模式** — 动态第3档挂单，积分更多但偶尔可能被吃
 
-- **Predict**：点击 **"检查 Predict 余额"** 确认余额和授权状态
-- **Polymarket**：点击 **"检查 Polymarket 预检"** 确认 API 凭证、USDC 余额、合约授权等全部通过
+2. 在"被吃对冲模式"区域选择：
+   - **FLATTEN**（平仓）— 被吃后同时买回YES和NO，恢复中性持仓
+   - **BUY_OPPOSITE**（买反对边）— 被吃后只买反对边，保留方向性观点
+
+3. 点击"应用当前模式参数到 .env"
+
+### 第5步：获取JWT（仅Predict需要）
+
+1. 确保已填写 API_KEY、PRIVATE_KEY 和 PREDICT_ACCOUNT_ADDRESS
+2. 在Predict.fun认证面板点击 **"获取 JWT"**
+3. 等待几秒，日志显示成功即可
 
 ### 第6步：选择市场
 
-1. 选择场馆（Predict / Polymarket）
-2. 点击 **"自动推荐市场"**
-3. 查看推荐结果（每个市场会显示盘口、奖励效率、风险记忆）
-4. 点击 **"一键应用推荐"** 或手动勾选后点 **"应用手动勾选"**
+1. 在"市场推荐"区域，点击"刷新市场"
+2. 切换 Predict/Polymarket Tab查看推荐
+3. 推荐列表显示每个市场的盘口、奖励效率、风险提示
+4. 点击市场卡片前的复选框进行手动选择，或直接点击"确认应用"使用默认推荐
 
 ### 第7步：启动做市
 
-点击 **"启动做市"**，开始自动挂单赚积分！
+点击顶部的 **"▶ 启动做市商"**，开始自动挂单赚积分！
 
-需要停止时点 **"停止做市"**，会自动撤销所有挂单后安全退出。
+- 启动后按钮变红，显示"■ 停止做市商"
+- 右下角开始实时输出日志
+- 左下角显示当前运行的市场数量
+
+需要停止时点击 **"停止做市商"**，会自动撤销所有挂单后安全退出。
+
+### 紧急撤单
+
+如果遇到紧急情况需要立即停止所有挂单，点击红色的 **"紧急撤单"** 按钮，系统会立即撤销当前所有市场的所有挂单。
 
 ---
 
@@ -96,13 +133,13 @@ POLYMARKET_FUNDER_ADDRESS=你的 Funder 地址
 
 ### 核心原理：动态档位挂单
 
-不是在BBO旁边挂单（容易吃单），而是挂在订单簿的第N档价格：
+不是在BBO旁边挂单（容易被吃单），而是挂在订单簿的第N档价格：
 
 ```
 订单簿示例（保守模式，挂第4档）：
 
   卖方          价格         买方
-  ─────────────────────────────
+  ─────────────────────────
   200股        51.5c     ← 第1档 ask（BBO）
   500股        51.0c     ← 第2档 ask
   800股        50.5c     ← 第3档 ask
@@ -134,19 +171,11 @@ POLYMARKET_FUNDER_ADDRESS=你的 Funder 地址
 
 你的挂单在下单前要经过层层验证，任何一层不通过都不会下单：
 
-1. **市场筛选（screenMarket）** — 7项检查确保市场安全：
-   - 必须有活跃积分规则
-   - 盘口价差不能太大（保守 ≤ 15% / 激进 ≤ 20% 的 max_spread）
-   - 每侧缓冲要够（保守 ≥ 3.5c / 激进 ≥ 2.5c）
-   - 前方深度要足（保守 ≥ 6000股 / 激进 ≥ 4000股）
-   - 订单簿档位数要够（保守需4档 / 激进需3档，否则跳过）
-   - 保守模式还检查买卖深度均衡（25%-75%）
-   - 波动率不能太高（保守 < 0.5% / 激进 < 0.8%）
-
+1. **市场筛选（screenMarket）** — 确保市场有积分规则且盘口价差合理
 2. **档位定价（calculatePrices）** — 动态取第N档价格 + 智能填补
 3. **硬距离验证（validatePriceDistance）** — 绝对不穿越BBO
-4. **下单前最终验证（v22 BBO快照）** — tierPriced只查BBO不越界，毫秒级快照防止缓存过期
-5. **下单后即时验证** — 200ms内检查单子是否合规，不合规立即撤
+4. **下单前最终验证** — 毫秒级BBO快照防止缓存过期
+5. **下单后即时验证** — 200ms内检查单子是否合规
 6. **被吃模式检测** — 连续被吃自动冷却 + 进黑名单
 7. **持仓亏损保护** — 超限自动停机
 
@@ -159,83 +188,104 @@ POLYMARKET_FUNDER_ADDRESS=你的 Funder 地址
 | 参数 | 平台 | 说明 |
 |------|------|------|
 | `API_KEY` | Predict | 你的 Predict.fun API Key |
-| `PRIVATE_KEY` | Predict | 钱包私钥（不带0x） |
+| `PRIVATE_KEY` | Predict | 钱包私钥（不带 0x 前缀） |
 | `PREDICT_ACCOUNT_ADDRESS` | Predict | 账户地址（0x开头） |
 | `POLYMARKET_PRIVATE_KEY` | Polymarket | Polymarket 私钥 |
 | `POLYMARKET_FUNDER_ADDRESS` | Polymarket | Funder 地址 |
 
-### 核心参数（一般不用改）
+### 核心参数（App内可调）
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `ORDER_SIZE` | 25 | 每笔挂单金额（美元），建议 ≥ 20 |
+| `ORDER_SIZE` | 100 | 每笔挂单金额（美元），建议 ≥ 100 |
 | `MAX_POSITION` | 100 | 单市场最大持仓（美元） |
 | `MAX_DAILY_LOSS` | 200 | 每日最大亏损保护（美元） |
-| `MAX_MARKETS` | 5 | 同时做市的市场数 |
-| `MM_TRADING_MODE` | conservative | 交易模式：`conservative` 或 `aggressive` |
+| `MM_TRADING_MODE` | conservative | 交易模式：conservative 或 aggressive |
+| `ENABLE_TRADING` | true | 是否开启真实交易（false = 模拟测试） |
+| `SIMULATION_MODE` | false | 是否仅模拟挂单（不真正下单） |
 
-### Polymarket 风控参数（高级）
+### 高级参数（一般不用改）
 
-App已内置最佳默认值，一般不用改：
-
-```env
-POLYMARKET_REWARD_REQUIRE_ENABLED=true     # 只做有奖励的市场
-POLYMARKET_REWARD_MIN_EFFICIENCY=0.0015    # 最低奖励效率
-POLYMARKET_POST_ONLY_MIN_HIT_RATE=0.55     # 最低挂单命中率
-POLYMARKET_POSITION_LOSS_LIMIT_ABS=25      # 单市场持仓亏损上限（美元）
-```
+App已内置最佳默认值，一般无需调整。如需微调，可在App的参数配置面板或直接编辑 `.env` 文件。
 
 ---
 
 ## 命令行使用（高级用户）
 
+如果你想从源码运行，而不是使用桌面App：
+
 ```bash
-# 1. 安装依赖
-cd lite-release/predict-fun-market-maker-lite
+# 1. 克隆仓库
+git clone https://github.com/ccjingeth/predict-fun-marketmaker.git
+cd predict-fun-marketmaker
+
+# 2. 安装依赖
 npm install
 
-# 2. 套用模板
-npm run template:predict    # 或 template:polymarket
+# 3. 编辑 .env 填写必填项
+cp .env.example .env  # 如果有示例文件
+# 编辑 .env 填写 API_KEY, PRIVATE_KEY, PREDICT_ACCOUNT_ADDRESS 等
 
-# 3. 编辑 .env 填写必填项（同上）
+# 4. 获取JWT（仅Predict需要）
+npx tsx src/auth-jwt.ts
 
-# 4. 获取JWT（仅Predict）
-npm run auth:jwt
+# 5. 启动做市（带日志输出）
+npm run start:cli
+```
 
-# 5. 授权合约（仅Predict首次）
-npm run setup:approvals
+### 常用脚本
 
-# 6. 扫描推荐市场
-npm run market:recommend -- --venue predict --top 10
+```bash
+# 获取 JWT Token
+npx tsx src/auth-jwt.ts
 
-# 7. 推荐并自动应用
-npm run market:apply -- --venue predict --top 10
+# 授权合约（仅Predict首次）
+npx tsx src/setup-approvals.ts
 
-# 8. 启动做市
-npm run start:mm
+# 推荐市场
+npx tsx scripts/market-recommender.ts --venue predict --top 10
 ```
 
 ---
 
 ## 常见问题
 
-**Q: 启动后看不到配置？**
-A: Windows 看 `%APPDATA%\PredictFunMarketMakerLite\.env`，Mac 看 `~/.predict-fun-market-maker-lite/.env`
+**问: 启动后看不到市场列表？**
 
-**Q: JWT 报错 "Authorization header invalid"？**
-A: 你填了占位文本不是真JWT。点 "获取 JWT Token" 按钮自动获取。
+A: 检查以下几点：
+1. API_KEY 是否已填写并保存
+2. 点击"刷新市场"时网络是否正常
+3. 检查日志是否有错误信息
 
-**Q: 推荐市场为空？**
-A: 当前模式下没有满足全部筛选条件的市场。可以尝试切换激进模式，或等市场流动性恢复。
+**问: JWT 报错 "Authorization header invalid"？**
 
-**Q: 被吃单了怎么办？**
-A: 检查日志中的 "POST_ONLY" 标记。系统会自动冷却该市场（保守6小时/激进4小时）。频繁被吃说明该市场深度不足，已自动拉黑。
+A: 你填了占位文本而不是真JWT。点击"获取 JWT"按钮自动获取，或运行 `npx tsx src/auth-jwt.ts`。
 
-**Q: 如何选择保守还是激进？**
-A: 新手强烈建议保守模式。激进模式积分更多但偶尔会被吃。可以从保守开始，跑几天没有问题再考虑切换。
+**问: 推荐市场为空？**
 
-**Q: Polymarket 提示凭证不对？**
-A: 实盘需要的是 **用户 CLOB API 凭证（L2）**，不是 Builder / Relayer key。用App里 "检查 Polymarket 预检" 自动检测，或参考 [Polymarket API 认证文档](https://docs.polymarket.com/cn/api-reference/authentication)。
+A: 当前模式下没有满足筛选条件的市场。可以尝试：
+1. 切换到激进模式
+2. 等待市场流动性恢复
+3. 检查网络连接
+
+**问: 被吃单了怎么办？**
+
+A: 检查日志中的 "POST_ONLY" 或 "FILLED" 标记。系统会自动冷却该市场（保守6小时/激进4小时）。频繁被吃说明该市场深度不足，已自动拉黑。
+
+**问: 如何选择保守还是激进？**
+
+A: 新手强烈建议从保守模式开始。激进模式积分更多但偶尔会被吃。可以先用保守模式跑几天，没有问题再考虑切换。
+
+**问: Polymarket 提示凭证不对？**
+
+A: 实盘需要的是 **用户 CLOB API 凭证（L2）**，不是 Builder / Relayer key。用App里的"检查 Polymarket 预检"自动检测，或参考 [Polymarket API 认证文档](https://docs.polymarket.com/cn/api-reference/authentication)。
+
+**问: 如何检查配置文件在哪里？**
+
+A: 点击App底部的"打开配置目录"按钮即可。不同系统的默认位置：
+- **Mac**: `~/Library/Application Support/PredictFun Market Maker/.env`
+- **Windows**: `%APPDATA%\PredictFun Market Maker\.env`
+- **Linux**: `~/.config/PredictFun Market Maker/.env`
 
 ---
 
@@ -243,9 +293,9 @@ A: 实盘需要的是 **用户 CLOB API 凭证（L2）**，不是 Builder / Rela
 
 | 系统 | 配置目录 | 配置文件 |
 |------|----------|----------|
-| Mac | `~/.predict-fun-market-maker-lite/` | `.env` |
-| Windows | `%APPDATA%\PredictFunMarketMakerLite\` | `.env` |
-| Linux | `~/.config/predict-fun-market-maker-lite/` | `.env` |
+| Mac | `~/Library/Application Support/PredictFun Market Maker/` | `.env` |
+| Windows | `%APPDATA%\PredictFun Market Maker\` | `.env` |
+| Linux | `~/.config/PredictFun Market Maker/` | `.env` |
 
 ---
 
