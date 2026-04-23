@@ -304,9 +304,18 @@ function httpGet(urlStr, headers = {}, timeout = 30000) {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve({ status: res.statusCode, data: JSON.parse(data) });
+          const parsed = JSON.parse(data);
+          if (res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}: ${parsed?.message || parsed?.error || JSON.stringify(parsed)}`));
+          } else {
+            resolve({ status: res.statusCode, data: parsed });
+          }
         } catch {
-          resolve({ status: res.statusCode, data: data });
+          if (res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 200)}`));
+          } else {
+            resolve({ status: res.statusCode, data: data });
+          }
         }
       });
     });
@@ -333,9 +342,18 @@ function httpPost(urlStr, body, headers = {}, timeout = 30000) {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         try {
-          resolve({ status: res.statusCode, data: JSON.parse(data) });
+          const parsed = JSON.parse(data);
+          if (res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}: ${parsed?.message || parsed?.error || JSON.stringify(parsed)}`));
+          } else {
+            resolve({ status: res.statusCode, data: parsed });
+          }
         } catch {
-          resolve({ status: res.statusCode, data: data });
+          if (res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 200)}`));
+          } else {
+            resolve({ status: res.statusCode, data: data });
+          }
         }
       });
     });
@@ -351,13 +369,17 @@ function httpPost(urlStr, body, headers = {}, timeout = 30000) {
 async function fetchPredictMarkets() {
   const env = readEnv();
   const baseUrl = (env.API_BASE_URL || 'https://api.predict.fun').replace(/\/+$/, '');
-  const apiKey = env.API_KEY || '';
+  const apiKey = env.API_KEY || env.PREDICT_API_KEY || '';
   
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['x-api-key'] = apiKey;
+  if (!apiKey) {
+    throw new Error('未配置 API_KEY，请在认证面板中设置 Predict.fun API Key');
+  }
+  
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': apiKey };
   
   const collected = [];
   let after = undefined;
+  let lastError = null;
   
   for (let page = 0; page < 3; page++) {
     const params = new URLSearchParams({ status: 'OPEN' });
@@ -373,6 +395,8 @@ async function fetchPredictMarkets() {
       if (!cursor) break;
       after = cursor;
     } catch (err) {
+      lastError = err;
+      console.log(`[fetchPredictMarkets] /v1/markets failed: ${err.message}`);
       // fallback to /markets
       try {
         const res = await httpGet(`${baseUrl}/markets?${params}`, headers);
@@ -383,49 +407,58 @@ async function fetchPredictMarkets() {
         const cursor = payload?.cursor;
         if (!cursor) break;
         after = cursor;
-      } catch {
+      } catch (err2) {
+        lastError = err2;
+        console.log(`[fetchPredictMarkets] fallback /markets failed: ${err2.message}`);
         break;
       }
     }
   }
   
+  if (collected.length === 0 && lastError) {
+    throw new Error(`获取市场失败: ${lastError.message}`);
+  }
+  
   // Normalize markets
   return collected.map(m => {
-    const tokenId = m.token_id || m.tokenId || m.clob_token_id || '';
-    const outcomes = m.outcomes || m.outcomePrices ? 
-      (Array.isArray(m.outcomes) ? m.outcomes : []) : [];
+    // API returns conditionId, not token_id - use it as fallback
+    const tokenId = m.token_id || m.tokenId || m.clob_token_id || m.conditionId || '';
+    const outcomes = Array.isArray(m.outcomes) ? m.outcomes : [];
     
-    let maxSpreadCents = 0;
-    let minShares = 0;
-    let pointsActive = false;
-    const liq = m.liquidity_activation || m.liquidityActivation;
-    if (liq) {
-      maxSpreadCents = liq.max_spread_cents || liq.maxSpreadCents || 0;
-      minShares = liq.min_shares || liq.minShares || 0;
-      pointsActive = liq.active !== false;
-    }
+    // New API structure: spreadThreshold (decimal, e.g. 0.06 = 6c), shareThreshold, isBoosted
+    const maxSpreadCents = m.spreadThreshold ? Math.round(m.spreadThreshold * 100) : 0;
+    const minShares = m.shareThreshold || 0;
+    const pointsActive = !!m.isBoosted || !!m.rewardsEnabled;
+    
+    // Extract best bid/ask from first outcome
+    const firstOutcome = outcomes[0];
+    const bestBid = firstOutcome?.bestBid || m.best_bid || m.bestBid || null;
+    const bestAsk = firstOutcome?.bestAsk || m.best_ask || m.bestAsk || null;
     
     return {
       token_id: tokenId,
+      conditionId: m.conditionId,
       question: m.question || m.title || m.name || '',
       description: (m.description || '').substring(0, 200),
       venue: 'predict',
-      end_date: m.end_date || m.endDate || '',
-      volume_24h: m.volume_24h || m.volume24h || 0,
+      end_date: m.end_date || m.endDate || m.boostEndsAt || '',
+      volume_24h: m.volume_24h || m.volume24h || (m.stats?.volume24hr) || 0,
       outcome: m.outcome || '',
       outcomes: outcomes.map(o => ({
         token_id: o.token_id || o.tokenId || o.onChainId || '',
         outcome: o.outcome || o.name || '',
         price: o.price || 0,
+        best_bid: o.bestBid || null,
+        best_ask: o.bestAsk || null,
       })),
       points_active: pointsActive,
       max_spread_cents: maxSpreadCents,
       min_shares: minShares,
-      best_bid: m.best_bid ?? m.bestBid ?? null,
-      best_ask: m.best_ask ?? m.bestAsk ?? null,
+      best_bid: bestBid,
+      best_ask: bestAsk,
       spread_pct: m.spread_pct ?? m.spreadPct ?? null,
     };
-  }).filter(m => m.token_id && m.question);
+  }).filter(m => (m.token_id || m.conditionId) && m.question);
 }
 
 async function fetchPolymarketMarkets() {
@@ -472,17 +505,16 @@ async function fetchPolymarketMarkets() {
 async function fetchPredictJwt() {
   const env = readEnv();
   const baseUrl = (env.API_BASE_URL || 'https://api.predict.fun').replace(/\/+$/, '');
-  const apiKey = env.API_KEY || '';
+  const apiKey = env.API_KEY || env.PREDICT_API_KEY || '';
   const privateKey = env.PRIVATE_KEY || '';
   const accountAddress = env.PREDICT_ACCOUNT_ADDRESS || '';
   
-  if (!apiKey) return { success: false, message: 'API_KEY 未配置，请在 .env 中设置' };
+  if (!apiKey) return { success: false, message: 'API_KEY 未配置，请在认证面板中设置' };
   if (!privateKey || privateKey === '0x0000000000000000000000000000000000000000000000000000000000000001') {
     return { success: false, message: 'PRIVATE_KEY 未配置或为占位符' };
   }
   
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['x-api-key'] = apiKey;
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': apiKey };
   
   async function retryHttp(fn, retries = 3, delayMs = 2000) {
     for (let i = 0; i < retries; i++) {
@@ -802,7 +834,7 @@ safeHandle('fetch-jwt', async () => {
 safeHandle('get-jwt-status', async () => {
   const env = readEnv();
   const hasJwt = !!(env.JWT_TOKEN && env.JWT_TOKEN.length > 20);
-  const hasApiKey = !!(env.API_KEY);
+  const hasApiKey = !!(env.API_KEY || env.PREDICT_API_KEY);
   const hasPrivateKey = !!(env.PRIVATE_KEY && env.PRIVATE_KEY !== '0x0000000000000000000000000000000000000000000000000000000000000001');
   const hasAccount = !!(env.PREDICT_ACCOUNT_ADDRESS);
   return { hasJwt, hasApiKey, hasPrivateKey, hasAccount };

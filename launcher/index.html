@@ -964,6 +964,13 @@
             <span class="auth-status" id="jwtStatus">检查中...</span>
           </div>
           <div class="auth-body" id="jwtDetails">加载中...</div>
+          <!-- API Key 配置 -->
+          <div style="margin-bottom:8px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">API Key</div>
+            <div style="display:flex;gap:4px;">
+              <input id="apiKeyInput" type="password" class="config-input" style="flex:1;font-size:11px;padding:5px 8px;" placeholder="输入 Predict.fun API Key" onchange="saveApiKey()">
+            </div>
+          </div>
           <button class="btn-action" id="btnFetchJwt" onclick="fetchJwt()">获取 JWT</button>
         </div>
         <!-- Polymarket -->
@@ -1217,12 +1224,30 @@
         if (config.MAX_SPREAD) document.getElementById('cfgMaxSpread').value = config.MAX_SPREAD;
         if (config.SIMULATION_MODE) document.getElementById('cfgSimulation').value = config.SIMULATION_MODE;
         if (config.ENABLE_TRADING) document.getElementById('cfgTrading').value = config.ENABLE_TRADING;
+        // 加载 API Key 到认证面板输入框
+        const apiKey = config.API_KEY || config.PREDICT_API_KEY || '';
+        if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
         
         // 读取当前模式
         currentMode = config.MM_TRADING_MODE === 'aggressive' ? 'aggressive' : 'conservative';
         updateModeUI();
       } catch (e) {
         console.error('加载配置失败:', e);
+      }
+    }
+
+    async function saveApiKey() {
+      try {
+        const value = document.getElementById('apiKeyInput').value.trim();
+        if (!value) {
+          showToast('API Key 不能为空', 'error');
+          return;
+        }
+        await window.electronAPI.setConfig('API_KEY', value);
+        showToast('API_KEY 已保存', 'success');
+        await loadJwtStatus();
+      } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
       }
     }
 
