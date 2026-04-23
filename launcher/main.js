@@ -600,9 +600,9 @@ async function fetchPredictJwt() {
 
 function recommendMarkets(markets, mode) {
   const isConservative = mode !== 'aggressive';
-  // 对齐 getModeParams v18
+  // 对齐后端 getModeParams v21
   const spreadBudgetRatio = isConservative ? 0.15 : 0.20;
-  const hardMinBuffer = isConservative ? 3.0 : 2.0;
+  const hardMinBuffer = isConservative ? 3.5 : 2.5;
   const absoluteMinBuffer = isConservative ? 3.0 : 2.5;
   const minSafeBuffer = absoluteMinBuffer * 1.2;
   
@@ -742,12 +742,14 @@ safeHandle('apply-market-selection', async (_, tokenIdsStr) => {
     envContent = fs.readFileSync(envPath, 'utf-8');
   }
   // 更新或添加 MARKET_TOKEN_IDS
-  const line = 'MARKET_TOKEN_IDS=' + tokenIdsStr;
-  const pattern = new RegExp('^MARKET_TOKEN_IDS=' + '.*$', 'm');
-  if (pattern.test(envContent)) {
-    envContent = envContent.replace(pattern, line);
+  const newLine = ['MARKET_TOKEN_IDS=', tokenIdsStr].join('');
+  const idx = envContent.indexOf('MARKET_TOKEN_IDS=');
+  if (idx >= 0) {
+    const endIdx = envContent.indexOf('\n', idx);
+    const oldLine = endIdx >= 0 ? envContent.substring(idx, endIdx) : envContent.substring(idx);
+    envContent = envContent.split(oldLine).join(newLine);
   } else {
-    envContent = envContent.trimEnd() + '\n' + line + '\n';
+    envContent = [envContent.trimEnd(), newLine, ''].join('\n');
   }
   fs.writeFileSync(envPath, envContent, 'utf-8');
   const count = tokenIdsStr.split(',').filter(s => s.trim()).length;
