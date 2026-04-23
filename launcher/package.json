@@ -1,6 +1,6 @@
 {
   "name": "predict-fun-market-maker",
-  "version": "2.2.8",
+  "version": "2.2.9",
   "private": true,
   "main": "main.js",
   "author": {
@@ -84,7 +84,7 @@
           ]
         }
       ],
-      "artifactName": "${productName} Setup ${version}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": [
@@ -111,6 +111,12 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
-    "asar": true
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "runtime-dist",
+        "to": "runtime-dist"
+      }
+    ]
   }
 }

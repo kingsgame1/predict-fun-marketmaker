@@ -66,13 +66,25 @@ function createWindow() {
 function getProjectPath() {
   let projectPath = store.get('projectPath');
   if (!projectPath) {
-    // 开发模式：指向项目根目录
-    // 打包模式：如果上级目录没有package.json，尝试runtime-dist
-    projectPath = path.resolve(__dirname, '..');
-    if (!fs.existsSync(path.join(projectPath, 'package.json'))) {
-      const runtimePath = path.resolve(__dirname, 'runtime-dist');
-      if (fs.existsSync(runtimePath)) {
-        projectPath = runtimePath;
+    // 打包模式：runtime-dist 被 extraResources 复制到 resources/runtime-dist/
+    const resourcesPath = path.dirname(app.getAppPath());
+    const runtimePath = path.join(resourcesPath, 'runtime-dist');
+    if (fs.existsSync(runtimePath)) {
+      projectPath = runtimePath;
+    } else {
+      // fallback: asarUnpack 旧路径
+      const unpackedPath = path.join(resourcesPath, 'app.asar.unpacked', 'runtime-dist');
+      if (fs.existsSync(unpackedPath)) {
+        projectPath = unpackedPath;
+      } else {
+        // fallback: 开发模式
+        projectPath = path.resolve(__dirname, '..');
+        if (!fs.existsSync(path.join(projectPath, 'package.json'))) {
+          const devRuntime = path.resolve(__dirname, 'runtime-dist');
+          if (fs.existsSync(devRuntime)) {
+            projectPath = devRuntime;
+          }
+        }
       }
     }
     store.set('projectPath', projectPath);
@@ -80,10 +92,54 @@ function getProjectPath() {
   return projectPath;
 }
 
+// 获取 .env 路径（用户数据目录，可读写）
+function getEnvPath() {
+  const userDataDir = app.getPath('userData');
+  const userDataEnv = path.join(userDataDir, '.env');
+  
+  if (fs.existsSync(userDataEnv)) {
+    return userDataEnv;
+  }
+  
+  // 打包后不再包含 .env，创建空模板
+  try {
+    fs.mkdirSync(userDataDir, { recursive: true });
+    const template = `# Predict.fun 市场做市商配置
+# 请填写以下配置后保存
+API_KEY=your_api_key_here
+API_BASE_URL=https://api.predict.fun
+PRIVATE_KEY=your_private_key_here
+PREDICT_ACCOUNT_ADDRESS=your_account_address_here
+RPC_URL=https://bsc-dataseed.binance.org
+JWT_TOKEN=
+MM_TRADING_MODE=conservative
+MM_VENUE=predict
+POLYMARKET_ENABLED=false
+POLYMARKET_API_KEY=
+POLYMARKET_PRIVATE_KEY=
+POLYMARKET_FUNDER_ADDRESS=
+MARKET_TOKEN_IDS=
+`;
+    fs.writeFileSync(userDataEnv, template, 'utf-8');
+  } catch (e) {
+    console.error('创建 .env 模板失败:', e);
+  }
+  
+  return userDataEnv;
+}
+
+function getWatchlistPath() {
+  return path.join(app.getPath('userData'), 'watchlist.json');
+}
+
+function getFlagPath() {
+  return path.join(app.getPath('userData'), 'emergency-cancel.flag');
+}
+
 // ==================== .env 读写 ====================
 
 function readEnv() {
-  const envPath = path.join(getProjectPath(), '.env');
+  const envPath = getEnvPath();
   if (!fs.existsSync(envPath)) return {};
   const content = fs.readFileSync(envPath, 'utf-8');
   const config = {};
@@ -104,7 +160,7 @@ function readEnv() {
 }
 
 function writeEnv(key, value) {
-  const envPath = path.join(getProjectPath(), '.env');
+  const envPath = getEnvPath();
   let content = '';
   if (fs.existsSync(envPath)) {
     content = fs.readFileSync(envPath, 'utf-8');
@@ -232,7 +288,7 @@ function checkSystemEnvironment() {
   try {
     const projectPath = getProjectPath();
     checks.projectPath = fs.existsSync(projectPath);
-    checks.envFile = fs.existsSync(path.join(projectPath, '.env'));
+    checks.envFile = fs.existsSync(getEnvPath());
   } catch (_) {}
   return checks;
 }
@@ -625,7 +681,7 @@ safeHandle('emergency-cancel-all', async () => {
   if (!appProcess) {
     return { success: false, message: '没有运行中的做市商' };
   }
-  const flagPath = path.join(getProjectPath(), 'emergency-cancel.flag');
+  const flagPath = getFlagPath();
   fs.writeFileSync(flagPath, String(Date.now()), 'utf-8');
   console.log('[紧急撤单] 已发送撤单信号');
   return { success: true, message: '撤单信号已发送，做市商正在执行' };
@@ -633,8 +689,7 @@ safeHandle('emergency-cancel-all', async () => {
 
 safeHandle('open-project-folder', async () => { shell.openPath(getProjectPath()); return { success: true }; });
 safeHandle('open-config-file', async () => {
-  const envPath = path.join(getProjectPath(), '.env');
-  if (!fs.existsSync(envPath)) fs.writeFileSync(envPath, '# Predict.fun 配置文件\n');
+  const envPath = getEnvPath();
   shell.openPath(envPath);
   return { success: true };
 });
@@ -681,14 +736,14 @@ safeHandle('apply-market-selection', async (_, tokenIdsStr) => {
   if (!tokenIdsStr || typeof tokenIdsStr !== 'string') {
     return { success: false, message: '无效的市场ID列表' };
   }
-  const envPath = path.join(getProjectPath(), '.env');
+  const envPath = getEnvPath();
   let envContent = '';
   if (fs.existsSync(envPath)) {
     envContent = fs.readFileSync(envPath, 'utf-8');
   }
   // 更新或添加 MARKET_TOKEN_IDS
-  const line = `MARKET_TOKEN_IDS=${tokenIdsStr}`;
-  const pattern = /^MARKET_TOKEN_IDS=.*$/m;
+  const line = 'MARKET_TOKEN_IDS=' + tokenIdsStr;
+  const pattern = new RegExp('^MARKET_TOKEN_IDS=' + '.*$', 'm');
   if (pattern.test(envContent)) {
     envContent = envContent.replace(pattern, line);
   } else {
@@ -701,7 +756,7 @@ safeHandle('apply-market-selection', async (_, tokenIdsStr) => {
 });
 
 safeHandle('add-market-to-watch', async (_, tokenId, question) => {
-  const watchPath = path.join(getProjectPath(), 'watchlist.json');
+  const watchPath = getWatchlistPath();
   let watchlist = [];
   try {
     if (fs.existsSync(watchPath)) {
@@ -716,7 +771,7 @@ safeHandle('add-market-to-watch', async (_, tokenId, question) => {
 });
 
 safeHandle('remove-market-from-watch', async (_, tokenId) => {
-  const watchPath = path.join(getProjectPath(), 'watchlist.json');
+  const watchPath = getWatchlistPath();
   try {
     if (fs.existsSync(watchPath)) {
       let watchlist = JSON.parse(fs.readFileSync(watchPath, 'utf-8'));
@@ -728,7 +783,7 @@ safeHandle('remove-market-from-watch', async (_, tokenId) => {
 });
 
 safeHandle('get-watchlist', async () => {
-  const watchPath = path.join(getProjectPath(), 'watchlist.json');
+  const watchPath = getWatchlistPath();
   try {
     if (fs.existsSync(watchPath)) {
       return { success: true, watchlist: JSON.parse(fs.readFileSync(watchPath, 'utf-8')) };

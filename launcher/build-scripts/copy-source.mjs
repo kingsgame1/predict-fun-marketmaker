@@ -35,12 +35,13 @@ if (fs.existsSync(scriptsDir)) {
 
 // 3. 复制 package.json 和 tsconfig.json（给npm install + tsc用）
 const pkg = fs.readJsonSync(path.join(ROOT, 'package.json'));
-// 只保留dependencies
+// 保留 dependencies 和 scripts（打包后需要 start:cli 等脚本）
 const minimalPkg = {
   name: pkg.name,
   version: pkg.version,
   type: pkg.type || 'module',
   dependencies: pkg.dependencies || {},
+  scripts: pkg.scripts || {},
 };
 fs.writeJsonSync(path.join(RUNTIME, 'package.json'), minimalPkg, { spaces: 2 });
 
@@ -49,11 +50,15 @@ if (fs.existsSync(path.join(ROOT, 'tsconfig.json'))) {
 }
 
 // 3b. 复制 .env（打包后APP需要配置文件）
+// 注意：不再打包 .env，避免泄露用户私钥
+// 首次启动时APP会在userData目录创建空配置文件
+/*
 const envPath = path.join(ROOT, '.env');
 if (fs.existsSync(envPath)) {
   fs.copySync(envPath, path.join(RUNTIME, '.env'));
   console.log('[copy-source] Copied .env');
 }
+*/
 
 // 4. 安装依赖
 console.log('[copy-source] Installing dependencies...');
