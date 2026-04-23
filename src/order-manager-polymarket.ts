@@ -49,7 +49,11 @@ export class PolymarketOrderManager implements MakerOrderManager {
   private defaultOrderType: string;
 
   constructor(config: PolymarketOrderManagerConfig) {
-    const normalized = config.privateKey.startsWith('0x') ? config.privateKey : '0x' + config.privateKey;
+    const rawPk = String(config.privateKey || '').trim();
+    if (!rawPk || rawPk.length < 32) {
+      throw new Error('Polymarket privateKey is required for PolymarketOrderManager');
+    }
+    const normalized = rawPk.startsWith('0x') ? rawPk : '0x' + rawPk;
     const signer = new Wallet(normalized);
     const funderAddress = String(config.funderAddress || '').trim() || signer.address;
     const signatureType = Number.isFinite(Number(config.signatureType)) ? Number(config.signatureType) : 0;

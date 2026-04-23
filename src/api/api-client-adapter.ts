@@ -179,7 +179,7 @@ export class APIClientAdapter {
       });
 
       return {
-        orderId: result.orderId || `order_${Date.now()}`,
+        orderId: result.orderId || `order_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         txHash: result.txHash
       };
 

@@ -11,8 +11,10 @@
  */
 
 import { PredictAPI } from '../src/api/client.js';
-import { config } from '../src/config.js';
+import { loadConfig } from '../src/config.js';
 import { InteractiveMarketSelector } from '../src/cli/interactive-market-selector.js';
+
+const config = loadConfig();
 
 async function main() {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

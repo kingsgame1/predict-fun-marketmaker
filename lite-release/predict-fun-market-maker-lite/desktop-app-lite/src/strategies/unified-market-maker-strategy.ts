@@ -118,7 +118,7 @@ export class UnifiedMarketMakerStrategy {
     }
 
     // 计算订单大小
-    const baseOrderSize = Math.max(10, Math.floor(this.config.minHedgeSize));
+    const baseOrderSize = Math.max(100, Math.floor(this.config.minHedgeSize));
     const buyOrderSize = shouldPlaceBuyOrders ? baseOrderSize : 0;
     const sellOrderSize = shouldPlaceSellOrders ? Math.min(baseOrderSize, Math.floor(totalShares / 2)) : 0;
 

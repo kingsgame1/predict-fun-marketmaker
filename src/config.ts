@@ -68,7 +68,7 @@ export function loadConfig(): Config {
     useValueSignal: process.env.USE_VALUE_SIGNAL === 'true',
     valueSignalWeight: parseFloat(process.env.VALUE_SIGNAL_WEIGHT || '0.35'),
     valueConfidenceMin: parseFloat(process.env.VALUE_CONFIDENCE_MIN || '0.6'),
-    orderSize: parseFloat(process.env.ORDER_SIZE || '10'),
+    orderSize: parseFloat(process.env.ORDER_SIZE || '100'),
     maxSingleOrderValue: parseFloat(process.env.MAX_SINGLE_ORDER_VALUE || '50'),
     maxPosition: parseFloat(process.env.MAX_POSITION || '100'),
     mmAccountEquityUsd: parseFloat(process.env.MM_ACCOUNT_EQUITY_USD || '0'),
@@ -2450,6 +2450,15 @@ export function loadConfig(): Config {
       1,
       Math.max(0, config.mmWsHealthEmergencyRecoverySingleSideLossWeight)
     );
+  }
+
+  // 清理无效数值：如果环境变量解析出 NaN/Infinity，替换为 0 防止毒化整个系统
+  for (const key of Object.keys(config) as Array<keyof Config>) {
+    const val = (config as any)[key];
+    if (typeof val === 'number' && !Number.isFinite(val)) {
+      console.warn(`⚠️ Config ${String(key)} is invalid (${val}), falling back to 0`);
+      (config as any)[key] = 0;
+    }
   }
 
   return config;

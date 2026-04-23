@@ -132,8 +132,10 @@ export class MarketAnalyzer {
     for (const bid of orderbook.bids) {
       const price = Number(bid.price);
       if (price < lowerBound) break; // 超出范围（价格太低）
+      if (!Number.isFinite(price)) continue;
 
       const shares = Number(bid.shares);
+      if (!Number.isFinite(shares) || shares <= 0) continue;
       bidShares += shares;
       bidUsd += shares * price;
     }

@@ -920,7 +920,7 @@
       <div class="config-grid">
         <div class="config-item">
           <div class="config-label">每单股数 ORDER_SIZE</div>
-          <input class="config-input" id="cfgOrderSize" type="number" min="1" onchange="saveConfig('ORDER_SIZE', this.value)">
+          <input class="config-input" id="cfgOrderSize" type="number" min="100" onchange="saveConfig('ORDER_SIZE', this.value)">
         </div>
         <div class="config-item">
           <div class="config-label">最大持仓 MAX_POSITION</div>
@@ -1042,6 +1042,8 @@
       loadJwtStatus();
       loadPolyStatus();
       loadHedgeMode();
+      // Auto refresh markets on startup for debugging
+      setTimeout(() => fetchMarkets(), 2000);
     });
 
     // ==================== 模式切换 ====================
@@ -1457,6 +1459,16 @@
         if (currentMarketVenue === 'predict') {
           const res = await window.electronAPI.fetchPredictMarkets();
           cachedPredictMarkets = res.success ? res.markets : [];
+          // Debug: log market data stats
+          if (cachedPredictMarkets.length > 0) {
+            const withPoints = cachedPredictMarkets.filter(m => m.points_active).length;
+            const withBook = cachedPredictMarkets.filter(m => m.best_bid && m.best_ask).length;
+            console.log(`[Debug] Markets: ${cachedPredictMarkets.length} total, ${withPoints} with points, ${withBook} with orderbook`);
+            const sample = cachedPredictMarkets.find(m => m.best_bid && m.best_ask);
+            if (sample) {
+              console.log(`[Debug] Sample market: ${sample.question.substring(0,30)}... bid=${sample.best_bid}, ask=${sample.best_ask}, spread=${sample.max_spread_cents}c`);
+            }
+          }
           if (!res.success && cachedPredictMarkets.length === 0) {
             list.innerHTML = `<div class="market-loading">Predict.fun: ${res.message || '加载失败'}</div>`;
             btn.disabled = false;
@@ -1517,9 +1529,8 @@
       };
     }
 
-    // === 模拟 screenMarket 的判断：canTrade = 做市商会实际挂单 ===
+    // === 模拟 screenMarket 的判断：只保留核心筛选 ===
     function screenMarketUI(m) {
-      const mode = getModeParams();
       const maxSpread = m.max_spread_cents || 0;
       const bookSpread = (m.best_bid && m.best_ask) ? (m.best_ask - m.best_bid) * 100 : 0;
       const bufferPerSide = maxSpread > 0 && bookSpread > 0 ? (maxSpread - bookSpread) / 2 : 0;
@@ -1530,8 +1541,14 @@
       if (m.venue === 'polymarket' || (!m.best_bid && !m.best_ask && m.polymarket_rewards)) {
         if (m.polymarket_rewards || m.polymarket_rewards_enabled) {
           reasons.push('有Polymarket奖励');
-          if (m.polymarket_daily_rate > 0) {
-            reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
+          const dailyRate = m.polymarket_daily_rate || 0;
+          if (dailyRate > 0) {
+            reasons.push('日率$' + dailyRate.toFixed(4));
+            if (dailyRate > 0.05) {
+              reasons.push('高返利市场');
+            } else if (dailyRate > 0.01) {
+              reasons.push('中等返利');
+            }
           }
           reasons.push('需后端实时确认');
           return { canTrade: true, bufferPerSide: 0, reasons, warnings: ['盘口数据待获取'], screenFail: null };
@@ -1539,37 +1556,22 @@
         return { canTrade: false, bufferPerSide: 0, reasons: [], warnings: ['无Polymarket奖励'], screenFail: '无奖励' };
       }
 
-      // === Predict.fun 精确判断（对齐 screenMarket） ===
+      // === Predict.fun 简化筛选 ===
 
       // 检查0: 必须有积分规则
       if (!m.points_active || maxSpread <= 0) {
         return { canTrade: false, bufferPerSide, reasons: [], warnings: ['无积分规则'], screenFail: '无积分规则' };
       }
-      reasons.push('有积分(' + maxSpread + 'c)');
+      const minShares = m.min_shares || 100;
+      reasons.push('有积分(' + maxSpread + 'c/' + minShares + '股)');
 
-      // 检查1: 盘口价差比例
-      if (bookSpread > maxSpread * mode.spreadBudgetRatio) {
-        return { canTrade: false, bufferPerSide, reasons, warnings: ['盘口价差过大(' + bookSpread.toFixed(1) + 'c>' + (maxSpread * mode.spreadBudgetRatio).toFixed(1) + 'c)'], screenFail: '盘口价差过大' };
+      // 检查1: 盘口价差不能超过积分上限
+      if (bookSpread > maxSpread) {
+        return { canTrade: false, bufferPerSide, reasons, warnings: ['盘口价差超过积分上限(' + bookSpread.toFixed(1) + 'c>' + maxSpread + 'c)'], screenFail: '盘口价差过大' };
       }
 
-      // 检查2: bufferPerSide >= hardMinBuffer
-      if (bufferPerSide < mode.hardMinBuffer) {
-        return { canTrade: false, bufferPerSide, reasons, warnings: ['缓冲不足(' + bufferPerSide.toFixed(2) + 'c<' + mode.hardMinBuffer + 'c)'], screenFail: '缓冲不足' };
-      }
-
-      // 检查2.5: bufferPerSide >= absoluteMinBufferCents * 1.2
-      const minSafeBuffer = mode.absoluteMinBufferCents * 1.2;
-      if (bufferPerSide < minSafeBuffer) {
-        return { canTrade: false, bufferPerSide, reasons, warnings: ['缓冲不足安全线(' + bufferPerSide.toFixed(2) + 'c<' + minSafeBuffer.toFixed(1) + 'c)'], screenFail: '缓冲不足安全线' };
-      }
-
-      // 通过所有检查
-      if (bufferPerSide >= minSafeBuffer * 1.5) {
-        reasons.push('缓冲' + bufferPerSide.toFixed(1) + 'c 很安全');
-      } else {
-        reasons.push('缓冲' + bufferPerSide.toFixed(1) + 'c 可挂单');
-      }
-
+      // 通过筛选
+      reasons.push('可挂单');
       return { canTrade: true, bufferPerSide, reasons, warnings, screenFail: null };
     }
 
@@ -1587,55 +1589,187 @@
       }
 
       actionBar.style.display = 'flex';
+      const mode = getModeParams();
 
-      const scored = markets.map(m => {
+        const scored = markets.map(m => {
         const screen = screenMarketUI(m);
         let score = 0;
         const { reasons, warnings, canTrade, bufferPerSide } = screen;
-
-        if (canTrade) {
-          score += 50;
-          score += Math.min(30, Math.floor(bufferPerSide * 5));
-        } else {
-          score -= 20;
-        }
-
+        const maxSpread = m.max_spread_cents || 0;
+        const minShares = m.min_shares || 100;
+        const bookSpread = (m.best_bid && m.best_ask) ? (m.best_ask - m.best_bid) * 100 : 999;
+        const bufferUtilization = maxSpread > 0 ? bookSpread / maxSpread : 1;
         const vol = m.volume_24h || 0;
-        if (vol > 50000) { score += 20; reasons.push('高流动性'); }
-        else if (vol > 10000) { score += 15; reasons.push('中高流动性'); }
-        else if (vol > 1000) { score += 5; reasons.push('中等流动性'); }
-        else if (vol > 0) { warnings.push('低流动性(盘口薄)'); }
+        let pointsEfficiency = 0;
 
-        if (m.end_date) {
-          const daysLeft = (new Date(m.end_date) - Date.now()) / 86400000;
-          if (daysLeft >= 3 && daysLeft <= 30) { score += 10; reasons.push(Math.floor(daysLeft) + '天到期'); }
-          else if (daysLeft > 30) { score += 5; reasons.push(Math.floor(daysLeft) + '天到期'); }
-          else if (daysLeft > 1) { warnings.push('即将到期'); }
-          else { warnings.push('24h内到期'); score -= 10; }
+        // 只有可挂单的市场才添加评分和正面标签
+        if (canTrade) {
+          score += 40;
+          score += Math.min(25, Math.floor(bufferPerSide * 4));
+
+          // ===== Points Efficiency Scoring (核心改进) =====
+          pointsEfficiency = (bufferPerSide / Math.max(minShares, 1)) * 1000;
+          score += Math.min(20, Math.floor(pointsEfficiency * 2));
+
+          // min_shares门槛评分
+          if (minShares <= 50) {
+            score += 12;
+            reasons.push('低门槛(' + minShares + '股)');
+          } else if (minShares <= 100) {
+            score += 8;
+            reasons.push('门槛低(' + minShares + '股)');
+          } else if (minShares <= 200) {
+            score += 4;
+          } else {
+            score -= 3;
+            warnings.push('门槛高(' + minShares + '股)');
+          }
+
+          // max_spread奖励
+          if (maxSpread >= 8) {
+            score += 6;
+            reasons.push('宽价差(' + maxSpread + 'c)');
+          } else if (maxSpread >= 6) {
+            score += 3;
+          }
+
+          // Buffer utilization scoring
+          if (bufferUtilization < 0.3) {
+            score += 8;
+            reasons.push('盘口宽松');
+          } else if (bufferUtilization > 0.7) {
+            score -= 3;
+            warnings.push('盘口拥挤');
+          }
+
+          // ===== Liquidity Scoring =====
+          if (vol > 50000) {
+            score += 12;
+            reasons.push('极高流动性');
+          } else if (vol > 20000) {
+            score += 10;
+            reasons.push('高流动性');
+          } else if (vol > 10000) {
+            score += 6;
+            reasons.push('中高流动性');
+          } else if (vol > 2000) {
+            score += 3;
+            reasons.push('中等流动性');
+          } else if (vol > 500) {
+            score += 1;
+          } else {
+            score -= 8;
+            warnings.push('低流动性警告');
+          }
+
+          // ===== Time Risk Scoring =====
+          if (m.end_date) {
+            const daysLeft = (new Date(m.end_date) - Date.now()) / 86400000;
+            if (daysLeft > 30) {
+              score += 6;
+              reasons.push('长期市场');
+            } else if (daysLeft > 14) {
+              score += 8;
+              reasons.push(Math.floor(daysLeft) + '天后到期');
+            } else if (daysLeft > 7) {
+              score += 4;
+              reasons.push('2周内到期');
+            } else if (daysLeft > 3) {
+              score += 2;
+              warnings.push('1周内到期');
+            } else if (daysLeft > 1) {
+              score -= 8;
+              warnings.push('3天内到期⚠️');
+            } else {
+              score -= 25;
+              warnings.push('24h内到期🚫');
+            }
+          }
+
+          // ===== Price Quality =====
+          if (m.best_bid && m.best_ask) {
+            const midPrice = (m.best_bid + m.best_ask) / 2;
+            if (midPrice > 0.1 && midPrice < 0.9) {
+              score += 2;
+            } else if (midPrice < 0.05 || midPrice > 0.95) {
+              score -= 3;
+              warnings.push('极端价格');
+            }
+          }
+
+          // ===== Polymarket daily rate bonus =====
+          if (m.polymarket_daily_rate > 0 && m.venue !== 'polymarket') {
+            if (m.polymarket_daily_rate > 0.01) {
+              score += 8;
+              reasons.push('高日率$' + m.polymarket_daily_rate.toFixed(4));
+            } else {
+              score += 4;
+              reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
+            }
+          }
+        } else {
+          // 不可挂单的市场扣大分
+          score -= 30;
+          // 添加流动性警告（即使不可挂单也显示资金占用风险）
+          if (vol <= 500) {
+            warnings.push('低流动性警告');
+          }
         }
 
+        // ===== Polymarket daily rate bonus =====
         if (m.polymarket_daily_rate > 0 && m.venue !== 'polymarket') {
-          score += 10; reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
+          if (m.polymarket_daily_rate > 0.01) {
+            score += 8;
+            reasons.push('高日率$' + m.polymarket_daily_rate.toFixed(4));
+          } else {
+            score += 4;
+            reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
+          }
         }
 
-        return { m, score, reasons, warnings, canTrade, bufferPerSide, vol };
+        return { m, score, reasons, warnings, canTrade, bufferPerSide, vol, minShares, pointsEfficiency };
       });
 
       scored.sort((a, b) => b.score - a.score);
       window._scoredMarkets = scored;
 
-      list.innerHTML = scored.slice(0, 30).map(item => {
-        const { m, score, reasons, warnings, canTrade, bufferPerSide, vol } = item;
+      // Debug stats
+      const total = scored.length;
+      const pass = scored.filter(s => s.canTrade).length;
+      const noPoints = scored.filter(s => !s.canTrade && s.screenFail === '无积分规则').length;
+      const noBook = scored.filter(s => !s.canTrade && (s.screenFail === '无盘口' || s.screenFail === '无盘口数据')).length;
+      const bigSpread = scored.filter(s => !s.canTrade && s.screenFail === '盘口价差过大').length;
+      const lowBuffer = scored.filter(s => !s.canTrade && s.screenFail === '缓冲不足').length;
+      const otherFail = total - pass - noPoints - noBook - bigSpread - lowBuffer;
+      
+      const debugHTML = `<div style="background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#888;">
+        <strong style="color:#00ff88;">筛选统计:</strong> 共${total}个 | 
+        <span style="color:#00ff88;">通过${pass}</span> | 
+        <span style="color:#ff6b35;">无积分${noPoints}</span> | 
+        <span style="color:#ff6b35;">无盘口${noBook}</span> | 
+        <span style="color:#ff6b35;">价差大${bigSpread}</span> | 
+        <span style="color:#ff6b35;">缓冲低${lowBuffer}</span> | 
+        <span style="color:#ff6b35;">其他${otherFail}</span>
+      </div>`;
+
+      list.innerHTML = debugHTML + scored.slice(0, 100).map(item => {
+        const { m, score, reasons, warnings, canTrade, bufferPerSide, vol, minShares, pointsEfficiency } = item;
         const isSelected = selectedTokenIds.has(m.token_id);
         const scoreClass = canTrade
-          ? (score >= 70 ? 'good' : score >= 40 ? 'ok' : 'bad')
+          ? (score >= 70 ? 'good' : score >= 45 ? 'ok' : 'bad')
           : 'bad';
         const tradeTag = canTrade
           ? ''
           : '<span class="market-reason reason-block">不可挂单</span>';
         const volStr = vol ? '$' + (vol/1000).toFixed(1) + 'K' : '';
         const endDate = m.end_date ? new Date(m.end_date).toLocaleDateString() : '';
+        const maxSpread = m.max_spread_cents || 0;
         const allReasons = reasons.concat(warnings);
+
+        // 显示积分资金效率标签
+        const efficiencyTag = canTrade && pointsEfficiency > 0
+          ? `<span class="market-reason ${pointsEfficiency >= 0.5 ? '' : 'reason-warn'}">效率${pointsEfficiency.toFixed(1)}</span>`
+          : '';
 
         return `<div class="market-item${canTrade ? '' : ' market-disabled'}${isSelected ? ' market-selected' : ''}" data-token-id="${escHtml(m.token_id || '')}">
           ${canTrade ? '<div class="market-check" data-tid="' + escHtml(m.token_id || '') + '" onclick="toggleMarketSelect(this)">' + (isSelected ? '&#10003;' : '') + '</div>' : ''}
@@ -1646,9 +1780,11 @@
               ${volStr ? '<span>Vol: ' + volStr + '</span>' : ''}
               ${endDate ? '<span>到期: ' + endDate + '</span>' : ''}
               ${bufferPerSide > 0 ? '<span>缓冲: ' + bufferPerSide.toFixed(1) + 'c</span>' : ''}
+              <span>${maxSpread}c/${minShares}股</span>
             </div>
             <div class="market-reasons">
               ${tradeTag}
+              ${efficiencyTag}
               ${allReasons.map(r => '<span class="market-reason' + (warnings.includes(r) ? ' reason-warn' : '') + '">' + escHtml(r) + '</span>').join('')}
             </div>
           </div>

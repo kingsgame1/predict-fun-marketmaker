@@ -456,11 +456,11 @@ export class PointsOptimizerEngineV2 {
     if (side === 'BUY') {
       // 买单：当前价 - 1/2 价差（离盘口更远 = 价格更低）
       const price = currentPrice - halfSpread;
-      return Math.max(0.01, price);
+      return Math.max(0.01, Math.round(price * 100) / 100);
     } else {
       // 卖单：当前价 + 1/2 价差（离盘口更远 = 价格更高）
       const price = currentPrice + halfSpread;
-      return Math.min(0.99, price);
+      return Math.min(0.99, Math.round(price * 100) / 100);
     }
   }
 

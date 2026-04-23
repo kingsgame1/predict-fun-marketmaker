@@ -24,7 +24,7 @@ export function calcCurveFee(price: number, feeRateBps: number, curveRate: numbe
   if (feeRateBps <= 0 || curveRate <= 0 || curveExponent <= 0) return 0;
 
   const p = clampPrice(price);
-  const baseMultiplier = feeRateBps / 1000;
+  const baseMultiplier = feeRateBps / 10000;
   const curve = curveRate * Math.pow(p * (1 - p), curveExponent);
   return baseMultiplier * curve;
 }

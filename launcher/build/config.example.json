@@ -8,7 +8,7 @@
   "jwtToken": "YOUR_JWT_TOKEN",
   "mmTradingMode": "conservative",
   "spread": 0.015,
-  "orderSize": 10,
+  "orderSize": 100,
   "maxPosition": 100,
   "cancelThreshold": 0.001,
   "repriceThreshold": 0.005,

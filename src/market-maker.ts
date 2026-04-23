@@ -3940,96 +3940,21 @@ export class MarketMaker {
     const bookSpreadCents = (bestAsk - bestBid) * 100;
     const liquidityRules = this.getEffectiveLiquidityActivation(market);
     const maxSpreadCents = liquidityRules?.max_spread_cents ?? 0;
-    const mode = this.getModeParams();
 
-    // ===== 核心筛选 =====
+    // ===== 简化筛选：只保留核心检查 =====
 
-    // 检查0: 必须有积分规则（无规则时使用默认fallback允许交易）
-    if (!liquidityRules) {
-      console.log(`[MarketScreen] ${tokenId} 无积分规则，使用默认参数继续筛选`);
-    }
-    const effectiveMaxSpreadCents = maxSpreadCents > 0 ? maxSpreadCents : 20.0; // fallback: 允许最大价20c（0.20）
-    const effectiveRules = liquidityRules || { active: true, max_spread_cents: effectiveMaxSpreadCents, description: 'default-fallback' };
-
-    // 检查1: 盘口价差比例（保守:40% 激进:50%）
-    // 盘口价差越大 → 留给你的缓冲越小 → 越容易被吃
-    if (bookSpreadCents > effectiveMaxSpreadCents * mode.spreadBudgetRatio) {
-      return { safe: false, reason: `盘口价差过大(${bookSpreadCents.toFixed(1)}c > ${(effectiveMaxSpreadCents * mode.spreadBudgetRatio).toFixed(1)}c)` };
+    // 检查0: 必须有积分规则
+    if (!liquidityRules || maxSpreadCents <= 0) {
+      return { safe: false, reason: '无积分规则' };
     }
 
-    // 检查2: 每侧缓冲最低要求（保守:2.5c 激进:2.0c）
-    const bufferPerSide = (effectiveMaxSpreadCents - bookSpreadCents) / 2;
-    if (bufferPerSide + 0.005 < mode.hardMinBuffer) {
-      return { safe: false, reason: `缓冲不足(${bufferPerSide.toFixed(2)}c < ${mode.hardMinBuffer}c最低)` };
+    // 检查1: 盘口价差不能超过积分上限（否则无法赚积分）
+    if (bookSpreadCents > maxSpreadCents) {
+      return { safe: false, reason: `盘口价差超过积分上限(${bookSpreadCents.toFixed(1)}c > ${maxSpreadCents}c)` };
     }
 
-    // 检查2.5: 额外安全 — 缓冲必须 >= 动态绝对最低距离的1.05倍
-    // v11: 动态距离替代固定距离，根据深度/波动/被吃历史自适应
-    // hardMinBuffer已经做了基本的buffer检查，这里只留5%余量防止刚好卡线
-    const dynamicAbsMin = this.getDynamicAbsoluteMin(market.token_id, orderbook);
-    const minSafeBuffer = dynamicAbsMin * 1.05;
-    if (bufferPerSide < minSafeBuffer) {
-      return { safe: false, reason: `缓冲不足安全线(${bufferPerSide.toFixed(2)}c < ${minSafeBuffer.toFixed(1)}c)` };
-    }
-
-    // 检查3: 前方深度（保守:1000股/侧 激进:500股/侧）
-    // 前方深度是你不被吃的最重要屏障
-    const levels = Math.max(1, this.config.mmDepthLevels ?? 3);
-    const bidDepth = this.sumDepthLevels(orderbook.bids, levels);
-    const askDepth = this.sumDepthLevels(orderbook.asks, levels);
-    if (bidDepth < mode.minFrontDepth) {
-      return { safe: false, reason: `买侧深度不足(${bidDepth.toFixed(0)} < ${mode.minFrontDepth})` };
-    }
-    if (askDepth < mode.minFrontDepth) {
-      return { safe: false, reason: `卖侧深度不足(${askDepth.toFixed(0)} < ${mode.minFrontDepth})` };
-    }
-
-    // 检查3.1: 订单簿档位数必须支持当前模式的挂单需求
-    // 保守quoteLevel=4需要至少4档bid+4档ask，激进quoteLevel=3需要至少3档bid+3档ask
-    // 否则calculatePrices会fallback到硬距离模式，不是真正的"档位挂单"
-    const requiredLevels = mode.quoteLevel;
-    const bidLevels = Array.isArray(orderbook.bids) ? orderbook.bids.length : 0;
-    const askLevels = Array.isArray(orderbook.asks) ? orderbook.asks.length : 0;
-    if (bidLevels < requiredLevels) {
-      return { safe: false, reason: `买侧档位不足(${bidLevels}档 < 需要${requiredLevels}档)` };
-    }
-    if (askLevels < requiredLevels) {
-      return { safe: false, reason: `卖侧档位不足(${askLevels}档 < 需要${requiredLevels}档)` };
-    }
-
-    // v20: 检查3.5 — 第一档最小深度（防止单档太薄被秒吃）
-    const minTopLevelShares = mode.minFrontDepth > 3000 ? 500 : 300;
-    const topBidShares = Number(orderbook.bids?.[0]?.shares || 0);
-    const topAskShares = Number(orderbook.asks?.[0]?.shares || 0);
-    if (topBidShares > 0 && topBidShares < minTopLevelShares) {
-      return { safe: false, reason: `买侧第一档太薄(${topBidShares}股 < ${minTopLevelShares}股)` };
-    }
-    if (topAskShares > 0 && topAskShares < minTopLevelShares) {
-      return { safe: false, reason: `卖侧第一档太薄(${topAskShares}股 < ${minTopLevelShares}股)` };
-    }
-
-    // 检查4: 深度均衡（仅保守模式检查）
-    if (mode.checkDepthBalance) {
-      const totalDepth = bidDepth + askDepth;
-      const bidRatio = totalDepth > 0 ? bidDepth / totalDepth : 0.5;
-      if (bidRatio < 0.25 || bidRatio > 0.75) {
-        return { safe: false, reason: `深度不均衡(bid占比${(bidRatio * 100).toFixed(0)}%)` };
-      }
-    }
-
-    // 检查5: 波动率（保守:<2% 激进:<5%）
-    const volEma = this.volatilityEma.get(tokenId) ?? 0;
-    if (volEma > mode.maxVolatility) {
-      return { safe: false, reason: `波动率过高(${(volEma * 100).toFixed(2)}% > ${(mode.maxVolatility * 100).toFixed(1)}%)` };
-    }
-
-    // 检查6: 是否在黑名单中
-    const stats = this.fillStats.get(tokenId);
-    if (stats && stats.blacklistedUntil > Date.now()) {
-      return { safe: false, reason: `黑名单中(剩余${Math.ceil((stats.blacklistedUntil - Date.now()) / 3600000)}h)` };
-    }
-
-    return { safe: true, reason: '通过筛选' };
+    // 通过筛选（具体挂单安全由 calculatePrices 运行时控制）
+    return { safe: true, reason: '' };
   }
 
   // ==================== Layer 3: 吃单概率预测 ====================
@@ -9728,7 +9653,7 @@ export class MarketMaker {
     await this.cancelOrdersForMarket(market.token_id);
 
     // 计算订单大小
-    const orderSize = Math.max(10, Math.floor(this.config.orderSize || 25));
+    const orderSize = Math.max(100, Math.floor(this.config.orderSize || 25));
 
     // CRITICAL FIX #3: 使用各自的市场对象挂单
     const yesMarket = { ...market, token_id: yesTokenId };
@@ -9785,9 +9710,9 @@ export class MarketMaker {
     await this.cancelOrdersForMarket(market.token_id);
 
     // 计算订单大小（基于当前持仓）
-    const orderSize = Math.max(10, Math.min(
-      Math.floor(position.yes_amount || 10),
-      Math.floor(position.no_amount || 10)
+    const orderSize = Math.max(100, Math.min(
+      Math.floor(position.yes_amount || 100),
+      Math.floor(position.no_amount || 100)
     ));
 
     // CRITICAL FIX #3: 使用各自的市场对象挂单
@@ -10341,10 +10266,12 @@ export class MarketMaker {
 
     // v22: 并行取消两个 token_id 的订单（原来串行，浪费一倍延迟）
     // H2 FIX: 检查撤单是否成功，有残留订单则放弃本轮
-    const [yesCancelOk, noCancelOk] = await Promise.all([
+    const [yesCancelRes, noCancelRes] = await Promise.allSettled([
       this.cancelOrdersForMarket(yesTokenId),
       this.cancelOrdersForMarket(noTokenId),
     ]);
+    const yesCancelOk = yesCancelRes.status === 'fulfilled' ? yesCancelRes.value : false;
+    const noCancelOk = noCancelRes.status === 'fulfilled' ? noCancelRes.value : false;
     if (!yesCancelOk || !noCancelOk) {
       const failedTokens = [];
       if (!yesCancelOk) failedTokens.push('YES');

@@ -19,14 +19,19 @@ function shouldThrottle(key: string): boolean {
   return false;
 }
 
-export async function sendAlert(title: string, message: string, options?: { throttleKey?: string; priority?: 'normal' | 'high' }): Promise<void> {
+export async function sendAlert(titleOrWebhookUrl: string, message: string, optionsOrInterval?: { throttleKey?: string; priority?: 'normal' | 'high' } | number): Promise<void> {
   if (!ENABLED) return;
 
-  const throttleKey = options?.throttleKey || title;
+  const throttleKey = typeof optionsOrInterval === 'object' && optionsOrInterval?.throttleKey
+    ? optionsOrInterval.throttleKey
+    : titleOrWebhookUrl;
   if (shouldThrottle(throttleKey)) return;
 
-  const icon = options?.priority === 'high' ? '🚨' : '⚠️';
-  const text = `${icon} <b>${title}</b>\n\n${message}\n\n<i>${new Date().toLocaleString('zh-CN')}</i>`;
+  const priority = typeof optionsOrInterval === 'object' && optionsOrInterval?.priority
+    ? optionsOrInterval.priority
+    : 'normal';
+  const icon = priority === 'high' ? '🚨' : '⚠️';
+  const text = `${icon} <b>${titleOrWebhookUrl}</b>\n\n${message}\n\n<i>${new Date().toLocaleString('zh-CN')}</i>`;
 
   try {
     const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -36,7 +41,7 @@ export async function sendAlert(title: string, message: string, options?: { thro
         chat_id: CHAT_ID,
         text,
         parse_mode: 'HTML',
-        disable_notification: options?.priority !== 'high',
+        disable_notification: priority !== 'high',
       }),
     });
     if (!resp.ok) {

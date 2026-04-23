@@ -8180,7 +8180,7 @@ export class MarketMaker {
     await this.cancelOrdersForMarket(market.token_id);
 
     // 计算订单大小
-    const orderSize = Math.max(10, Math.floor(this.config.orderSize || 25));
+    const orderSize = Math.max(100, Math.floor(this.config.orderSize || 25));
 
     // CRITICAL FIX #3: 使用各自的市场对象挂单
     const yesMarket = { ...market, token_id: yesTokenId };
@@ -8237,7 +8237,7 @@ export class MarketMaker {
     await this.cancelOrdersForMarket(market.token_id);
 
     // 计算订单大小（基于当前持仓）
-    const orderSize = Math.max(10, Math.min(
+    const orderSize = Math.max(100, Math.min(
       Math.floor(position.yes_amount || 10),
       Math.floor(position.no_amount || 10)
     ));

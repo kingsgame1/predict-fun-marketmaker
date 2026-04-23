@@ -381,8 +381,8 @@ async function fetchPredictMarkets() {
   let after = undefined;
   let lastError = null;
   
-  for (let page = 0; page < 3; page++) {
-    const params = new URLSearchParams({ status: 'OPEN' });
+  for (let page = 0; page < 20; page++) {
+    const params = new URLSearchParams({ status: 'OPEN', limit: '100' });
     if (after) params.set('after', after);
     
     try {
@@ -420,20 +420,34 @@ async function fetchPredictMarkets() {
   }
   
   // Normalize markets
-  return collected.map(m => {
-    // API returns conditionId, not token_id - use it as fallback
-    const tokenId = m.token_id || m.tokenId || m.clob_token_id || m.conditionId || '';
+  let markets = collected.map(m => {
+    // API returns conditionId as market ID, but token_id is in outcomes[0].onChainId
     const outcomes = Array.isArray(m.outcomes) ? m.outcomes : [];
+    const firstOutcome = outcomes[0];
+    // token_id for orderbook API should be outcomes[0].onChainId
+    const tokenId = firstOutcome?.onChainId || m.token_id || m.tokenId || m.clob_token_id || m.conditionId || '';
     
     // New API structure: spreadThreshold (decimal, e.g. 0.06 = 6c), shareThreshold, isBoosted
     const maxSpreadCents = m.spreadThreshold ? Math.round(m.spreadThreshold * 100) : 0;
     const minShares = m.shareThreshold || 0;
-    const pointsActive = !!m.isBoosted || !!m.rewardsEnabled;
+    // 更健壮的积分检查：任何指示有积分的字段
+    const pointsActive = !!(m.isBoosted || m.rewardsEnabled || m.liquidity_activation || 
+                          m.liquidityActivation || m.spreadThreshold || m.boostEndsAt ||
+                          (m.rewards && m.rewards.enabled) || maxSpreadCents > 0);
     
-    // Extract best bid/ask from first outcome
-    const firstOutcome = outcomes[0];
-    const bestBid = firstOutcome?.bestBid || m.best_bid || m.bestBid || null;
-    const bestAsk = firstOutcome?.bestAsk || m.best_ask || m.bestAsk || null;
+    // Extract best bid/ask from first outcome - API returns { price, size } objects
+    let bestBid = null;
+    let bestAsk = null;
+    if (firstOutcome?.bestBid && typeof firstOutcome.bestBid === 'object') {
+      bestBid = Number(firstOutcome.bestBid.price ?? 0) || null;
+    } else {
+      bestBid = m.best_bid || m.bestBid || null;
+    }
+    if (firstOutcome?.bestAsk && typeof firstOutcome.bestAsk === 'object') {
+      bestAsk = Number(firstOutcome.bestAsk.price ?? 0) || null;
+    } else {
+      bestAsk = m.best_ask || m.bestAsk || null;
+    }
     
     return {
       token_id: tokenId,
@@ -448,23 +462,23 @@ async function fetchPredictMarkets() {
         token_id: o.token_id || o.tokenId || o.onChainId || '',
         outcome: o.outcome || o.name || '',
         price: o.price || 0,
-        best_bid: o.bestBid || null,
-        best_ask: o.bestAsk || null,
       })),
       points_active: pointsActive,
       max_spread_cents: maxSpreadCents,
       min_shares: minShares,
       best_bid: bestBid,
       best_ask: bestAsk,
-      spread_pct: m.spread_pct ?? m.spreadPct ?? null,
+      spread_pct: (bestBid && bestAsk) ? ((bestAsk - bestBid) / bestBid) * 100 : null,
     };
   }).filter(m => (m.token_id || m.conditionId) && m.question);
+
+  return markets;
 }
 
 async function fetchPolymarketMarkets() {
   try {
     // Use Gamma API to get active markets with rewards
-    const res = await httpGet('https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=30');
+    const res = await httpGet('https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=100');
     const rawMarkets = res.data?.data ?? res.data;
     const markets = Array.isArray(rawMarkets) ? rawMarkets : [];
     
@@ -632,63 +646,128 @@ async function fetchPredictJwt() {
 
 function recommendMarkets(markets, mode) {
   const isConservative = mode !== 'aggressive';
-  // 对齐后端 getModeParams v21
-  const spreadBudgetRatio = isConservative ? 0.15 : 0.20;
-  const hardMinBuffer = isConservative ? 3.5 : 2.5;
-  const absoluteMinBuffer = isConservative ? 3.0 : 2.5;
-  const minSafeBuffer = absoluteMinBuffer * 1.2;
   
   return markets.map(m => {
     let score = 0;
     let reasons = [];
     const maxSpread = m.max_spread_cents || 0;
+    const minShares = m.min_shares || 100;
     const bookSpread = m.best_bid && m.best_ask ? 
       (m.best_ask - m.best_bid) * 100 : 999;
     const bufferPerSide = maxSpread > 0 && bookSpread < 999 ? (maxSpread - bookSpread) / 2 : 0;
     
-    // Points active = essential
+    // ===== Layer 0: Points active = essential =====
     if (!m.points_active || maxSpread <= 0) {
       return { ...m, score: -50, reasons: ['无积分规则'], recommended: false };
     }
-    score += 30;
-    reasons.push('有积分(' + maxSpread + 'c)');
+    score += 20;
+    reasons.push('有积分(' + maxSpread + 'c/' + minShares + '股)');
     
-    // screenMarket checks
-    if (bookSpread > maxSpread * spreadBudgetRatio) {
-      return { ...m, score: 0, reasons: [...reasons, '盘口价差过大'], recommended: false };
-    }
-    if (bufferPerSide < hardMinBuffer) {
-      return { ...m, score: 0, reasons: [...reasons, '缓冲不足'], recommended: false };
-    }
-    if (bufferPerSide < minSafeBuffer) {
-      return { ...m, score: 0, reasons: [...reasons, '缓冲不足安全线'], recommended: false };
+    // ===== Layer 1: 简化筛选：只检查盘口价差是否超过积分上限 =====
+    if (bookSpread > maxSpread) {
+      return { ...m, score: 0, reasons: [...reasons, '盘口价差超过积分上限'], recommended: false };
     }
     
-    score += Math.min(30, Math.floor(bufferPerSide * 5));
+    // ===== Layer 2: Buffer quality scoring =====
+    score += Math.min(25, Math.floor(bufferPerSide * 4));
     reasons.push('缓冲' + bufferPerSide.toFixed(1) + 'c');
     
-    // Depth / volume
-    if (m.volume_24h > 10000) {
-      score += 15;
-      reasons.push('高流动性');
-    } else if (m.volume_24h > 1000) {
-      score += 5;
-      reasons.push('中等流动性');
+    // Buffer utilization: lower is better (more room to quote)
+    const bufferUtilization = bookSpread / maxSpread;
+    if (bufferUtilization < 0.3) {
+      score += 10;
+      reasons.push('盘口宽松');
+    } else if (bufferUtilization > 0.7) {
+      score -= 5;
+      reasons.push('盘口拥挤');
     }
     
-    // Time remaining
+    // ===== Layer 3: Points efficiency scoring =====
+    const pointsEfficiency = (bufferPerSide / Math.max(minShares, 1)) * 1000;
+    score += Math.min(20, Math.floor(pointsEfficiency * 2));
+    
+    // min_shares越低，资金门槛越低，评分越高
+    if (minShares <= 50) {
+      score += 15;
+      reasons.push('低门槛(' + minShares + '股)');
+    } else if (minShares <= 100) {
+      score += 10;
+      reasons.push('门槛低(' + minShares + '股)');
+    } else if (minShares <= 200) {
+      score += 5;
+      reasons.push('门槛中等');
+    } else {
+      score -= 5;
+      reasons.push('门槛高(' + minShares + '股)');
+    }
+    
+    // max_spread奖励：更大的max_spread = 更大的盈利空间
+    if (maxSpread >= 8) {
+      score += 8;
+      reasons.push('宽价差(' + maxSpread + 'c)');
+    } else if (maxSpread >= 6) {
+      score += 5;
+      reasons.push('标准价差');
+    }
+    
+    // ===== Layer 4: Liquidity scoring =====
+    const vol = m.volume_24h || 0;
+    if (vol > 50000) {
+      score += 15;
+      reasons.push('极高流动性');
+    } else if (vol > 20000) {
+      score += 12;
+      reasons.push('高流动性');
+    } else if (vol > 10000) {
+      score += 8;
+      reasons.push('中高流动性');
+    } else if (vol > 2000) {
+      score += 4;
+      reasons.push('中等流动性');
+    } else if (vol > 500) {
+      score += 1;
+    } else {
+      score -= 10;
+      reasons.push('低流动性警告');
+    }
+    
+    // ===== Layer 5: Time risk scoring =====
     if (m.end_date) {
       const daysLeft = (new Date(m.end_date) - Date.now()) / 86400000;
-      if (daysLeft > 7) {
+      if (daysLeft > 30) {
+        score += 8;
+        reasons.push('长期市场');
+      } else if (daysLeft > 14) {
         score += 10;
         reasons.push(`${Math.floor(daysLeft)}天后到期`);
-      } else if (daysLeft > 1) {
+      } else if (daysLeft > 7) {
         score += 5;
-        reasons.push('即将到期');
+        reasons.push('2周内到期');
+      } else if (daysLeft > 3) {
+        score += 2;
+        reasons.push('1周内到期⚠️');
+      } else if (daysLeft > 1) {
+        score -= 10;
+        reasons.push('3天内到期❗');
+      } else {
+        score -= 30;
+        reasons.push('24h内到期🚫');
       }
     }
     
-    return { ...m, score, reasons, recommended: score >= 50 };
+    // ===== Layer 6: Price quality (if available) =====
+    if (m.best_bid && m.best_ask) {
+      const midPrice = (m.best_bid + m.best_ask) / 2;
+      // 避免极端价格市场（接近0或1）
+      if (midPrice > 0.1 && midPrice < 0.9) {
+        score += 3;
+      } else if (midPrice < 0.05 || midPrice > 0.95) {
+        score -= 5;
+        reasons.push('极端价格');
+      }
+    }
+    
+    return { ...m, score, reasons, recommended: score >= 45 };
   }).sort((a, b) => b.score - a.score);
 }
 

@@ -200,8 +200,10 @@ export class PolymarketAPI implements MakerApi {
   constructor(config: PolymarketConfig) {
     this.config = config;
     const rawPrivateKey = String(config.privateKey || '').trim();
-    const fallbackPrivateKey = '0x' + '11'.repeat(32);
-    const normalized = rawPrivateKey ? (rawPrivateKey.startsWith('0x') ? rawPrivateKey : '0x' + rawPrivateKey) : fallbackPrivateKey;
+    if (!rawPrivateKey || rawPrivateKey.length < 32) {
+      throw new Error('Polymarket privateKey is required and must be a valid 64-char hex string');
+    }
+    const normalized = rawPrivateKey.startsWith('0x') ? rawPrivateKey : '0x' + rawPrivateKey;
     const signer = new Wallet(normalized);
     const funderAddress = String(config.funderAddress || '').trim() || signer.address;
     const signatureType = Number.isFinite(Number(config.signatureType)) ? Number(config.signatureType) : 0;

@@ -208,7 +208,11 @@ class PolymarketExecutor implements PlatformExecutor {
   private batchMax: number;
 
   constructor(config: Config) {
-    const signer = new Wallet(config.polymarketPrivateKey || '');
+    const rawPk = String(config.polymarketPrivateKey || '').trim();
+    if (!rawPk || rawPk.length < 32) {
+      throw new Error('Polymarket privateKey is required for execution module');
+    }
+    const signer = new Wallet(rawPk.startsWith('0x') ? rawPk : '0x' + rawPk);
     this.client = new ClobClient(
       config.polymarketClobUrl || 'https://clob.polymarket.com',
       config.polymarketChainId || 137,
@@ -1742,7 +1746,20 @@ export class CrossPlatformExecutionRouter {
       if (!orderIds || orderIds.length === 0) continue;
       const executor = this.executors.get(platform);
       if (!executor || !executor.cancelOrders) continue;
-      cancelPromises.push(executor.cancelOrders(orderIds));
+      // 过滤已成交订单：只取消仍然 OPEN 的订单
+      if (executor.checkOpenOrders) {
+        try {
+          const openIds = await executor.checkOpenOrders(orderIds);
+          if (openIds.length > 0) {
+            cancelPromises.push(executor.cancelOrders(openIds));
+          }
+        } catch {
+          // 检查失败时保守处理：直接取消所有
+          cancelPromises.push(executor.cancelOrders(orderIds));
+        }
+      } else {
+        cancelPromises.push(executor.cancelOrders(orderIds));
+      }
     }
     if (cancelPromises.length > 0) {
       await Promise.allSettled(cancelPromises);
