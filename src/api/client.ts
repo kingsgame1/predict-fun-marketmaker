@@ -287,7 +287,41 @@ export class PredictAPI {
       volume_24h: Number(volume24h ?? 0),
       liquidity_24h: Number(liquidity24h ?? 0),
       outcomes,
-      liquidity_activation: raw?.liquidity_activation ?? raw?.liquidityActivation ?? raw?.points_rules ?? raw?.reward_rules,
+      // 将 API 返回的积分规则正规化为统一的 snake_case 格式
+      liquidity_activation: (() => {
+        // 1) 先检查嵌套的 liquidity_activation 对象
+        const la = raw?.liquidity_activation ?? raw?.liquidityActivation ?? raw?.points_rules ?? raw?.reward_rules;
+        if (la && typeof la === 'object') {
+          const maxSpread = la.max_spread ?? la.maxSpread;
+          const maxSpreadCents = la.max_spread_cents ?? la.maxSpreadCents ??
+            (maxSpread && maxSpread > 0 ? (maxSpread > 1 ? Math.round(maxSpread) : Math.round(maxSpread * 100)) : undefined);
+          const minShares = la.min_shares ?? la.minShares ?? la.share_threshold ?? la.shareThreshold;
+          const isActive = la.active ?? la.isActive ?? la.is_boosted ?? la.isBoosted;
+          if (maxSpreadCents || maxSpread) {
+            return {
+              active: !!isActive,
+              min_shares: minShares && minShares > 0 ? minShares : undefined,
+              max_spread_cents: maxSpreadCents && maxSpreadCents > 0 ? maxSpreadCents : undefined,
+              max_spread: maxSpread && maxSpread > 0 ? maxSpread : (maxSpreadCents && maxSpreadCents > 0 ? maxSpreadCents / 100 : undefined),
+              description: la.description ?? 'api-normalized-nested',
+            };
+          }
+        }
+        // 2) 再检查顶层字段（predict.fun 新 API 结构）
+        const topMaxSpread = raw?.spreadThreshold ?? raw?.spread_threshold ?? raw?.maxSpread ?? raw?.maxSpreadCents ?? raw?.max_spread_cents;
+        if (topMaxSpread && topMaxSpread > 0) {
+          const maxSpreadCents = topMaxSpread > 1 ? Math.round(topMaxSpread) : Math.round(topMaxSpread * 100);
+          const minShares = raw?.shareThreshold ?? raw?.share_threshold ?? raw?.minShares ?? raw?.min_shares;
+          return {
+            active: true,
+            min_shares: minShares && minShares > 0 ? minShares : undefined,
+            max_spread_cents: maxSpreadCents,
+            max_spread: maxSpreadCents / 100,
+            description: 'api-normalized-top-level',
+          };
+        }
+        return undefined;
+      })(),
     };
   }
 
@@ -400,7 +434,7 @@ export class PredictAPI {
   async getMarkets(
     options: { silent?: boolean; throwOnError?: boolean; status?: string; maxPages?: number } = {}
   ): Promise<Market[]> {
-    const { silent = false, throwOnError = true, status = 'OPEN', maxPages = 6 } = options;
+    const { silent = false, throwOnError = true, status, maxPages = 6 } = options;
 
     try {
       const collected: any[] = [];
@@ -409,7 +443,7 @@ export class PredictAPI {
       for (let page = 0; page < Math.max(1, Math.min(20, maxPages)); page += 1) {
         const payload = await this.requestWithFallbackRaw('get', ['/v1/markets', '/markets'], {
           params: {
-            status,
+            ...(status ? { status } : {}),
             ...(after ? { after } : {}),
           },
         });
@@ -443,7 +477,6 @@ export class PredictAPI {
       return [];
     }
   }
-
   /**
    * Get a specific market by token ID
    */

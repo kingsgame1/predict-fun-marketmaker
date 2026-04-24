@@ -1556,7 +1556,7 @@
         return { canTrade: false, bufferPerSide: 0, reasons: [], warnings: ['无Polymarket奖励'], screenFail: '无奖励' };
       }
 
-      // === Predict.fun 简化筛选 ===
+      // === Predict.fun 筛选（对齐后端 screenMarket） ===
 
       // 检查0: 必须有积分规则
       if (!m.points_active || maxSpread <= 0) {
@@ -1565,9 +1565,37 @@
       const minShares = m.min_shares || 100;
       reasons.push('有积分(' + maxSpread + 'c/' + minShares + '股)');
 
-      // 检查1: 盘口价差不能超过积分上限
-      if (bookSpread > maxSpread) {
-        return { canTrade: false, bufferPerSide, reasons, warnings: ['盘口价差超过积分上限(' + bookSpread.toFixed(1) + 'c>' + maxSpread + 'c)'], screenFail: '盘口价差过大' };
+      // 检查0b: 结算时间 — 24h内即将结算的市场跳过
+      if (m.end_date) {
+        const hoursLeft = (new Date(m.end_date) - Date.now()) / 3600000;
+        if (hoursLeft <= 24) {
+          return { canTrade: false, bufferPerSide, reasons, warnings: ['24h内到期🚫'], screenFail: '即将结算' };
+        }
+      }
+
+      // 检查c: 市场状态 — 必须至少有一个 outcome 是 OPEN
+      const outcomes = m.outcomes || [];
+      if (outcomes.length > 0 && !outcomes.some(o => o.status === 'OPEN')) {
+        return { canTrade: false, bufferPerSide, reasons, warnings: ['市场已关闭'], screenFail: '市场已关闭' };
+      }
+
+      // 检查1: 盘口价差不能超过积分上限（无盘口数据时由后端检查）
+      if (m.best_bid && m.best_ask) {
+        if (bookSpread > maxSpread) {
+          return { canTrade: false, bufferPerSide, reasons, warnings: ['盘口价差超过积分上限(' + bookSpread.toFixed(1) + 'c>' + maxSpread + 'c)'], screenFail: '盘口价差过大' };
+        }
+      } else {
+        warnings.push('盘口数据待确认');
+      }
+
+      // 检查2: L1+L2 深度作为参考，不硬性拒绝（由后端 screenMarket 检查）
+      const l1Depth = (m.best_bid_size || 0) + (m.best_ask_size || 0);
+      const mode = getModeParams();
+      const minFrontDepth = mode.minFrontDepth || 3000;
+      if (l1Depth > 0 && l1Depth < minFrontDepth) {
+        warnings.push('L1+L2深度偏低(' + Math.floor(l1Depth) + '<' + minFrontDepth + ')');
+      } else if (l1Depth === 0) {
+        warnings.push('盘口深度待确认');
       }
 
       // 通过筛选
@@ -1594,7 +1622,7 @@
         const scored = markets.map(m => {
         const screen = screenMarketUI(m);
         let score = 0;
-        const { reasons, warnings, canTrade, bufferPerSide } = screen;
+        const { reasons, warnings, canTrade, bufferPerSide, screenFail } = screen;
         const maxSpread = m.max_spread_cents || 0;
         const minShares = m.min_shares || 100;
         const bookSpread = (m.best_bid && m.best_ask) ? (m.best_ask - m.best_bid) * 100 : 999;
@@ -1607,7 +1635,7 @@
           score += 40;
           score += Math.min(25, Math.floor(bufferPerSide * 4));
 
-          // ===== Points Efficiency Scoring (核心改进) =====
+          // ===== Points Efficiency Scoring =====
           pointsEfficiency = (bufferPerSide / Math.max(minShares, 1)) * 1000;
           score += Math.min(20, Math.floor(pointsEfficiency * 2));
 
@@ -1642,47 +1670,68 @@
             warnings.push('盘口拥挤');
           }
 
-          // ===== Liquidity Scoring =====
-          if (vol > 50000) {
+          // ===== L1+L2 Depth scoring (核心新增) =====
+          // L1+L2 深度越大，挂第3/4档越安全（吃单者先吃前面档位）
+          const l1Depth = (m.best_bid_size || 0) + (m.best_ask_size || 0);
+          const minFrontDepth = mode.minFrontDepth || 6000;
+          if (l1Depth === 0) {
+            // API 不返回 size 数据，不加分不扣分，由后端确认
+            warnings.push('盘口深度待确认');
+          } else if (l1Depth >= minFrontDepth * 3) {
+            score += 25;
+            reasons.push('L1+L2极深(' + Math.floor(l1Depth) + ')');
+          } else if (l1Depth >= minFrontDepth * 2) {
+            score += 18;
+            reasons.push('L1+L2很深(' + Math.floor(l1Depth) + ')');
+          } else if (l1Depth >= minFrontDepth) {
             score += 12;
-            reasons.push('极高流动性');
-          } else if (vol > 20000) {
-            score += 10;
-            reasons.push('高流动性');
-          } else if (vol > 10000) {
-            score += 6;
-            reasons.push('中高流动性');
-          } else if (vol > 2000) {
-            score += 3;
-            reasons.push('中等流动性');
-          } else if (vol > 500) {
-            score += 1;
+            reasons.push('L1+L2充足(' + Math.floor(l1Depth) + ')');
+          } else if (l1Depth >= minFrontDepth * 0.5) {
+            score += 4;
+            reasons.push('L1+L2一般(' + Math.floor(l1Depth) + ')');
           } else {
-            score -= 8;
-            warnings.push('低流动性警告');
+            score -= 15;
+            warnings.push('L1+L2薄弱(' + Math.floor(l1Depth) + ')');
+          }
+
+          // ===== Liquidity Scoring (成交量仅作为辅助参考) =====
+          if (vol > 50000) {
+            score += 4;
+            reasons.push('极高成交量');
+          } else if (vol > 20000) {
+            score += 3;
+            reasons.push('高成交量');
+          } else if (vol > 10000) {
+            score += 2;
+            reasons.push('中高成交量');
+          } else if (vol > 2000) {
+            score += 1;
+          } else if (vol <= 500) {
+            score -= 3;
+            warnings.push('低成交量');
           }
 
           // ===== Time Risk Scoring =====
           if (m.end_date) {
             const daysLeft = (new Date(m.end_date) - Date.now()) / 86400000;
-            if (daysLeft > 30) {
-              score += 6;
+            if (daysLeft > 60) {
+              score += 10;
+              reasons.push('超长期市场');
+            } else if (daysLeft > 30) {
+              score += 8;
               reasons.push('长期市场');
             } else if (daysLeft > 14) {
-              score += 8;
+              score += 5;
               reasons.push(Math.floor(daysLeft) + '天后到期');
             } else if (daysLeft > 7) {
-              score += 4;
+              score += 2;
               reasons.push('2周内到期');
             } else if (daysLeft > 3) {
-              score += 2;
-              warnings.push('1周内到期');
-            } else if (daysLeft > 1) {
-              score -= 8;
-              warnings.push('3天内到期⚠️');
+              score -= 6;
+              warnings.push('1周内到期⚠️');
             } else {
-              score -= 25;
-              warnings.push('24h内到期🚫');
+              score -= 15;
+              warnings.push('3天内到期❗');
             }
           }
 
@@ -1700,10 +1749,10 @@
           // ===== Polymarket daily rate bonus =====
           if (m.polymarket_daily_rate > 0 && m.venue !== 'polymarket') {
             if (m.polymarket_daily_rate > 0.01) {
-              score += 8;
+              score += 6;
               reasons.push('高日率$' + m.polymarket_daily_rate.toFixed(4));
             } else {
-              score += 4;
+              score += 3;
               reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
             }
           }
@@ -1712,25 +1761,32 @@
           score -= 30;
           // 添加流动性警告（即使不可挂单也显示资金占用风险）
           if (vol <= 500) {
-            warnings.push('低流动性警告');
+            warnings.push('低成交量');
           }
         }
 
-        // ===== Polymarket daily rate bonus =====
+        // ===== Polymarket daily rate bonus (通用，不管可不可挂单) =====
         if (m.polymarket_daily_rate > 0 && m.venue !== 'polymarket') {
           if (m.polymarket_daily_rate > 0.01) {
-            score += 8;
+            score += 6;
             reasons.push('高日率$' + m.polymarket_daily_rate.toFixed(4));
           } else {
-            score += 4;
+            score += 3;
             reasons.push('日率$' + m.polymarket_daily_rate.toFixed(4));
           }
         }
 
-        return { m, score, reasons, warnings, canTrade, bufferPerSide, vol, minShares, pointsEfficiency };
+        // 计算 L1+L2 深度，用于排序
+        const l1Depth = (m.best_bid_size || 0) + (m.best_ask_size || 0);
+
+        return { m, score, reasons, warnings, canTrade, bufferPerSide, screenFail, vol, minShares, pointsEfficiency, l1Depth };
       });
 
-      scored.sort((a, b) => b.score - a.score);
+      // 排序：先按综合score，score相同时按L1+L2深度排
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (b.l1Depth || 0) - (a.l1Depth || 0);
+      });
       window._scoredMarkets = scored;
 
       // Debug stats
@@ -1740,7 +1796,8 @@
       const noBook = scored.filter(s => !s.canTrade && (s.screenFail === '无盘口' || s.screenFail === '无盘口数据')).length;
       const bigSpread = scored.filter(s => !s.canTrade && s.screenFail === '盘口价差过大').length;
       const lowBuffer = scored.filter(s => !s.canTrade && s.screenFail === '缓冲不足').length;
-      const otherFail = total - pass - noPoints - noBook - bigSpread - lowBuffer;
+      const lowDepth = scored.filter(s => !s.canTrade && s.screenFail === '深度不足').length;
+      const otherFail = total - pass - noPoints - noBook - bigSpread - lowBuffer - lowDepth;
       
       const debugHTML = `<div style="background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#888;">
         <strong style="color:#00ff88;">筛选统计:</strong> 共${total}个 | 
@@ -1749,6 +1806,7 @@
         <span style="color:#ff6b35;">无盘口${noBook}</span> | 
         <span style="color:#ff6b35;">价差大${bigSpread}</span> | 
         <span style="color:#ff6b35;">缓冲低${lowBuffer}</span> | 
+        <span style="color:#ff6b35;">深度不足${lowDepth}</span> | 
         <span style="color:#ff6b35;">其他${otherFail}</span>
       </div>`;
 

@@ -3938,19 +3938,74 @@ export class MarketMaker {
     if (!bestBid || !bestAsk) return { safe: false, reason: '无盘口数据' };
 
     const bookSpreadCents = (bestAsk - bestBid) * 100;
-    const liquidityRules = this.getEffectiveLiquidityActivation(market);
+    let liquidityRules = this.getEffectiveLiquidityActivation(market);
+    // 客户端已经解析了积分规则，应该从 market.liquidity_activation 拿到数据，作为兑底
+    // normalizeLiquidityActivation 可能返回了对象但 max_spread_cents 为 undefined，这种情况也需要兑底
+    const hasValidRules = liquidityRules && (liquidityRules.max_spread_cents || liquidityRules.max_spread);
+    if (!hasValidRules && market.liquidity_activation) {
+      const la = market.liquidity_activation;
+      const maxSpreadCentsRaw = la.max_spread_cents || (la.max_spread ? Math.round(la.max_spread * 100) : 0);
+      if (maxSpreadCentsRaw > 0) {
+        liquidityRules = {
+          active: true,
+          min_shares: la.min_shares,
+          max_spread_cents: maxSpreadCentsRaw,
+          max_spread: maxSpreadCentsRaw / 100,
+          description: la.description || 'client-parsed',
+        };
+      }
+    }
+    // Polymarket 兑底：使用 polymarket 积分规则字段
+    if (!liquidityRules && market.venue === 'polymarket' && market.polymarket_rewards_enabled) {
+      const pmMaxSpread = market.polymarket_reward_max_spread;
+      const pmMinSize = market.polymarket_reward_min_size;
+      if (pmMaxSpread && pmMaxSpread > 0) {
+        const maxSpreadCentsRaw = pmMaxSpread > 1 ? Math.round(pmMaxSpread) : Math.round(pmMaxSpread * 100);
+        if (maxSpreadCentsRaw > 0) {
+          liquidityRules = {
+            active: true,
+            min_shares: pmMinSize && pmMinSize > 0 ? pmMinSize : undefined,
+            max_spread_cents: maxSpreadCentsRaw,
+            max_spread: maxSpreadCentsRaw / 100,
+            description: 'polymarket-rewards',
+          };
+        }
+      }
+    }
     const maxSpreadCents = liquidityRules?.max_spread_cents ?? 0;
 
-    // ===== 简化筛选：只保留核心检查 =====
+    // ===== 核心筛选 =====
 
     // 检查0: 必须有积分规则
     if (!liquidityRules || maxSpreadCents <= 0) {
       return { safe: false, reason: '无积分规则' };
     }
 
+    // 检查0b: 结算时间 — 24小时内即将结算的市场跳过（避免结算前波动+无法撤单风险）
+    if (market.end_date) {
+      const hoursUntilClose = (new Date(market.end_date).getTime() - Date.now()) / 3600000;
+      if (hoursUntilClose <= 24) {
+        return { safe: false, reason: `即将结算(${Math.max(0, hoursUntilClose).toFixed(1)}h)` };
+      }
+    }
+
+    // 检查0c: 市场状态 — 必须至少有一个 outcome 是 OPEN
+    const outcomes = market.outcomes || [];
+    if (outcomes.length > 0 && !outcomes.some(o => o.status === 'OPEN')) {
+      return { safe: false, reason: '市场已关闭' };
+    }
+
     // 检查1: 盘口价差不能超过积分上限（否则无法赚积分）
     if (bookSpreadCents > maxSpreadCents) {
       return { safe: false, reason: `盘口价差超过积分上限(${bookSpreadCents.toFixed(1)}c > ${maxSpreadCents}c)` };
+    }
+
+    // 检查2: L1+L2 深度必须充足 — 第1档+第2档深度越大，我们挂第3/4档越安全
+    const mode = this.getModeParams();
+    const minFrontDepth = mode.minFrontDepth;
+    const l1l2Depth = this.sumDepthLevels(orderbook.bids, 2) + this.sumDepthLevels(orderbook.asks, 2);
+    if (l1l2Depth < minFrontDepth) {
+      return { safe: false, reason: `L1+L2深度不足(${Math.floor(l1l2Depth)} < ${minFrontDepth})` };
     }
 
     // 通过筛选（具体挂单安全由 calculatePrices 运行时控制）

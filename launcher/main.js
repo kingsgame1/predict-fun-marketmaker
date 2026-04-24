@@ -382,7 +382,7 @@ async function fetchPredictMarkets() {
   let lastError = null;
   
   for (let page = 0; page < 20; page++) {
-    const params = new URLSearchParams({ status: 'OPEN', limit: '100' });
+    const params = new URLSearchParams({ limit: '100', status: 'OPEN' });
     if (after) params.set('after', after);
     
     try {
@@ -391,7 +391,8 @@ async function fetchPredictMarkets() {
       const markets = Array.isArray(payload) ? payload : (payload?.markets ?? payload?.list ?? []);
       if (markets.length === 0) break;
       collected.push(...markets);
-      const cursor = payload?.cursor ?? payload?.data?.cursor;
+      // cursor 在根响应对象 res.data，不在 payload（payload 可能是数组）
+      const cursor = res.data?.cursor;
       if (!cursor) break;
       after = cursor;
     } catch (err) {
@@ -404,7 +405,7 @@ async function fetchPredictMarkets() {
         const markets = Array.isArray(payload) ? payload : (payload?.markets ?? []);
         if (markets.length === 0) break;
         collected.push(...markets);
-        const cursor = payload?.cursor;
+        const cursor = res.data?.cursor;
         if (!cursor) break;
         after = cursor;
       } catch (err2) {
@@ -426,51 +427,137 @@ async function fetchPredictMarkets() {
     const firstOutcome = outcomes[0];
     // token_id for orderbook API should be outcomes[0].onChainId
     const tokenId = firstOutcome?.onChainId || m.token_id || m.tokenId || m.clob_token_id || m.conditionId || '';
-    
-    // New API structure: spreadThreshold (decimal, e.g. 0.06 = 6c), shareThreshold, isBoosted
-    const maxSpreadCents = m.spreadThreshold ? Math.round(m.spreadThreshold * 100) : 0;
-    const minShares = m.shareThreshold || 0;
-    // 更健壮的积分检查：任何指示有积分的字段
-    const pointsActive = !!(m.isBoosted || m.rewardsEnabled || m.liquidity_activation || 
-                          m.liquidityActivation || m.spreadThreshold || m.boostEndsAt ||
-                          (m.rewards && m.rewards.enabled) || maxSpreadCents > 0);
-    
+
+    // 更健壮的 maxSpreadCents 解析：尝试多种可能的 API 字段名
+    let maxSpreadCents = 0;
+    if (m.spreadThreshold) {
+      maxSpreadCents = Math.round(m.spreadThreshold * 100);
+    } else if (m.spread_threshold) {
+      maxSpreadCents = Math.round(m.spread_threshold * 100);
+    } else if (m.maxSpread) {
+      maxSpreadCents = m.maxSpread > 1 ? Math.round(m.maxSpread) : Math.round(m.maxSpread * 100);
+    } else if (m.maxSpreadCents) {
+      maxSpreadCents = Math.round(m.maxSpreadCents);
+    } else if (m.max_spread_cents) {
+      maxSpreadCents = Math.round(m.max_spread_cents);
+    } else if (m.liquidity_activation?.max_spread_cents) {
+      maxSpreadCents = Math.round(m.liquidity_activation.max_spread_cents);
+    } else if (m.liquidity_activation?.max_spread) {
+      maxSpreadCents = Math.round(m.liquidity_activation.max_spread * 100);
+    } else if (m.rewardMaxSpread) {
+      maxSpreadCents = m.rewardMaxSpread > 1 ? Math.round(m.rewardMaxSpread) : Math.round(m.rewardMaxSpread * 100);
+    } else if (m.reward_max_spread) {
+      maxSpreadCents = m.reward_max_spread > 1 ? Math.round(m.reward_max_spread) : Math.round(m.reward_max_spread * 100);
+    } else if (m.pointsMaxSpread) {
+      maxSpreadCents = m.pointsMaxSpread > 1 ? Math.round(m.pointsMaxSpread) : Math.round(m.pointsMaxSpread * 100);
+    } else if (m.points_max_spread) {
+      maxSpreadCents = m.points_max_spread > 1 ? Math.round(m.points_max_spread) : Math.round(m.points_max_spread * 100);
+    } else if (m.boost?.maxSpread) {
+      maxSpreadCents = m.boost.maxSpread > 1 ? Math.round(m.boost.maxSpread) : Math.round(m.boost.maxSpread * 100);
+    } else if (m.boost?.max_spread) {
+      maxSpreadCents = m.boost.max_spread > 1 ? Math.round(m.boost.max_spread) : Math.round(m.boost.max_spread * 100);
+    } else if (m.boost?.spreadThreshold) {
+      maxSpreadCents = Math.round(m.boost.spreadThreshold * 100);
+    }
+
+    // 更健壮的 minShares 解析
+    let minShares = m.shareThreshold || 0;
+    if (!minShares && m.liquidity_activation?.min_shares) {
+      minShares = m.liquidity_activation.min_shares;
+    }
+    if (!minShares && m.minShares) {
+      minShares = m.minShares;
+    }
+    if (!minShares && m.min_shares) {
+      minShares = m.min_shares;
+    }
+    if (!minShares && m.share_threshold) {
+      minShares = m.share_threshold;
+    }
+
+    // 检测到积分标志但无法解析 maxSpreadCents 时记录调试信息
+    const hasPointsFlags = !!(m.isBoosted || m.rewardsEnabled || m.liquidity_activation ||
+                            m.liquidityActivation || m.boostEndsAt ||
+                            (m.rewards && m.rewards.enabled) || m.rewardMaxSpread ||
+                            m.reward_max_spread || m.pointsMaxSpread || m.points_max_spread ||
+                            m.boost);
+    if (hasPointsFlags && maxSpreadCents <= 0) {
+      const relevantKeys = Object.keys(m).filter(k =>
+        /spread|threshold|boost|reward|point|liquidity/i.test(k)
+      );
+      const relevantData = {};
+      relevantKeys.forEach(k => { relevantData[k] = m[k]; });
+      logToTerminal(`[fetchPredictMarkets] 市场 ${m.question?.substring(0, 40)} 有积分标志但无法解析 maxSpreadCents，相关字段: ${JSON.stringify(relevantData)}`);
+    }
+
+    // 积分检查：只要有有效的 maxSpreadCents（即 spreadThreshold）就认为有积分规则
+    // isBoosted 只是额外积分活动，不是是否有积分的必要条件
+    const pointsActive = maxSpreadCents > 0;
+
     // Extract best bid/ask from first outcome - API returns { price, size } objects
     let bestBid = null;
     let bestAsk = null;
+    let bestBidSize = 0;
+    let bestAskSize = 0;
     if (firstOutcome?.bestBid && typeof firstOutcome.bestBid === 'object') {
       bestBid = Number(firstOutcome.bestBid.price ?? 0) || null;
+      bestBidSize = Number(firstOutcome.bestBid.size ?? firstOutcome.bestBid.shares ?? firstOutcome.bestBid.amount ?? firstOutcome.bestBid.quantity ?? firstOutcome.bestBid.volume ?? 0) || 0;
     } else {
       bestBid = m.best_bid || m.bestBid || null;
+      bestBidSize = Number(m.best_bid_size || m.bestBidSize || m.bidSize || m.bid_size || m.bestBid?.size || 0);
     }
     if (firstOutcome?.bestAsk && typeof firstOutcome.bestAsk === 'object') {
       bestAsk = Number(firstOutcome.bestAsk.price ?? 0) || null;
+      bestAskSize = Number(firstOutcome.bestAsk.size ?? firstOutcome.bestAsk.shares ?? firstOutcome.bestAsk.amount ?? firstOutcome.bestAsk.quantity ?? firstOutcome.bestAsk.volume ?? 0) || 0;
     } else {
       bestAsk = m.best_ask || m.bestAsk || null;
+      bestAskSize = Number(m.best_ask_size || m.bestAskSize || m.askSize || m.ask_size || m.bestAsk?.size || 0);
     }
-    
+
     return {
       token_id: tokenId,
       conditionId: m.conditionId,
       question: m.question || m.title || m.name || '',
       description: (m.description || '').substring(0, 200),
       venue: 'predict',
-      end_date: m.end_date || m.endDate || m.boostEndsAt || '',
+      end_date: m.end_date || m.endDate || '',
+      boost_ends_at: m.boostEndsAt || '',
       volume_24h: m.volume_24h || m.volume24h || (m.stats?.volume24hr) || 0,
       outcome: m.outcome || '',
       outcomes: outcomes.map(o => ({
         token_id: o.token_id || o.tokenId || o.onChainId || '',
         outcome: o.outcome || o.name || '',
         price: o.price || 0,
+        status: o.status || 'OPEN',
       })),
       points_active: pointsActive,
       max_spread_cents: maxSpreadCents,
       min_shares: minShares,
+      // 兼容后端 screenMarket() 的积分规则检查（后端使用 getEffectiveLiquidityActivation）
+      liquidity_activation: pointsActive ? {
+        active: true,
+        min_shares: minShares > 0 ? minShares : undefined,
+        max_spread_cents: maxSpreadCents > 0 ? maxSpreadCents : undefined,
+        max_spread: maxSpreadCents > 0 ? maxSpreadCents / 100 : undefined,
+        description: 'api-points',
+      } : undefined,
       best_bid: bestBid,
       best_ask: bestAsk,
+      best_bid_size: bestBidSize,
+      best_ask_size: bestAskSize,
       spread_pct: (bestBid && bestAsk) ? ((bestAsk - bestBid) / bestBid) * 100 : null,
     };
-  }).filter(m => (m.token_id || m.conditionId) && m.question);
+  }).filter(m => {
+    // 基础过滤：必须有 token_id 和 question
+    if (!(m.token_id || m.conditionId) || !m.question) return false;
+
+    // 只过滤已结算/已关闭的市场（保留即将结算的，由 screenMarketUI 标记为不可交易）
+    // API 传 status=OPEN 时 outcome.status 可能是 null/undefined，也算 OPEN
+    const hasOpenOutcome = m.outcomes.some(o => !o.status || o.status === 'OPEN');
+    if (m.outcomes.length > 0 && !hasOpenOutcome) return false;
+
+    return true;
+  });
 
   return markets;
 }
@@ -646,32 +733,40 @@ async function fetchPredictJwt() {
 
 function recommendMarkets(markets, mode) {
   const isConservative = mode !== 'aggressive';
-  
+
   return markets.map(m => {
     let score = 0;
     let reasons = [];
     const maxSpread = m.max_spread_cents || 0;
     const minShares = m.min_shares || 100;
-    const bookSpread = m.best_bid && m.best_ask ? 
+    const bookSpread = m.best_bid && m.best_ask ?
       (m.best_ask - m.best_bid) * 100 : 999;
     const bufferPerSide = maxSpread > 0 && bookSpread < 999 ? (maxSpread - bookSpread) / 2 : 0;
-    
+
     // ===== Layer 0: Points active = essential =====
     if (!m.points_active || maxSpread <= 0) {
       return { ...m, score: -50, reasons: ['无积分规则'], recommended: false };
     }
     score += 20;
     reasons.push('有积分(' + maxSpread + 'c/' + minShares + '股)');
-    
+
+    // ===== Layer 0.5: 硬性过滤 — 即将结算（fetchPredictMarkets已过滤，这里兜底） =====
+    if (m.end_date) {
+      const hoursLeft = (new Date(m.end_date) - Date.now()) / 3600000;
+      if (hoursLeft <= 24) {
+        return { ...m, score: -100, reasons: ['24h内到期🚫'], recommended: false };
+      }
+    }
+
     // ===== Layer 1: 简化筛选：只检查盘口价差是否超过积分上限 =====
     if (bookSpread > maxSpread) {
       return { ...m, score: 0, reasons: [...reasons, '盘口价差超过积分上限'], recommended: false };
     }
-    
+
     // ===== Layer 2: Buffer quality scoring =====
     score += Math.min(25, Math.floor(bufferPerSide * 4));
     reasons.push('缓冲' + bufferPerSide.toFixed(1) + 'c');
-    
+
     // Buffer utilization: lower is better (more room to quote)
     const bufferUtilization = bookSpread / maxSpread;
     if (bufferUtilization < 0.3) {
@@ -681,11 +776,11 @@ function recommendMarkets(markets, mode) {
       score -= 5;
       reasons.push('盘口拥挤');
     }
-    
+
     // ===== Layer 3: Points efficiency scoring =====
     const pointsEfficiency = (bufferPerSide / Math.max(minShares, 1)) * 1000;
     score += Math.min(20, Math.floor(pointsEfficiency * 2));
-    
+
     // min_shares越低，资金门槛越低，评分越高
     if (minShares <= 50) {
       score += 15;
@@ -700,7 +795,7 @@ function recommendMarkets(markets, mode) {
       score -= 5;
       reasons.push('门槛高(' + minShares + '股)');
     }
-    
+
     // max_spread奖励：更大的max_spread = 更大的盈利空间
     if (maxSpread >= 8) {
       score += 8;
@@ -709,53 +804,74 @@ function recommendMarkets(markets, mode) {
       score += 5;
       reasons.push('标准价差');
     }
-    
-    // ===== Layer 4: Liquidity scoring =====
+
+    // ===== Layer 4: Liquidity scoring (volume-based, 辅助参考) =====
     const vol = m.volume_24h || 0;
     if (vol > 50000) {
-      score += 15;
-      reasons.push('极高流动性');
+      score += 6;
+      reasons.push('极高成交量');
     } else if (vol > 20000) {
-      score += 12;
-      reasons.push('高流动性');
-    } else if (vol > 10000) {
-      score += 8;
-      reasons.push('中高流动性');
-    } else if (vol > 2000) {
       score += 4;
-      reasons.push('中等流动性');
-    } else if (vol > 500) {
+      reasons.push('高成交量');
+    } else if (vol > 10000) {
+      score += 2;
+      reasons.push('中高成交量');
+    } else if (vol > 2000) {
       score += 1;
-    } else {
-      score -= 10;
-      reasons.push('低流动性警告');
+    } else if (vol <= 500) {
+      score -= 3;
+      reasons.push('低成交量');
     }
-    
-    // ===== Layer 5: Time risk scoring =====
+
+    // ===== Layer 5: L1+L2 Depth scoring (核心新增) =====
+    // L1+L2 深度越大，我们挂第3/4档越安全（吃单者先吃前面档位）
+    const l1Depth = (m.best_bid_size || 0) + (m.best_ask_size || 0);
+    const minFrontDepth = isConservative ? 6000 : 4000;
+    if (l1Depth === 0) {
+      // API 不返回 size 数据，不加分不扣分，由后端确认
+      reasons.push('盘口深度待确认');
+    } else if (l1Depth >= minFrontDepth * 3) {
+      score += 25;
+      reasons.push('L1+L2极深(' + Math.floor(l1Depth) + ')');
+    } else if (l1Depth >= minFrontDepth * 2) {
+      score += 18;
+      reasons.push('L1+L2很深(' + Math.floor(l1Depth) + ')');
+    } else if (l1Depth >= minFrontDepth) {
+      score += 12;
+      reasons.push('L1+L2充足(' + Math.floor(l1Depth) + ')');
+    } else if (l1Depth >= minFrontDepth * 0.5) {
+      score += 4;
+      reasons.push('L1+L2一般(' + Math.floor(l1Depth) + ')');
+    } else {
+      score -= 15;
+      reasons.push('L1+L2薄弱(' + Math.floor(l1Depth) + ')');
+    }
+
+    // ===== Layer 6: Time risk scoring =====
     if (m.end_date) {
       const daysLeft = (new Date(m.end_date) - Date.now()) / 86400000;
-      if (daysLeft > 30) {
-        score += 8;
+      if (daysLeft > 60) {
+        score += 12;
+        reasons.push('超长期市场');
+      } else if (daysLeft > 30) {
+        score += 10;
         reasons.push('长期市场');
       } else if (daysLeft > 14) {
-        score += 10;
+        score += 6;
         reasons.push(`${Math.floor(daysLeft)}天后到期`);
       } else if (daysLeft > 7) {
-        score += 5;
+        score += 2;
         reasons.push('2周内到期');
       } else if (daysLeft > 3) {
-        score += 2;
+        score -= 8;
         reasons.push('1周内到期⚠️');
-      } else if (daysLeft > 1) {
-        score -= 10;
-        reasons.push('3天内到期❗');
       } else {
-        score -= 30;
-        reasons.push('24h内到期🚫');
+        score -= 20;
+        reasons.push('3天内到期❗');
       }
     }
-    
-    // ===== Layer 6: Price quality (if available) =====
+
+    // ===== Layer 7: Price quality (if available) =====
     if (m.best_bid && m.best_ask) {
       const midPrice = (m.best_bid + m.best_ask) / 2;
       // 避免极端价格市场（接近0或1）
@@ -766,8 +882,8 @@ function recommendMarkets(markets, mode) {
         reasons.push('极端价格');
       }
     }
-    
-    return { ...m, score, reasons, recommended: score >= 45 };
+
+    return { ...m, score, reasons, recommended: score >= 40 };
   }).sort((a, b) => b.score - a.score);
 }
 
