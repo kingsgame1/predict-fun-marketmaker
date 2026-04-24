@@ -1238,7 +1238,7 @@ export function loadConfig(): Config {
     predictWsTopicKey: (process.env.PREDICT_WS_TOPIC_KEY || 'token_id') as Config['predictWsTopicKey'],
     predictWsStaleMs: parseInt(process.env.PREDICT_WS_STALE_MS || '20000'),
     predictWsResetOnReconnect: process.env.PREDICT_WS_RESET_ON_RECONNECT !== 'false',
-    predictAutoSetApprovals: process.env.PREDICT_AUTO_SET_APPROVALS !== 'false',
+    predictAutoSetApprovals: process.env.PREDICT_AUTO_SET_APPROVALS === 'true',
     predictCollateralBufferBps: parseInt(process.env.PREDICT_COLLATERAL_BUFFER_BPS || '100'),
     predictBuyInsufficientCooldownMs: parseInt(process.env.PREDICT_BUY_INSUFFICIENT_COOLDOWN_MS || '60000'),
     predictChainId: parseInt(process.env.PREDICT_CHAIN_ID || '56'),
