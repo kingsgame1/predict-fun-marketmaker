@@ -446,6 +446,7 @@ export class PredictAPI {
             ...(status ? { status } : {}),
             ...(after ? { after } : {}),
           },
+          requireJwt: true,
         });
         const rawMarkets = this.extractList(payload);
         if (rawMarkets.length === 0) {
