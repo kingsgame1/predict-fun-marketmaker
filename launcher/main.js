@@ -213,7 +213,7 @@ function startMainApp() {
     
     appProcess = spawn(command, ['run', 'start:cli'], {
       cwd: projectPath,
-      env: { ...process.env },
+      env: { ...process.env, ENV_PATH: getEnvPath() },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true, // 允许杀死整个进程组（包括tsx/node子进程）
     });
