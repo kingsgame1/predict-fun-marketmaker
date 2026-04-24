@@ -94,6 +94,11 @@ export class OrderManager {
     } catch (e) {
       throw new Error(`Failed to initialize wallet: ${e instanceof Error ? e.message : String(e)}`);
     }
+    if (!wallet.address || wallet.address.length !== 42 || !wallet.address.startsWith('0x')) {
+      throw new Error(
+        `Wallet address invalid after creation: "${wallet.address}" (type=${typeof wallet.address}, length=${wallet.address?.length}). Private key may be malformed.`
+      );
+    }
 
     const orderBuilder = await OrderBuilder.make(chainId, wallet, {
       ...(config.predictAccountAddress ? { predictAccount: config.predictAccountAddress } : {}),
@@ -107,7 +112,13 @@ export class OrderManager {
   }
 
   getMakerAddress(): string {
-    return this.config.predictAccountAddress || this.wallet.address;
+    const result = this.config.predictAccountAddress || this.wallet.address;
+    if (!result || result.length !== 42 || !result.startsWith('0x')) {
+      throw new Error(
+        `getMakerAddress() returned invalid address: "${result}". predictAccountAddress="${this.config.predictAccountAddress}", wallet.address="${this.wallet.address}"`
+      );
+    }
+    return result;
   }
 
   getChainId(): number {
