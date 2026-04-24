@@ -483,7 +483,7 @@ export class PredictAPI {
    */
   async getMarket(tokenId: string): Promise<Market> {
     try {
-      const raw = await this.requestWithFallback<any>('get', [`/v1/markets/${tokenId}`, `/markets/${tokenId}`]);
+      const raw = await this.requestWithFallback<any>('get', [`/v1/markets/${tokenId}`, `/markets/${tokenId}`], { requireJwt: true });
       return this.normalizeMarket(raw);
     } catch (error) {
       console.error(`Error fetching market ${tokenId}:`, error);
@@ -497,7 +497,7 @@ export class PredictAPI {
   async getOrderbook(tokenId: string): Promise<Orderbook> {
     try {
       const marketLookupId = this.marketIdByTokenId.get(tokenId) || tokenId;
-      const rawData = await this.requestWithFallback<any>('get', [`/v1/markets/${marketLookupId}/orderbook`]);
+      const rawData = await this.requestWithFallback<any>('get', [`/v1/markets/${marketLookupId}/orderbook`], { requireJwt: true });
 
       const bidsRaw = Array.isArray(rawData?.bids) ? rawData.bids : [];
       const asksRaw = Array.isArray(rawData?.asks) ? rawData.asks : [];
