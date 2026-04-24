@@ -465,7 +465,14 @@ export class PredictAPI {
         after = cursor;
       }
 
-      return collected
+      // Client-side safety: exclude resolved/closed markets before normalization
+      const activeRaw = collected.filter((m) => {
+        const ts = m?.tradingStatus ?? m?.trading_status;
+        const st = m?.status;
+        return ts !== 'CLOSED' && st !== 'RESOLVED';
+      });
+
+      return activeRaw
         .flatMap((m) => this.normalizeMarketRecords(m))
         .filter((m) => m.token_id && m.token_id !== 'undefined');
     } catch (error) {
@@ -497,7 +504,20 @@ export class PredictAPI {
   async getOrderbook(tokenId: string): Promise<Orderbook> {
     try {
       const marketLookupId = this.marketIdByTokenId.get(tokenId) || tokenId;
-      const rawData = await this.requestWithFallback<any>('get', [`/v1/markets/${marketLookupId}/orderbook`], { requireJwt: true });
+      // Predict API orderbook endpoint requires a small numeric market ID (int64).
+      // Never use long onChainId token IDs as they exceed int64 range and cause 400 errors.
+      const paths: string[] = [];
+      if (marketLookupId.length < 20) {
+        paths.push(`/v1/markets/${marketLookupId}/orderbook`);
+        paths.push(`/markets/${marketLookupId}/orderbook`);
+      }
+      if (tokenId !== marketLookupId && tokenId.length < 20) {
+        paths.push(`/v1/markets/${tokenId}/orderbook`);
+      }
+      if (paths.length === 0) {
+        throw new Error(`No valid numeric market ID found for token ${tokenId.slice(0, 20)}... (map lookup: ${marketLookupId.slice(0, 20)}...)`);
+      }
+      const rawData = await this.requestWithFallback<any>('get', paths, { requireJwt: true });
 
       const bidsRaw = Array.isArray(rawData?.bids) ? rawData.bids : [];
       const asksRaw = Array.isArray(rawData?.asks) ? rawData.asks : [];
@@ -711,8 +731,9 @@ export class PredictAPI {
    */
   async removeOrders(ids: string[]): Promise<any> {
     try {
-      const response = await this.requestWithFallback<any>('delete', ['/v1/orders', '/orders'], {
-        data: { ids },
+      // API docs: POST /v1/orders/remove with { data: { ids: [...] } }
+      const response = await this.requestWithFallback<any>('post', ['/v1/orders/remove', '/orders/remove'], {
+        data: { data: { ids } },
         requireJwt: true,
       });
 

@@ -906,7 +906,7 @@ export class PredictMarketMakerBot {
   async selectMarkets(): Promise<void> {
     console.log('🔍 Scanning markets...\n');
 
-    const allMarkets = await this.api.getMarkets();
+    const allMarkets = await this.api.getMarkets({ status: 'OPEN' });
     console.log(`Found ${allMarkets.length} active markets\n`);
 
     // Apply manual liquidity activation rules from config
@@ -2089,18 +2089,27 @@ async function main() {
 // Handle shutdown — 等撤单完成再退出
 process.on('SIGINT', async () => {
   console.log('\n\nReceived SIGINT, shutting down gracefully...');
-  if (activeBot) {
-    await activeBot.stop();
-    console.log('✅ 撤单完成，安全退出');
+  try {
+    if (activeBot) {
+      await activeBot.stop();
+      console.log('✅ 撤单完成，安全退出');
+    }
+  } catch (e) {
+    // Ignore esbuild/tsx "service is no longer running" errors during shutdown
+    console.warn('⚠️ 关闭期间出现非致命错误:', e instanceof Error ? e.message : String(e));
   }
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log('\n\nReceived SIGTERM, shutting down gracefully...');
-  if (activeBot) {
-    await activeBot.stop();
-    console.log('✅ 撤单完成，安全退出');
+  try {
+    if (activeBot) {
+      await activeBot.stop();
+      console.log('✅ 撤单完成，安全退出');
+    }
+  } catch (e) {
+    console.warn('⚠️ 关闭期间出现非致命错误:', e instanceof Error ? e.message : String(e));
   }
   process.exit(0);
 });
