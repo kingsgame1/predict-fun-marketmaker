@@ -460,9 +460,29 @@ export class MarketAnalyzer {
           const orderbook = await this.api.getOrderbook(market.token_id);
           const score = scores?.get(market.token_id);
           return this.analyzeMarket(market, orderbook, score);
-        } catch (error) {
-          console.error(`❌ 分析市场 ${market.token_id.slice(0, 8)}... 失败:`, error);
-          return null;
+        } catch (error: any) {
+          console.error(`❌ 分析市场 ${market.token_id.slice(0, 8)}... 失败: ${error.message || 'REST API blocked'}`);
+          // Return a fallback analysis based purely on 24h volume and liquidity
+          const liquidityScore = Math.log10(Number(market.liquidity_24h || 0) + 1) * 30;
+          const volumeScore = Math.log10(Number(market.volume_24h || 0) + 1) * 14;
+          return {
+            market,
+            orderbook: { token_id: market.token_id, bids: [], asks: [], spread: 0, spread_pct: 0, best_bid: 0, best_ask: 0, mid_price: 0 },
+            overallScore: liquidityScore + volumeScore,
+            priority: scores?.get(market.token_id)?.priority || 0,
+            spread: 0,
+            spreadPct: 0,
+            spreadCents: 0,
+            midPrice: 0,
+            liquidity1Pct: { bidShares: 0, bidUsd: 0, askShares: 0, askUsd: 0, totalShares: 0, totalUsd: 0 },
+            depthTop3: { bidShares: 0, bidUsd: 0, askShares: 0, askUsd: 0, totalShares: 0, totalUsd: 0 },
+            recommended: { spread: 0.05, spreadCents: 5, orderSize: 10, maxPosition: 40, minShares: 100, reasons: ['Fallback mode (REST blocked)'] },
+            pointsEligible: false,
+            pointsReason: 'REST API blocked, cannot verify orderbook',
+            volume24h: Number(market.volume_24h || 0),
+            liquidity24h: Number(market.liquidity_24h || 0),
+            timestamp: Date.now()
+          };
         }
       });
 
