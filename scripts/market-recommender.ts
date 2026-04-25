@@ -26,7 +26,7 @@ async function main() {
 
   // 获取市场列表
   console.log('⏳ 正在获取市场列表...\n');
-  const markets = await api.getMarkets();
+  const markets = await api.getMarkets({ status: 'OPEN' });
   console.log(`📊 找到 ${markets.length} 个市场\n`);
 
   // 过滤活跃市场

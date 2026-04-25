@@ -3831,7 +3831,7 @@ export class MarketMaker {
     if (isAggressive) {
       // 激进模式 v21: 更保守的默认值减少被吃概率
       return {
-        spreadBudgetRatio: 0.20,
+        spreadBudgetRatio: 0.85,          // v28: 从0.20提高到0.85，原值导致几乎所有市场被竞态检测跳过
         hardMinBuffer: 2.5,
         minFrontDepth: 4000,
         checkDepthBalance: false,
@@ -3851,7 +3851,7 @@ export class MarketMaker {
     }
     // 保守模式 v21: 更保守的默认值减少被吃概率
     return {
-      spreadBudgetRatio: 0.15,
+      spreadBudgetRatio: 0.80,            // v28: 从0.15提高到0.80，原值(6c*0.15=0.9c)导致所有市场被跳过
       hardMinBuffer: 3.5,
       minFrontDepth: 6000,
       checkDepthBalance: true,
