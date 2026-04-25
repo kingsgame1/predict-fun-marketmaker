@@ -262,7 +262,7 @@ export class MarketMaker {
   private pointsReportInterval = 5 * 60 * 1000; // 5分钟报告一次
   private pointsOrderbookCache: Map<string, Orderbook> = new Map();
   private pointsOrderbookCacheTs: Map<string, number> = new Map(); // 缓存时间戳
-  private static readonly ORDERBOOK_CACHE_TTL = 1_500; // v20: 从3s缩到1.5s
+  private static readonly ORDERBOOK_CACHE_TTL = 8_000; // v28: 从1.5s放宽到8s，适应较慢的API网络延迟
   private predictBuyInsufficientUntil: Map<string, number> = new Map();
   private pauseReasons: Map<string, { reason: string; source: string; until: number }> = new Map();
   private polymarketPostOnlyStats: Map<
