@@ -975,6 +975,18 @@ export class PredictMarketMakerBot {
       }
     }
 
+    if (scoredMarkets.length === 0) {
+      console.log(`⚠️  REST API 无法获取盘口数据 (0/${orderbookCandidates.length}). 自动降级为基于流动性和交易量盲选市场，后续将依赖 WebSocket 获取盘口...`);
+      scoredMarkets = marketsWithRules
+        .map((market) => ({
+          market,
+          score: Number(market.liquidity_24h || 0) * 0.2 + Number(market.volume_24h || 0) * 0.05,
+          reasons: ['Fallback: Volume/Liquidity ranking (REST API failed)'],
+        }))
+        .filter((m) => m.score > 0)
+        .sort((a, b) => b.score - a.score);
+    }
+
     // Filter by user-specified markets if provided
     if (this.config.marketTokenIds && this.config.marketTokenIds.length > 0) {
       scoredMarkets = scoredMarkets.filter((s) =>
