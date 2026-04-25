@@ -351,7 +351,7 @@ export function loadConfig(): Config {
     mmTradingMode: (process.env.MM_TRADING_MODE === 'aggressive' ? 'aggressive' : 'conservative') as 'conservative' | 'aggressive',
 
     // Layer 2: 动态市场筛选
-    mmMinFrontDepthShares: parseFloat(process.env.MM_MIN_FRONT_DEPTH_SHARES || '500'),
+    mmMinFrontDepthShares: parseFloat(process.env.MM_MIN_FRONT_DEPTH_SHARES || '2000'),
     mmMinBookBufferCents: parseFloat(process.env.MM_MIN_BOOK_BUFFER_CENTS || '1'),
     mmMaxRecentTradeVolume: parseFloat(process.env.MM_MAX_RECENT_TRADE_VOLUME || '500'),
     mmScreenSpreadBudgetRatio: parseFloat(process.env.MM_SCREEN_SPREAD_BUDGET_RATIO || '0.6'),

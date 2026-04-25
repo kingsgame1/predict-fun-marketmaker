@@ -3833,7 +3833,7 @@ export class MarketMaker {
       return {
         spreadBudgetRatio: 0.85,          // v28: 从0.20提高到0.85，原值导致几乎所有市场被竞态检测跳过
         hardMinBuffer: 2.5,
-        minFrontDepth: this.config.mmMinFrontDepthShares ?? 500,
+        minFrontDepth: this.config.mmMinFrontDepthShares ?? 2000, // 默认2000股：平衡安全性与可挂单性
         checkDepthBalance: false,
         maxVolatility: 0.008,
         safetyMargin: 0.25,
@@ -3853,7 +3853,7 @@ export class MarketMaker {
     return {
       spreadBudgetRatio: 0.80,            // v28: 从0.15提高到0.80，原值(6c*0.15=0.9c)导致所有市场被跳过
       hardMinBuffer: 3.5,
-      minFrontDepth: this.config.mmMinFrontDepthShares ?? 500,
+      minFrontDepth: this.config.mmMinFrontDepthShares ?? 2000, // 默认2000股：平衡安全性与可挂单性
       checkDepthBalance: true,
       maxVolatility: 0.005,
       safetyMargin: 0.25,
