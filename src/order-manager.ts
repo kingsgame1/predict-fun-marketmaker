@@ -252,7 +252,7 @@ export class OrderManager {
     const side = params.side === 'BUY' ? Side.BUY : Side.SELL;
     const makerAddress = this.getMakerAddress();
 
-    const sharesWei = this.toWei(params.shares, 5);
+    const sharesWei = this.toWei(params.shares, 18);
     const priceWei = this.toWei(params.price, 6);
 
     const { pricePerShare, makerAmount, takerAmount } = this.orderBuilder.getLimitOrderAmounts({
@@ -293,7 +293,7 @@ export class OrderManager {
     const makerAddress = this.getMakerAddress();
 
     const book = this.buildBook(params.orderbook);
-    const quantityWei = this.toWei(params.shares, 5);
+    const quantityWei = this.toWei(params.shares, 18);
 
     const { pricePerShare, makerAmount, takerAmount } = this.orderBuilder.getMarketOrderAmounts(
       {
@@ -347,7 +347,7 @@ export class OrderManager {
   private getLimitOrderAmounts(side: 'BUY' | 'SELL', price: number, shares: number) {
     return this.orderBuilder.getLimitOrderAmounts({
       side: side === 'BUY' ? Side.BUY : Side.SELL,
-      quantityWei: this.toWei(shares, 5),
+      quantityWei: this.toWei(shares, 18),
       pricePerShareWei: this.toWei(price, 6),
     });
   }
